@@ -7,8 +7,10 @@ const A = p => path.isAbsolute(p) ? p : path.join(ws, 'AUDIT', p);
 const argv = process.argv; const argOf = k => { const i = argv.indexOf(k); return i > 0 ? argv[i + 1] : null; };
 const src = argOf('--src') ? A(argOf('--src')) : ['ZPRAVA.md', '00_prvni_dojem.md'].map(A).find(fs.existsSync);
 if (!src || !fs.existsSync(src)) { console.error('Zatím není co zobrazit: AUDIT/ZPRAVA.md ani 00_prvni_dojem.md neexistuje (auditor je napíše po první vlně).'); process.exit(1); }
-const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-const inline = s => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2">$1</a>').replace(/&lt;sub&gt;(.*?)&lt;\/sub&gt;/g, '<small>$1</small>');
+const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+// Text nálezu může pocházet z auditovaného (cizího) repa: odkaz jen http(s) nebo bez schématu (cesta, kotva); javascript:/data: zůstane textem.
+const safeHref = u => { const t = u.trim(); return /^[a-z][a-z0-9+.-]*:/i.test(t) && !/^https?:/i.test(t) ? null : t; };
+const inline = s => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, t, u) => { const h = safeHref(u); return h ? `<a href="${h}">${t}</a>` : t; }).replace(/&lt;sub&gt;(.*?)&lt;\/sub&gt;/g, '<small>$1</small>');
 const md = fs.readFileSync(src, 'utf8').replace(/<!--[\s\S]*?-->/g, '').split(/\r?\n/);
 let out = [], list = false, table = null, para = []; const qs = [];
 const flushP = () => { if (para.length) { out.push(`<p>${inline(para.join(' '))}</p>`); para = []; } };
