@@ -1,0 +1,15 @@
+node_modules/
+auditor/tools/node_modules/
+auditor/tools/audit.config.json
+auditor/test-results/
+auditor/playwright-report/
+auditor/AUDIT/.auth/
+auditor/AUDIT/_archiv/
+auditor/AUDIT/bus/*.json
+auditor/AUDIT/*.log
+auditor/build/
+Auditor_pruzkum_*.html
+Auditor_vyber*.json
+*.zip
+.DS_Store
+Thumbs.db

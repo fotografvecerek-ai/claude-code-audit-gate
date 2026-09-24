@@ -1,0 +1,1 @@
+{ "type": "commonjs", "private": true, "_": "Chrání hooky před rozbitým package.json výš ve stromu (Node čte nejbližší). Neodstraňovat." }

@@ -1,0 +1,9 @@
+node_modules/
+tools/node_modules/
+test-results/
+playwright-report/
+AUDIT/.auth/
+AUDIT/_archiv/
+AUDIT/*.log
+AUDIT/.pre-install-status.txt
+build/

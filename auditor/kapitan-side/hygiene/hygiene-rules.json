@@ -1,0 +1,16 @@
+{
+  "_": "JEDINÝ ZDROJ PRAVDY pro hygienu — čtou ho hygiene-scan.mjs, kapitan-audit-guard.js i pre-commit-check.mjs. Regexy jsou JS (case-insensitive).",
+  "rootAllow": "^(README(\\..+)?\\.md|LICENSE.*|CHANGELOG\\.md|CLAUDE\\.md|CLAUDE\\.local\\.md|AGENTS\\.md|package\\.json|package-lock\\.json|pnpm-lock\\.yaml|yarn\\.lock|pnpm-workspace\\.yaml|tsconfig.*\\.json|next\\.config\\.(js|mjs|ts)|tailwind\\.config\\.(js|ts)|postcss\\.config\\.(js|mjs)|eslint\\.config\\.(js|mjs)|\\.eslintrc.*|\\.prettierrc.*|prettier\\.config\\.js|vitest\\.config\\.(ts|js)|playwright\\.config\\.(ts|js)|jest\\.config\\.(js|ts)|\\.gitignore|\\.gitattributes|\\.npmrc|\\.nvmrc|\\.node-version|\\.editorconfig|\\.env\\.example|\\.env\\.local\\.example|vercel\\.json|Dockerfile|docker-compose\\.ya?ml|\\.dockerignore|components\\.json|middleware\\.ts|instrumentation\\.ts|build_html\\.py|build_ota\\.py|requirements\\.txt|pyproject\\.toml|Makefile|capacitor\\.config\\.(ts|json)|ota_version\\.txt|\\.mcp\\.json|\\.python-version|\\.tool-versions|\\.gitmodules|renovate\\.json|\\.releaserc.*)$",
+  "junk": "(\\.(bak|old|orig|tmp|temp|swp|log|out|dump)$|~$|[-_.](copy|kopie|final\\d*|new|old|backup|zaloha|test\\d+|v\\d+_old)([-_.]|$)|^(nul|Thumbs\\.db|\\.DS_Store|desktop\\.ini)$|^debug[._-]|^scratch|^untitled)",
+  "scriptExt": "\\.(bat|cmd|ps1|sh)$",
+  "scriptOkDirs": "^(scripts|tests|tools|\\.claude|\\.github|bin)/",
+  "binExt": "\\.(png|jpe?g|gif|webp|bmp|ico|zip|7z|rar|gz|tar|pdf|xlsx?|docx?|pptx?|mp4|mov|mp3|wav|apk|aab|ipa|exe|dll|so|dylib|db|sqlite3?|bin|dat|psd|ai|ttf|otf|woff2?)$",
+  "binOkDirs": "^(public|assets|static|docs/img|docs/images|src/assets|fonts)/",
+  "tmpOkDirs": "^(\\.tmp/tasks/[^/]+|scripts|tests|docs|public|assets|\\.claude)/",
+  "secret": "((^|/)\\.env(\\.|$)|\\.(pem|key|p12|pfx)$|credentials.*\\.json$|serviceaccount.*\\.json$|\\.htpasswd$)",
+  "secretOk": "\\.example$",
+  "dumpDirs": "^(tmp|temp|old|backup|backups|archive|archiv|_.*|new|misc|stuff|scratch|junk|test|drafts?)$",
+  "textExt": "\\.(ts|tsx|js|jsx|mjs|cjs|json|md|txt|css|scss|html|yml|yaml|toml|py|sql|prisma|sh|ps1|bat|svg|xml|csv|lock|graphql|gitignore|gitattributes|editorconfig|npmrc|nvmrc|example)$",
+  "maxFileKb": 1024,
+  "buildDirs": "^(node_modules|\\.next|dist|build|coverage|playwright-report|test-results)/"
+}

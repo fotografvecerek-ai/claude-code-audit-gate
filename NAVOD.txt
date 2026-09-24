@@ -1,0 +1,147 @@
+AUDITOR v1.0.0 — NÁVOD (čti tohle jako první)
+=====================================================
+
+CO TO JE
+--------
+Samostatný agent pro Claude Code, který AUDITUJE tvůj projekt: bezpečnost, funkčnost, uživatelské
+rozhraní (Playwright projde každou obrazovku a každý prvek), pořádek v repu, jediný zdroj pravdy,
+git praxi, efektivitu agentů (tokeny, modely), zálohy a vhodnost technologie pro tvůj záměr.
+Sám NIC nekóduje, nemění a nevydává. Nálezy s návrhem řešení předá „Kapitánovi" (tvému projektovému
+agentovi), vynutí, aby je opravil jako první, každou opravu nezávisle ověří a teprve pak povolí vydání.
+Brány jsou technické (hooky, git hook, CI), ne jen věty v promptu.
+
+CO POTŘEBUJEŠ
+-------------
+- Windows 10/11: START.cmd · macOS / Linux / WSL: bash start.sh (stejné volby; zástupci na ploše jako
+  .command / .desktop; na macu stačí systémový bash 3.2, Node a Git z Homebrew)
+- Node.js 20+           (winget install OpenJS.NodeJS.LTS)
+- Git for Windows       (winget install Git.Git)
+- Claude Code           (npm i -g @anthropic-ai/claude-code)
+- volitelně: GitHub CLI přihlášené (winget install GitHub.cli, pak: gh auth login)
+             — bez něj se GitHub kroky (secrets, chráněná větev) přeskočí a uděláš je ručně
+- volitelně: gitleaks, semgrep (skeny tajemství a bezpečnostních vzorů; bez nich se ty kroky přeskočí)
+
+INSTALACE (3 kroky)
+-------------------
+1. Rozbal celý zip do trvalé složky, např.  C:\dev\_auditor\   (NE do Stažených, NE spouštět ze zipu).
+   macOS: např. ~/dev/_auditor a v Terminálu:  bash ~/dev/_auditor/start.sh
+2. Poklepej na  START.cmd
+3. Vyber:
+     [1] Jeden projekt      — zadáš cestu ke složce projektu; Enter bez cesty = prohledat disky.
+                              Nemusí to být git repo: pokud git chybí, instalátor ho založí
+                              (.gitignore + první commit) — a auditor to zapíše jako první nález.
+     [2] Více projektů      — prohledá disky + Dokumenty + Stažené (2-5 min), pak každý projekt
+                              posoudí (~1 s na projekt, průběh [12/103] se vypisuje), ukáže
+                              očíslovaný seznam v terminálu A otevře stejný seznam v prohlížeči.
+                              V prohlížeči zaškrtneš projekty (a případně změníš profil),
+                              klikneš "Uložit výběr" (stáhne se Auditor_vyber.json) a v terminálu
+                              stiskneš Enter — průvodce si výběr načte sám. Nebo napíšeš čísla
+                              (např. 1 3 5) rovnou do terminálu; čísla jsou v HTML i v terminálu stejná.
+                              Síťové disky (NAS) se přeskakují — jsou pomalé; projekt z nich
+                              zadej přes [1] cestou.
+     [3] Nápověda           — zobrazí tento soubor
+
+Instalátor se neptá na nic technického - rozhoduje sám podle posouzení projektu (profil, model, git,
+síťové disky, deploy skripty, spuštění oken). Na tobě je jen: cesta k projektu ([1]) nebo výběr
+projektů zaškrtnutím/čísly ([2]).
+Instalátor vytvoří vedle každého projektu složku  <projekt>-audit\  (workspace auditora), nastaví
+hooky a brány na obou stranách, vygeneruje seznam obrazovek, uloží instalaci do gitu (jen svoje
+soubory), přes gh založí soukromé audit repo + secrets, spustí samotest (musí být „N/N PASS")
+a NA KONCI SÁM OTEVŘE OKNO AUDITORA (začne intake: ptá se lidsky - co aplikace dělá, pro koho, čeho
+se bojíš; odpovídáš, on pracuje) a OKNO KAPITÁNA (počká, dokud v projektu běží starý; Enter = hned).
+Technické poznámky pro auditora (chybějící volitelné nástroje, deploy skripty) jdou do AUDIT\instalace.log.
+
+Profily: PLNÝ = vše (aplikace s uživateli/daty/platbami/deployem), model Fable 5.1 (nejlepší úsudek)
+         LEHKÝ = bez CI, model Opus (malé projekty bez uživatelských dat)
+         JEN AUDIT = jen workspace auditora, do repa se nesahá (staré/neaktivní projekty)
+
+NEVÍM, KDE MÁM PROJEKTY / NEVÍM, JESTLI JE TO GIT
+-------------------------------------------------
+Nevadí — vyber [2]. Sken projde všechny lokální disky, Dokumenty, Stažené soubory a Plochu, najde
+git repa i složky s kódem bez gitu (podle package.json, CLAUDE.md, index.html…) a v seznamu u každé
+uvidíš: název, datum poslední změny, doporučení, "git" / "BEZ-GITU" a úplnou cestu. Cizí a nástrojová
+repa (nvm, scoop, klony cizích projektů) označí PŘESKOČIT. Ty jen napíšeš čísla.
+
+CO ZBÝVÁ NA TOBĚ PO INSTALACI
+-----------------------------
+a) <projekt>-audit\AUDIT\.auth\.env.audit  — doplň TESTOVACÍ databázi a účty (šablona je připravená;
+   produkční hodnoty skript odmítne). Bez toho auditor nespustí vlastní instanci aplikace.
+b) Až auditor spustí instanci (port 3100, 3101 …), jednou se přihlas testovacími účty:
+   cd <projekt>-audit\tools
+   npx playwright codegen --save-storage ..\AUDIT\.auth\tenantA.json http://localhost:3100/login
+   (a totéž pro tenantB). Auditor si o to sám řekne, až to bude potřebovat.
+c) Deploy: vydání hlídá hook Kapitána (vercel, git push do main). Gate-check do tvých deploy skriptů
+   instalátor vloží jen po tvém souhlasu ([2]); výchozí je nechat to na auditorovi - navrhne, které skripty
+   a Kapitán to provede s důkazem. Ruční deploy: <projekt>-audit\deploy-with-gate.cmd <příkaz>
+d) Pokud nemáš gh: na GitHubu ručně chránit větev main (status check „auditor-gate", zákaz force
+   push) a nastavit Secrets AUDIT_REPO a AUDIT_REPO_TOKEN (viz auditor\README.md).
+
+MUSÍM PŘED AUDITEM NĚCO VYPNOUT?
+--------------------------------
+Ne. Auditor běží ve vlastním okně, do projektu nepíše a testuje na vlastní kopii kódu. Jediné
+pravidlo: Kapitán spuštěný PŘED instalací nové pojistky nemá (načítají se jen při startu) - nech ho
+dokončit (zpráva ze schránky, viz níže) a spusť ho znovu; nový Kapitán ze zástupce na to sám počká. Během auditu může Kapitán
+normálně pracovat; auditor audituje konkrétní commit a v handoffu napíše, pokud se kód mezitím
+změnil. Kapitán se zastaví (STOP-THE-LINE) až ve chvíli, kdy dostane handoff s P0/P1.
+
+JAK SE TO POUŽÍVÁ
+-----------------
+AUDITOR:   <projekt>-audit\start-auditor.cmd      (sám začne intake; kdyby byl řádek > prázdný, napiš: Začni intake)
+           Poznáš ho podle stavového řádku dole: AUDITOR · <projekt> … (tvůj globální řádek KAPITÁN
+           se v okně auditora nezobrazuje - nastavení projektu má přednost).
+           Odpovíš na pár otázek (co aplikace dělá, pro koho, čeho se bojíš, testovací prostředí).
+           Auditor pak sám projde: hygiena repa → git praxe → statika → bezpečnost → funkce →
+           UI průchod → jediný zdroj pravdy → provoz/zálohy → efektivita → udržitelnost →
+           nálezy → HANDOFF (AUDIT\02_HANDOFF.md).
+KAPITÁN:   nic mu psát nemusíš - při startu si sám načte zprávy od auditora; dokud není handoff, dělá
+           běžnou práci. Kdyby zůstal řádek > prázdný: Načti zprávy od auditora a pokračuj v práci.
+           Spouštěj ho jako dosud NEBO zástupcem "Kapitan - <projekt>" na ploše. Obojí je správně:
+           pojistky jsou v nastavení projektu (.claude\settings.json v repu) a platí pro každé Claude
+           Code spuštěné v té složce. Zástupce navíc počká, dokud v projektu běží starý Kapitán
+           (3 min bez aktivity), aby neběželi dva najednou.
+STARÝ KAPITÁN (spuštěný před instalací): zvenku mu psát nejde. Instalátor ti dá do schránky
+           zprávu - přepni do jeho okna, Ctrl+V, Enter: dokončí položku, uloží do gitu, ukončí se. Pravidlo: otevřené P0/P1 = jediná práce
+           (STOP-THE-LINE). Opravuje, dokládá důkazy do AUDIT\03_dukazy\, hlásí přes bus.
+AUDITOR    každou opravu nezávisle ověří (6 bran: problém existoval → změna existuje → je zapojená →
+           funguje → uživatelský flow → regrese + pojistka). Dílčí PASS = FAIL. Max 3 kola, pak
+           se ptá tebe. Po všech P0/P1 vydá RELEASE GATE (AUDIT\05_release_gate.md) — teprve pak
+           deploy projde (hook Kapitána, gate-check v .bat, CI na GitHubu).
+
+CO UVIDÍŠ TY
+------------
+- AUDIT\02_HANDOFF.md      co je špatně, proč, návrh řešení, priority
+- AUDIT\04_verdikty\        PASS/FAIL každé opravy s důkazy
+- AUDIT\05_release_gate.md  smí se vydat? (zelená/červená)
+- AUDIT\06_efektivita.md    tokeny, modely, first-pass yield, před/po
+- AUDIT\07_udrzitelnost.md  hodí se technologie pro tvůj záměr (DB, hosting, služby, náklady)
+- node <projekt>-audit\tools\bus.mjs metrics   — jak Kapitán opravuje (falešná „hotovo", kola)
+Auditor ti píše netechnicky, jednou větou + odkaz na soubor. Technické QA na tebe nepřenáší.
+
+KDYŽ NĚCO NEJDE
+---------------
+- „SAMOTEST NEPROŠEL" nebo „BRÁNA NEFUNGUJE" → auditora nespouštěj, zkopíruj celý výpis okna a pošli
+  ho Claude. (Samotest = kontrola, že pojistky opravdu blokují; na Windows 70/70, jinde 71/71.)
+- Agent hlásí „Blocked" → to je brána, ne chyba. Auditor nesmí psát do repa; Kapitán nesmí měnit
+  hooky/settings/CI ani vydávat bez gate; nový soubor v rootu repa a provizoria mimo .tmp\tasks\<ID>\
+  jsou zakázané. Pravidla se ladí zúžením, ne obcházením.
+- Hláška „N souborů není uložených v gitu" při instalaci → není to chyba. Git = historie uložených verzí
+  projektu; „neuložené" jsou soubory změněné od posledního uložení (u agentních projektů běžně stovky:
+  logy, výstupy, chybějící .gitignore). Instalátor tvoje soubory nemění, uloží jen svoje, a auditor
+  z toho udělá první nález s návrhem, co kam patří. Ty nic dělat nemusíš.
+- „GATE-CHECK FAIL: pracovní strom není čistý" → to je až při vydávání: Kapitán musí nejdřív práci
+  uložit do gitu (auditor mu to v handoffu zadá).
+- „GATE-CHECK FAIL: kód se od auditu změnil" → nová oprava = nový důkaz + verdikt.
+- „Settings Error … Expected array“ v okně Kapitána: nastavení z verze < 3.9.4; spusť START.cmd znovu (opraví je).
+- „model not available“ / Fable není na účtu → v okně auditora napiš  /model opus  (nebo sonnet).
+- Chromium se nestáhl → cd <projekt>-audit\tools && npx playwright install chromium
+- První CI běh „auditor-gate" na GitHubu je červený, dokud auditor nevydá gate — to je záměr.
+- Aktualizace balíku → spusť START.cmd znovu; workspace se doplní, AUDIT\ (nálezy, historie) zůstane.
+- Více projektů = více workspace; každý má vlastní bus, gate a port. Jeden balík, jedna instance
+  na projekt. Na více strojích drž stejné cesty (C:\dev\...).
+
+PODROBNOSTI
+-----------
+auditor\README.md       — struktura balíku, všechny volby, historie změn
+auditor\CLAUDE.md       — ústava auditora (co přesně dělá a nesmí)
+auditor\BRIDGE.md       — protokol komunikace auditor ↔ Kapitán
+auditor\checklists\     — co se kontroluje (bezpečnost, UI, hygiena, SSOT, efektivita, git, provoz, udržitelnost)

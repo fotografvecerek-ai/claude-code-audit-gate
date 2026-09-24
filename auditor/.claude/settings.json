@@ -1,0 +1,79 @@
+{
+  "_note": "ŠABLONA — setup-auditor.ps1 / setup-auditor.sh ji přepíše s tvými cestami. Cesty v env čtou hooky; deny pravidla chrání repo i bez hooku. allow = bez promptů při dlouhém běhu (hooky hlídají mutace); deny má vždy přednost.",
+  "permissions": {
+    "defaultMode": "auto",
+    "deny": [
+      "Edit(//c/dev/[DOPLŇ-repo]/**)",
+      "Read(//c/dev/[DOPLŇ-repo]/.env*)",
+      "Read(//c/dev/[DOPLŇ-repo]/**/*.pem)",
+      "Read(~/.ssh/**)",
+      "Bash(vercel *)",
+      "Bash(npx vercel *)",
+      "Bash(pnpm publish *)",
+      "Bash(npm publish *)",
+      "PowerShell(vercel *)"
+    ],
+    "allow": [
+      "Bash(node *)",
+      "Bash(npx playwright *)",
+      "Bash(npx tsc *)",
+      "Bash(npx jscpd *)",
+      "Bash(npx madge *)",
+      "Bash(npx knip *)",
+      "Bash(npx license-checker *)",
+      "Bash(npm run *)",
+      "Bash(npm install *)",
+      "Bash(pnpm *)",
+      "Bash(bash tools/*)",
+      "Bash(git *)",
+      "Bash(curl *)",
+      "Bash(semgrep *)",
+      "Bash(gitleaks *)",
+      "Bash(jq *)",
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "WebFetch(domain:code.claude.com)",
+      "WebFetch(domain:owasp.org)",
+      "WebFetch(domain:cheatsheetseries.owasp.org)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:asvs.dev)",
+      "WebSearch"
+    ]
+  },
+  "env": {
+    "AUDITOR_WORKSPACE": "/c/dev/[DOPLŇ-repo]-audit",
+    "AUDITOR_TARGET_REPO": "/c/dev/[DOPLŇ-repo]"
+  },
+  "model": "claude-fable-5-1",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|NotebookEdit|Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/.claude/hooks/auditor-guard.js\" || exit 2",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/tools/bus.mjs\" inbox --for auditor --unacked --brief; echo \"AUDITOR: po startu/kompakci načti AUDIT/00_intake.md a AUDIT/02_HANDOFF.md, stav drž v TaskList. Zápis jen AUDIT/, tools/, build/.\""
+          }
+        ]
+      }
+    ]
+  },
+  "autoCompactEnabled": true,
+  "statusLine": {
+    "type": "command",
+    "command": "node \"$CLAUDE_PROJECT_DIR/tools/statusline.mjs\""
+  }
+}

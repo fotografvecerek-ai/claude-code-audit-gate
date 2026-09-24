@@ -1,0 +1,40 @@
+# GitHub Actions — technická bariéra vydání MIMO agenta i mimo vlastníkův stroj.
+# Instalace: zkopíruj do <repo>/.github/workflows/auditor-gate.yml; v GitHubu: Settings → Branches → Branch protection rule pro `main`:
+#   ✔ Require status checks to pass → vyber "auditor-gate"   ✔ Do not allow bypassing   ✔ (volitelně) Require pull request.
+# Secrets repa: AUDIT_REPO (např. "uzivatel/moje-aplikace-audit") + buď AUDIT_SSH_KEY (privátní deploy klíč audit repa, nastaví INSTALL.cmd přes gh)
+#   nebo AUDIT_REPO_TOKEN (fine-grained PAT jen read na audit repo).
+# Auditor commituje AUDIT/05_release_gate.md do svého workspace repa; tento job ho vyzvedne a spustí gate-check proti HEAD.
+name: auditor-gate
+# Omezení: PR z forku nedostane secrets → job se přeskočí (gate pak vynutí push do main). Větve níže drž v souladu s PROD_BRANCHES hooku.
+on:
+  push:
+    branches: [main, master, production]
+  pull_request:
+    branches: [main, master, production]
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/checkout@v4
+        with:
+          repository: ${{ secrets.AUDIT_REPO }}
+          ssh-key: ${{ secrets.AUDIT_SSH_KEY }}
+          token: ${{ secrets.AUDIT_REPO_TOKEN || github.token }}
+          path: .audit-ws
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: gate-check (🟢 release gate pro tento kód)
+        env:
+          AUDITOR_WORKSPACE: ${{ github.workspace }}/.audit-ws
+          GATE_MAX_AGE_H: "72"
+        run: |
+          echo ".audit-ws/" >> .git/info/exclude   # audit workspace není součást auditovaného stromu
+          node .audit-ws/kapitan-side/gate-check.mjs "$GITHUB_WORKSPACE"   # VŽDY kopie z audit repa (nikdy editovatelná kopie v repu)
+      - name: rychlé kontroly (volitelné — uprav podle stacku)
+        if: hashFiles('package.json') != ''
+        run: |
+          corepack enable || true
+          (pnpm install --frozen-lockfile || npm ci) && (npx tsc --noEmit -p . || true)

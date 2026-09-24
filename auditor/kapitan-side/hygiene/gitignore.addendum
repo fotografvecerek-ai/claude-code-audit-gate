@@ -1,0 +1,25 @@
+# --- hygiena (auditor) ---
+.tmp/
+*.log
+*.bak
+*.orig
+*.tmp
+*~
+.DS_Store
+Thumbs.db
+desktop.ini
+nul
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+coverage/
+dist/
+.next/
+playwright-report/
+test-results/
+*.zip
+*.7z
+*.dump
+*.sql.gz
