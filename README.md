@@ -9,9 +9,10 @@
 >
 > The tool, its prompts and documentation are in **Czech** today. An English layer is the most wanted contribution — see
 > [CONTRIBUTING.md](CONTRIBUTING.md). Windows (`START.cmd`) and macOS/Linux (`start.sh`) are supported.
->
-> **What it does and why it is not an ordinary audit tool** — plain language, for the person deciding what they install:
-> [docs/WHAT-IT-DOES.md](docs/WHAT-IT-DOES.md).
+
+**Read first / Čtěte nejdřív:** [docs/WHAT-IT-DOES.md](docs/WHAT-IT-DOES.md) (EN) · [docs/CO-TO-UMI.md](docs/CO-TO-UMI.md) (CZ) — why this is
+not a one-shot audit tool but a permanent, independent role in the project, what exactly it audits, how the release gate works, and what
+you get.
 
 ## CZ — co to je
 
@@ -23,7 +24,8 @@ STOP-THE-LINE, každou opravu nezávisle ověří (šest bran) a vydání povol�
 Vznikl z reálné potřeby: agenti píšou kód rychle, ale „hotovo" často neznamená hotovo. Auditor je druhý pár očí, který nemá motivaci
 schválit vlastní práci.
 
-Podrobně, lidsky a bez techniky — co auditor dělá, co nedělá a proč je to trvalá role: [docs/CO-TO-UMI.md](docs/CO-TO-UMI.md).
+**Není to jednorázový sken.** Auditor v projektu zůstává: každé vydání jde přes jeho bránu, každý start Kapitána začíná jeho zprávami,
+každá oprava se nezávisle ověřuje a chování Kapitána se měří (falešná „hotovo“, kola na opravu, tokeny před/po). Podrobně: [docs/CO-TO-UMI.md](docs/CO-TO-UMI.md).
 
 ## Rychlý start
 

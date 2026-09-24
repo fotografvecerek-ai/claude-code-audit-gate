@@ -169,8 +169,8 @@ Není to pro jednorázový sken cizího repa — na to jsou lehčí nástroje. A
 
 **Musím před auditem něco vypnout?** Ne. Jen Kapitána spuštěného před instalací nechte dokončit a spusťte znovu — pojistky se načítají při startu.
 
-**Auditor běží dlouho. Je to normální?** Ano. První audit prochází každou obrazovku a každý prvek; u větší aplikace jsou to hodiny.
-Průběh je v jeho okně a v `AUDIT/`.
+**Auditor běží dlouho. Je to normální?** Ano, ale pracuje paralelně: nezávislé oblasti spouští jako subagenty najednou, průchod obrazovek
+a sondy rozděluje do souběžných dávek (výchozí strop ~10 subagentů). U větší aplikace jsou to i tak hodiny. Průběh je v jeho okně a v `AUDIT/_prubeh.md`.
 
 **Kapitán hlásí „Blocked".** To je brána, ne chyba: Kapitán nesmí měnit hooky, verdikty ani vydávat bez gate. Pravidla se ladí zúžením,
 ne obcházením.

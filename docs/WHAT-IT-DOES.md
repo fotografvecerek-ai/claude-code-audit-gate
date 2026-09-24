@@ -179,8 +179,9 @@ developed and shipped**.
 **Do I have to shut anything down before the audit?** No. Only a Captain started before the installation should finish and be restarted —
 guards load at session start.
 
-**The auditor runs for a long time. Is that normal?** Yes. The first audit walks every screen and every element; on a larger app that
-is hours. Progress is visible in its window and in `AUDIT/`.
+**The auditor runs for a long time. Is that normal?** Yes, but it works in parallel: independent areas run as subagents launched together,
+the screen crawl and probes are split into concurrent batches (default cap ~10 subagents). On a larger app it is still hours. Progress is visible
+in its window and in `AUDIT/_prubeh.md`.
 
 **The Captain reports "Blocked".** That is the gate, not an error: the Captain may not change hooks or verdicts, nor ship without a gate.
 Rules are tuned by narrowing, not by bypassing.
