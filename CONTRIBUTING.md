@@ -21,6 +21,9 @@ English are welcome. Run `node tools/selftest.mjs` before every PR (must be 100 
 5. Bash skripty: kompatibilní s bash 3.2 (macOS) — žádné `mapfile`, `declare -A`, `xargs -r`, `find -newermt`, `timeout`.
 6. Nic osobního do repa: žádné reálné cesty, klíče, jména projektů uživatelů.
 
+## CI
+Každý PR běží `.github/workflows/ci.yml` na Windows/Linux/macOS: syntaxe, samotest, e2e instalace. PR se slučuje jen zelený.
+
 ## Jak testovat
 ```
 node tools/selftest.mjs                 # brány, bus, gate-check, pre-commit (71 scénářů)

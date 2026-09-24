@@ -1,0 +1,24 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: build zip
+        run: |
+          NAME="claude-code-audit-gate-${GITHUB_REF_NAME}"
+          mkdir -p "/tmp/$NAME" && cp -r START.cmd start.sh NAVOD.txt README.md LICENSE CONTRIBUTING.md CHANGELOG.md docs auditor "/tmp/$NAME/"
+          rm -rf "/tmp/$NAME/auditor/tools/node_modules" "/tmp/$NAME/auditor/tools/audit.config.json"
+          (cd /tmp && zip -qr "$GITHUB_WORKSPACE/$NAME.zip" "$NAME")
+          ls -la "$NAME.zip"
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: claude-code-audit-gate-*.zip
+          generate_release_notes: true

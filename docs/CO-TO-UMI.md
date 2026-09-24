@@ -37,6 +37,20 @@ a nikdo nezávislý neověřuje, že oprava skutečně platí.** Proto tenhle au
 | Kontroluje kód | Kontroluje **kód, bezpečnost, každou funkci z UI, jediný zdroj pravdy, pořádek v repu, git praxi, efektivitu agentů (tokeny, modely), vhodnost technologie pro záměr, zálohy a obnovitelnost** |
 | Neměří, jestli pomohl | Měří **first-pass yield, počet kol na opravu, míru falešných „hotovo"**, spotřebu tokenů před/po |
 
+## 3b. Auditor vs. CI (častá námitka: „tohle má dělat continuous integration“)
+
+Z poloviny ano — a ta polovina je záměr. CI spolehlivě vynutí pravidla, která už někdo napsal (lint, testy, skenery). Auditor je ten,
+kdo ta pravidla **píše a vyvíjí**: každý nález musí skončit jako mechanická pojistka (test, lint, hook, CI check), jinak není uzavřený.
+Auditor tedy CI krmí, nenahrazuje ho — a jeho vlastní brány (hook, pre-commit, GitHub Actions) jsou CI mechanismy.
+
+Co CI neudělá a auditor ano: zjistí záměr od majitele (intake); projde každou funkci z UI bez předem napsaných testů; pozná, že zelený test
+testuje něco jiného, než co se rozbilo, nebo že oprava je v kódu, ale není zapojená; navrhne řešení a červený test; posoudí architekturu,
+starý zdroj pravdy v dokumentech, spotřebu tokenů a model routing agentů, vhodnost stacku pro záměr, obnovitelnost záloh; a drží dlouhodobou
+smyčku s vývojovým agentem (handoff → oprava → nezávislé ověření → verdikt → měření falešných „hotovo“).
+
+Kde je námitka silná: tým s vyzrálým CI, code review a security review už většinu z toho má — tam auditor přináší hlavně smyčku s agentem
+a měření jeho chování. Cílovka jsou lidé, kteří stavějí s agenty, CI nemají a nevědí, jak ho postavit: auditor jim ho postupně vyrobí z nálezů.
+
 ## 4. Co všechno audituje
 
 Každá oblast má vlastní checklist (`auditor/checklists/`) a nástroj (`auditor/tools/`). Pořadí je záměrné — úklid odhaluje zdroje pravdy,
@@ -148,6 +162,17 @@ Vše v `<projekt>-audit/AUDIT/`:
 Vlastník čte prakticky jen `02_HANDOFF.md` (co je špatně a proč), `05_release_gate.md` (smí se vydat?) a `06`/`07`.
 
 ## 9. Pro koho to je
+
+**Především pro rozjetý projekt, který se dostal do problémů.** Typická situace: máš skvělý projekt, ale žere ti tokeny, agent začíná vyrábět
+nesmysly, v repu je nepořádek a nevíš, kde začít. Když máš testy, CI a pořádek od prvního dne, jsi v pohodě a auditor ti přinese hlavně
+nezávislou smyčku s agentem. Když to řešíš po třech měsících kódování bez testů — přesně tam auditor začíná: zpětně dožene, co chybí, a
+dopředu vynutí, aby testy vznikaly se zadáním. Do hodiny dostaneš první lidskou stránku (`AUDIT/00_prvni_dojem.md`): co žere tokeny, kde
+je nepořádek, jestli je práce zálohovaná.
+
+**Aktualizace balíku audit zachová.** Nová verze se instaluje stejně (START.cmd přes stejný projekt): vymění se ústava, checklisty, nástroje a
+hooky; složka `AUDIT/` (nálezy, verdikty, handoff, zprávy, retro) se nikdy nepřepisuje. Běžící session auditora si novou ústavu načte při
+příštím startu nebo kompakci.
+
 
 - Pro **majitele produktu, který není programátor** a nechává agenty stavět aplikaci: auditor je jeho nezávislý technický ředitel,
   který nemá motivaci schválit vlastní práci.

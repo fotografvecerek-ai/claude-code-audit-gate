@@ -1,5 +1,7 @@
 # Auditor — independent audit agent for Claude Code
 
+[![ci](https://github.com/fotografvecerek-ai/claude-code-audit-gate/actions/workflows/ci.yml/badge.svg)](https://github.com/fotografvecerek-ai/claude-code-audit-gate/actions/workflows/ci.yml)
+
 > **EN:** An independent *audit agent* for [Claude Code](https://code.claude.com). It audits an application built by another agent (the
 > project agent, here called **Kapitán**): security (OWASP ASVS / Top 10), every feature, the UI via Playwright (every screen, every
 > interactive element), single source of truth, repo hygiene, git practice, agent efficiency (tokens, model routing), sustainability of the
@@ -24,8 +26,14 @@ STOP-THE-LINE, každou opravu nezávisle ověří (šest bran) a vydání povol�
 Vznikl z reálné potřeby: agenti píšou kód rychle, ale „hotovo" často neznamená hotovo. Auditor je druhý pár očí, který nemá motivaci
 schválit vlastní práci.
 
+**Pro koho:** především pro rozjetý projekt v problémech — žere tokeny, agent vyrábí nesmysly, v repu je nepořádek. Auditor zpětně dožene,
+co chybí (testy, pořádek, zálohy), a dopředu vynutí, aby testy vznikaly se zadáním. Do hodiny první lidská stránka `AUDIT/00_prvni_dojem.md`.
+
 **Není to jednorázový sken.** Auditor v projektu zůstává: každé vydání jde přes jeho bránu, každý start Kapitána začíná jeho zprávami,
 každá oprava se nezávisle ověřuje a chování Kapitána se měří (falešná „hotovo“, kola na opravu, tokeny před/po). Podrobně: [docs/CO-TO-UMI.md](docs/CO-TO-UMI.md).
+
+**Auditor vs. CI:** nenahrazuje CI, krmí ho — každý nález musí skončit jako mechanická pojistka (test/lint/hook/CI check). Co CI neumí
+(záměr, průchod funkcí bez testů, „zelený test testuje něco jiného“, nezapojená oprava, smyčka s agentem), dělá auditor. Podrobně v docs §3b.
 
 ## Rychlý start
 
@@ -53,6 +61,12 @@ Předpoklady: Node 20+, Git, Claude Code; volitelně GitHub CLI (`gh`), gitleaks
 
 Detaily: [`auditor/CLAUDE.md`](auditor/CLAUDE.md) (ústava auditora), [`auditor/BRIDGE.md`](auditor/BRIDGE.md) (most), [`auditor/README.md`](auditor/README.md)
 (struktura, nastavení session, historie změn), [`auditor/checklists/`](auditor/checklists/) (co se kontroluje a podle jakých standardů).
+
+## CI
+
+Každý push a PR běží na **Windows, Linuxu i macOS**: syntaxe Node/bash/PowerShell (vč. BOM a zákazu bash4-ismů), samotest bran (71 scénářů)
+a end-to-end instalace do fixture repa s rozdělanou prací (ověřuje, že se do gitu uloží jen soubory instalace a brána blokuje). Tag `v*` vydá zip
+jako GitHub Release. Workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Přispívání
 

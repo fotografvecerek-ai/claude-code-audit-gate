@@ -188,6 +188,13 @@ AUDIT/
 
 Auditor nikdy nezapisuje mimo `AUDIT/` a `tools/`; Kapitán zapisuje jen do `03_dukazy/`.
 
+## Změny v1.1.0
+- **Aktualizace zachovává audit**: `AUDIT/` (nálezy, verdikty, handoff, bus, retro CHYBOVNÍK, průběh) se při opakované instalaci NIKDY nepřepisuje —
+  dřív se šablonový `CHYBOVNIK.md` kopíroval přes retro auditora. Aktualizuje se jen balík (ústava, checklisty, nástroje, šablony, hooky, settings).
+- Pravidlo „test se zadáním" pro nová zadání Kapitána (audit-rezim §4b) + nález „funkce bez akceptačního testu" + sekce TST v handoffu.
+- `AUDIT/00_prvni_dojem.md`: první lidská stránka pro vlastníka po 1. vlně (tokeny, nepořádek, zálohy, naléhavost) — do ~1 h, ne po celém auditu.
+- Přerámování „pro koho": primárně záchrana rozjetého projektu; sekce Auditor vs. CI.
+
 ## Změny v1.0.2
 - Ústava §3: výchozí je maximální paralelizace — nezávislé oblasti jako subagenty v jedné zprávě (první vlna 6), UI crawl a sondy v dávkách
   souběžně (6–10), strop ~10, průběh v `AUDIT/_prubeh.md`; model routing subagentů (sonnet/haiku mechanika, verdikty = hlavní model).
