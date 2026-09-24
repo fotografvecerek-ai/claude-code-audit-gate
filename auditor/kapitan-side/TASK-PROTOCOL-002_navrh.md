@@ -1,4 +1,4 @@
-# TASK-PROTOCOL-002 — návrh revize (Auditor → vlastník), SeekBone
+# TASK-PROTOCOL-002 — návrh revize (Auditor → vlastník)
 
 Původní znění: `TASK-PROTOCOL-001_original.md`. Verze 001 je dobrá v jádru (životní cyklus, `ČEKÁ NA PAVLA`,
 fail-closed brány, tokenová dieta §8, akceptační testy §9). Níže jen to, co ji **zlevní, zdeterminizuje a napojí na auditora**.

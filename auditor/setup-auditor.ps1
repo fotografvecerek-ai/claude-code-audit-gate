@@ -12,7 +12,7 @@ function Need($cmd, $hint) { if (-not (Get-Command $cmd -ErrorAction SilentlyCon
 Write-Host "`n=== AUDITOR setup ===" -ForegroundColor Cyan
 Need node "nainstaluj Node 20+ (winget install OpenJS.NodeJS.LTS)"; Need git "winget install Git.Git"; Need claude "npm i -g @anthropic-ai/claude-code"
 $pkg = $PSScriptRoot
-$repo = if ($Repo) { $Repo } else { Ask "Cesta k repu aplikace (Kapitán)" "C:\dev\photobone-CRM-2028" }
+$repo = if ($Repo) { $Repo } else { Ask "Cesta k repu aplikace (Kapitán)" "C:\dev\moje-aplikace" }
 if (-not (Test-Path $repo)) { Write-Host "Repo neexistuje: $repo" -ForegroundColor Red; exit 1 }
 $name = Split-Path $repo -Leaf
 $ws = if ($Workspace) { $Workspace } else { Ask "Workspace auditora (vytvoří se)" (Join-Path (Split-Path $repo -Parent) "$name-audit") }

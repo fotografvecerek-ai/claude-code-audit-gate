@@ -1,6 +1,6 @@
 # TASK-PROTOCOL-001 — povinný příjem, provedení, přijetí a úklid úkolů
 
-Datum: 24. 9. 2026. Zadavatel: vlastník. Určeno pro Claude Code / kapitána SeekBone.
+Datum: 24. 9. 2026. Zadavatel: vlastník. Určeno pro Claude Code / kapitána projektu.
 
 ## Cíl
 
