@@ -177,12 +177,13 @@ The owner practically reads only `02_HANDOFF.md` (what is wrong and why), `05_re
 | | RESCUE — a running project | PREVENTION — a new project |
 |---|---|---|
 | Situation | the project is broken and inconsistent: burns tokens, the agent produces nonsense, mess, no tests, unknown backup state | an empty or small repo you want to keep healthy |
-| What the auditor does | full 12-area audit, first impression within an hour, handoff, STOP-THE-LINE, fix verification, release gate | the first audit finds almost nothing — the value is **rules and gates from day one** |
-| What works from day one | — | test with the requirement, hygiene pre-commit, temp files only in `.tmp/`, single source of truth, release gate, bus, an audit with every release |
-| Built for this? | **yes, primarily** | yes, but as prevention, not as an audit |
+| Start menu choice | `[2]` audit a project on disk (or `[3]` from GitHub) | `[1]` **new project** — no separate auditor needed |
+| What you get | full 12-area audit, first impression within an hour, handoff, STOP-THE-LINE, fix verification, release gate | the auditor's rules inside the project, an independent **reviewer** subagent, the same technical guards, CI (§10d) |
+| What works from day one | — | test with the requirement, "done" = verified, repo order, single source of truth, backups, release only with the reviewer's 🟢 |
 
-Plainly: the audit machinery (screen crawl, SSOT, hygiene, efficiency) is built for existing code. If you start with tests, CI and order
-from day one, the auditor mainly gives you an independent loop with the agent and the guards that keep it that way.
+Plainly: the audit machinery (screen crawl, SSOT, hygiene, efficiency) is built for existing code — on an empty repo it would find almost
+nothing. That is why a new project gets the auditor's rules and guards built in instead (§10d). If it still gets into trouble, attach the
+auditor via `[2]`.
 
 **Primarily for a running project that got into trouble.** The typical situation: you have a great project, but it burns tokens, the agent
 starts producing nonsense, the repo is a mess and you don't know where to start. If you had tests, CI and order from day one, you are fine
@@ -201,7 +202,7 @@ picks up the new constitution at its next start or compaction.
 - **Developers using Claude Code on a larger project**: a second pair of eyes for the things fast development forgets.
 - **Teams with multiple agents**: the release gate and the bus work across machines (the auditor's workspace is a git repo).
 
-It is not for a one-off scan of someone else's repo — lighter tools exist for that. The auditor pays off where the project **keeps being
+A one-off review of someone else's repo is option `[3]` (GitHub audit, §10b). The auditor's full value is where the project **keeps being
 developed and shipped**.
 
 ## 10. What the installer installs (and what it does not)
@@ -213,6 +214,50 @@ developed and shipped**.
 - The installer asks no technical questions. At the end it opens the auditor's window (it starts the intake itself) and the Captain's
   window (which waits while an old Captain is still running).
 - Models: the auditor in the full profile runs on the strongest available model (judgment and verdicts); mechanical subagents on cheap ones.
+
+## 10b. Auditing a GitHub repo (no install on the client's side)
+
+`START.cmd` → `[3]` (mac/Linux `start.sh` → `[3]`): paste a GitHub repo URL, the auditor clones it locally and runs the full audit on the
+copy. Nothing is installed at the client and nothing is written to their repo. Private repo: the client invites you as a collaborator (read
+access is enough) and you have GitHub CLI logged in. Output for the client: `ZPRAVA.html` (plain language), `02_HANDOFF.md` (a task list for
+their developer or agent), `STATISTIKA.html`. Differences from auditing your own project: there is no Captain and no release gates (nowhere
+to install them), git practice only from history, the client's agent token usage only from configuration in the repo, dynamic tests only
+with a test environment from the client. New code version: `aktualizovat-repo.cmd` in the workspace — the auditor then reviews just the changes.
+
+## 10c. Audit statistics
+
+At the end of every audit `AUDIT/STATISTIKA.html` is produced: how many files and lines of code the auditor went through, how many screens
+and UI elements it tested, how many endpoints, findings by severity and verified fixes, how long it took (total and net working time) and
+how many tokens it cost — exactly, from Claude Code transcripts, split by model.
+
+## 10d. A new project, healthy from day one (no separate auditor)
+
+`START.cmd` → `[1]` (mac/Linux `start.sh` → `[1]`): type a name, the rest is automatic — folder `C:\dev\<name>` (`~/dev/<name>`), git,
+a private GitHub repo as a backup (Enter = yes), a desktop shortcut, and the agent opens and starts with `/zacatek` (intent, audience, data,
+budget → requirements, a justified technology choice, skeleton and first acceptance tests).
+
+What the project gets (the same rules the auditor enforces on running projects):
+
+| What | How it is enforced |
+|---|---|
+| Rules for the agent in `CLAUDE.md` (test with the requirement, "done" = verified, single source of truth, order, git and backups, security, tokens, technology fit) | rules + commands `/zadani`, `/hotovo`, `/uklid` |
+| An independent **reviewer** (`kontrolor`) — a subagent that only reads and runs tests, checks against the auditor's checklists | a hook allows writes to `docs/kontrola/` **only** to the reviewer (by `agent_type`) and nothing else to the reviewer; the main agent cannot write "approved" itself |
+| STOP-THE-LINE on an open P0/P1 | a reminder at every session start + `release-check` blocks releases |
+| Release only with a 🟢 verdict for the current code | `projekt-guard` (deploy, push to `main`) → `release-check` (commit, age, open findings, clean tree); CI job `vydani` |
+| Repo order, no secrets or binaries | hook + git pre-commit + CI (`hygiene-all`, gitleaks) |
+| Regular review | session-start reminder after 7 days or ~30 commits → `/kontrola` |
+| A report for you | `docs/kontrola/ZPRAVA.html` — plain language, a recommendation for every problem, questions as a form with the recommended answer preselected |
+
+**Combination (recommended):** choose `[1]` when creating the project and a separate auditor is installed next to it (`<name>-audit`). The
+reviewer checks continuously, the auditor runs **periodically** — before a bigger release and once a month (the project agent reminds you).
+The agent reads its handoff at every session start; when the auditor stops releases (🔴 in `05_release_gate.md`), the project's
+`release-check` blocks releasing until the auditor verifies the fixes. No Captain side and no bus — the auditor does not have to take part in
+every release, it can only pull the brake. Option `[2]` = healthy start only.
+
+**Difference from the separate auditor (plainly):** the reviewer runs in the same account and is invoked by the agent itself, so
+independence is weaker (the agent could describe the scope badly; the reviewer's rule is therefore "ignore the agent's claims, verify
+yourself"). There is no measurement of the agent's behaviour (false "done", fix rounds) and no Playwright crawl of every screen. For a new
+project that is enough; when the project starts to degrade, attach the auditor via `[2]` — the rules are the same and the guards coexist.
 
 ## 11. FAQ
 

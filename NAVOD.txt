@@ -1,4 +1,4 @@
-AUDITOR v1.1.2 — NÁVOD (čti tohle jako první)
+AUDITOR 1.3.0 — NÁVOD (čti tohle jako první)
 =====================================================
 
 CO TO JE
@@ -29,23 +29,39 @@ INSTALACE (3 kroky)
 1. Rozbal celý zip do trvalé složky, např.  C:\dev\_auditor\   (NE do Stažených, NE spouštět ze zipu).
    macOS: např. ~/dev/_auditor a v Terminálu:  bash ~/dev/_auditor/start.sh
 2. Poklepej na  START.cmd
-3. Vyber:
-     [1] Jeden projekt      — zadáš cestu ke složce projektu; Enter bez cesty = prohledat disky.
-                              Nemusí to být git repo: pokud git chybí, instalátor ho založí
-                              (.gitignore + první commit) — a auditor to zapíše jako první nález.
-     [2] Více projektů      — prohledá disky + Dokumenty + Stažené (2-5 min), pak každý projekt
-                              posoudí (~1 s na projekt, průběh [12/103] se vypisuje), ukáže
-                              očíslovaný seznam v terminálu A otevře stejný seznam v prohlížeči.
-                              V prohlížeči zaškrtneš projekty (a případně změníš profil),
-                              klikneš "Uložit výběr" (stáhne se Auditor_vyber.json) a v terminálu
-                              stiskneš Enter — průvodce si výběr načte sám. Nebo napíšeš čísla
-                              (např. 1 3 5) rovnou do terminálu; čísla jsou v HTML i v terminálu stejná.
-                              Síťové disky (NAS) se přeskakují — jsou pomalé; projekt z nich
-                              zadej přes [1] cestou.
-     [3] Nápověda           — zobrazí tento soubor
+3. Rozcestník — co chceš dělat:
+     [1] Založit NOVÝ projekt   — projekt zdravě nastavený od prvního dne. Napíšeš jen název (Enter =
+                                  moje-aplikace), zbytek se udělá sám: složka C:\dev\<název> (mac/Linux
+                                  ~/dev/<název>), git, pravidla pro agenta, nezávislý kontrolor, pojistky,
+                                  CI, soukromé repo na GitHubu jako záloha (zeptá se, Enter = ano),
+                                  zástupce „Projekt - <název>" na ploše. Zeptá se jen, jestli chceš
+                                  k projektu i samostatného auditora: [1] kombinace (doporučeno) nebo
+                                  [2] jen zdravý start. Pak se otevře agent a sám začne rozhovorem
+                                  (/zacatek). Viz NOVÝ PROJEKT níže.
+     [2] Auditovat projekt na DISKU — rozjetý projekt na tomto počítači. Zadáš cestu ke složce projektu;
+                                  Enter bez cesty = prohledat disky a vybrat projekty ze seznamu.
+                                  Nemusí to být git repo: pokud git chybí, instalátor ho založí
+                                  (.gitignore + první commit) — a auditor to zapíše jako první nález.
+                                  Prohledání disků: disky + Dokumenty + Stažené (2-5 min), pak každý
+                                  projekt posoudí (~1 s na projekt, průběh [12/103] se vypisuje), ukáže
+                                  očíslovaný seznam v terminálu A otevře stejný seznam v prohlížeči.
+                                  V prohlížeči zaškrtneš projekty (a případně změníš profil),
+                                  klikneš "Uložit výběr" (stáhne se Auditor_vyber.json) a v terminálu
+                                  stiskneš Enter — průvodce si výběr načte sám. Nebo napíšeš čísla
+                                  (např. 1 3 5) rovnou do terminálu; čísla jsou v HTML i v terminálu stejná.
+                                  Síťové disky (NAS) se přeskakují — jsou pomalé; projekt z nich
+                                  zadej cestou.
+     [3] Auditovat GITHUB repo  — audit cizího projektu jen z adresy repa (např. od klienta). Vložíš
+                                  adresu, auditor si kód stáhne k sobě a projde ho. U klienta se nic
+                                  neinstaluje a do jeho repa se nic nezapisuje. Soukromé repo: klient tě
+                                  přizve jako spolupracovníka (stačí čtení) a máš přihlášené gh
+                                  (gh auth login). Výstup pro klienta: ZPRAVA.html, 02_HANDOFF.md
+                                  (zadání pro jeho vývojáře/agenta), STATISTIKA.html. Nová verze kódu:
+                                  <projekt>-audit\aktualizovat-repo.cmd.
+     [4] Nápověda (tento soubor)   [5] Samotest bran   [0] Konec
 
 Instalátor se neptá na nic technického - rozhoduje sám podle posouzení projektu (profil, model, git,
-síťové disky, deploy skripty, spuštění oken). Na tobě je jen: cesta k projektu ([1]) nebo výběr
+síťové disky, deploy skripty, spuštění oken). Na tobě je jen: cesta k projektu nebo výběr
 projektů zaškrtnutím/čísly ([2]).
 Instalátor vytvoří vedle každého projektu složku  <projekt>-audit\  (workspace auditora), nastaví
 hooky a brány na obou stranách, vygeneruje seznam obrazovek, uloží instalaci do gitu (jen svoje
@@ -58,9 +74,31 @@ Profily: PLNÝ = vše (aplikace s uživateli/daty/platbami/deployem), model Fabl
          LEHKÝ = bez CI, model Opus (malé projekty bez uživatelských dat)
          JEN AUDIT = jen workspace auditora, do repa se nesahá (staré/neaktivní projekty)
 
+NOVÝ PROJEKT — ZDRAVĚ OD ZAČÁTKU ([1])
+--------------------------------------
+Pro projekt, který teprve zakládáš. Místo samostatného auditora dostane projekt pravidla a pojistky
+auditora přímo do sebe, takže od prvního dne pracuje tak, jak by to auditor vynucoval:
+- CLAUDE.md s pravidly: nejdřív akceptační test, pak kód · „hotovo" = ověřeno · jediný zdroj pravdy ·
+  pořádek v repu · git a zálohy · bezpečnost od prvního řádku · šetření tokenů · technologie podle záměru.
+- Nezávislý KONTROLOR (subagent): jen čte a spouští testy, zapisuje výhradně do docs\kontrola\ a nikdo
+  jiný tam zapisovat nesmí — hlavní agent si tedy nemůže sám napsat „schváleno". Kontroluje proti stejným
+  checklistům jako auditor.
+- Příkazy v okně agenta: /zacatek (rozhovor, zadání, volba technologie, první testy) · /zadani <co>
+  (nové zadání = nejdřív test) · /hotovo · /kontrola (plná nezávislá kontrola, týdně nebo po ~30 commitech;
+  agent ti ji sám připomene) · /vydani (deploy jen s verdiktem kontrolora 🟢) · /uklid.
+- Pojistky: hook blokuje nepořádek, tajemství, úpravy pojistek a vydání bez verdiktu; pre-commit hlídá
+  pořádek i mimo agenta; CI na GitHubu kontroluje pořádek, tajemství, testy a verdikt vydání.
+- Zpráva pro tebe po každé kontrole: docs\kontrola\ZPRAVA.html (lidsky, s doporučením a formulářem otázek).
+Poctivě: kontrolor je silná pojistka, ale ne úplně totéž co oddělený auditor — běží ve stejném účtu a
+spouští ho sám agent. Proto je doporučená KOMBINACE (volba [1] při zakládání): vedle projektu se nainstaluje
+i samostatný auditor (složka <název>-audit, zástupce „Auditor - <název>"). Kontrolor hlídá průběžně,
+auditora spustíš před větším vydáním a jednou za měsíc (agent ti to připomene). Když auditor vydání
+zastaví (🔴), agent projektu to uvidí na začátku každé session a vydání se zablokuje, dokud auditor opravy
+neověří. Jen zdravý start (volba [2]) stačí pro malý osobní projekt; auditora jde připojit kdykoliv.
+
 NEVÍM, KDE MÁM PROJEKTY / NEVÍM, JESTLI JE TO GIT
 -------------------------------------------------
-Nevadí — vyber [2]. Sken projde všechny lokální disky, Dokumenty, Stažené soubory a Plochu, najde
+Nevadí — vyber [2] a stiskni Enter bez cesty. Sken projde všechny lokální disky, Dokumenty, Stažené soubory a Plochu, najde
 git repa i složky s kódem bez gitu (podle package.json, CLAUDE.md, index.html…) a v seznamu u každé
 uvidíš: název, datum poslední změny, doporučení, "git" / "BEZ-GITU" a úplnou cestu. Cizí a nástrojová
 repa (nvm, scoop, klony cizích projektů) označí PŘESKOČIT. Ty jen napíšeš čísla.
@@ -112,6 +150,14 @@ AUDITOR    každou opravu nezávisle ověří (6 bran: problém existoval → zm
 
 CO UVIDÍŠ TY
 ------------
+- AUDIT\STATISTIKA.html    kolik auditor prošel (soubory, řádky kódu, obrazovky, endpointy), co našel,
+                             jak dlouho to trvalo a kolik tokenů to stálo (přesně, podle modelů).
+- AUDIT\ZPRAVA.html        ← TOHLE ČTI: zpráva pro tebe v prohlížeči, bez technického žargonu — stav,
+                             nejzávažnější věci (co to znamená pro tebe), tokeny, zálohy, co potřebuju od tebe.
+                             Auditor ji aktualizuje po prvním dojmu, po handoffu a po každé ověřené opravě.
+                             Otázky pro tebe jsou tam jako formulář: doporučená odpověď je předvybraná (s důvodem),
+                             stačí potvrdit nebo změnit, případně dopsat komentář, a kliknout „Odeslat odpovědi
+                             auditorovi". Pak auditorovi napiš: odpověděl jsem.
 - AUDIT\02_HANDOFF.md      co je špatně, proč, návrh řešení, priority
 - AUDIT\04_verdikty\        PASS/FAIL každé opravy s důkazy
 - AUDIT\05_release_gate.md  smí se vydat? (zelená/červená)
@@ -123,7 +169,7 @@ Auditor ti píše netechnicky, jednou větou + odkaz na soubor. Technické QA na
 KDYŽ NĚCO NEJDE
 ---------------
 - „SAMOTEST NEPROŠEL" nebo „BRÁNA NEFUNGUJE" → auditora nespouštěj, zkopíruj celý výpis okna a pošli
-  ho Claude. (Samotest = kontrola, že pojistky opravdu blokují; na Windows 70/70, jinde 71/71.)
+  ho Claude. (Samotest = kontrola, že pojistky opravdu blokují; na Windows 93/93, jinde 94/94.)
 - Agent hlásí „Blocked" → to je brána, ne chyba. Auditor nesmí psát do repa; Kapitán nesmí měnit
   hooky/settings/CI ani vydávat bez gate; nový soubor v rootu repa a provizoria mimo .tmp\tasks\<ID>\
   jsou zakázané. Pravidla se ladí zúžením, ne obcházením.

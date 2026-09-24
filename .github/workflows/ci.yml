@@ -27,7 +27,7 @@ jobs:
         run: |
           set -e
           for f in auditor/tools/*.mjs auditor/kapitan-side/*.mjs auditor/kapitan-side/hygiene/*.mjs; do node --check "$f"; done
-          for f in auditor/.claude/hooks/*.js auditor/kapitan-side/*.js auditor/kapitan-side/hygiene/*.js; do node --check "$f"; done
+          for f in auditor/.claude/hooks/*.js auditor/kapitan-side/*.js auditor/kapitan-side/hygiene/*.js auditor/starter/claude/hooks/*; do node --check "$f"; done
       - name: syntax – bash (bash 3.2 kompatibilita se ověřuje během macOS e2e)
         if: runner.os != 'Windows'
         run: |
@@ -46,7 +46,7 @@ jobs:
             if ($errs) { $errs | ForEach-Object { Write-Error $_.Message }; throw "$($f.Name): parse error" }
           }
           Write-Host "ok: ps1 parse + BOM"
-      - name: selftest bran (71 scénářů; Windows 70)
+      - name: selftest bran (94 scénářů; Windows 93)
         run: node auditor/tools/selftest.mjs
 
   e2e-install:
@@ -111,6 +111,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "setup failed" }
           powershell -NoProfile -ExecutionPolicy Bypass -File auditor/post-install.ps1 -Repo $repo -Workspace $ws -NoGitHub -NoLaunch
           if ($LASTEXITCODE -ne 0) { throw "post-install failed" }
+      - name: nový projekt (zdravý start) – založení + vlastní kontrola
+        shell: bash
+        run: |
+          node auditor/tools/new-project.mjs "$RUNNER_TEMP/novy-projekt" --yes --bez-auditora --no-launch --no-shortcut --no-github --no-trust
+          cd "$RUNNER_TEMP/novy-projekt"
+          test -f CLAUDE.md && test -f .claude/agents/kontrolor.md && test -f .git/hooks/pre-commit
+          node .claude/hooks/release-check.mjs && node .claude/hooks/hygiene-all.mjs
       - name: assert – workspace, brána, commit jen instalace, cizí soubory netknuté
         shell: bash
         run: |

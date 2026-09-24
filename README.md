@@ -9,6 +9,10 @@
 > proposed fixes to the project agent, enforces *stop-the-line*, independently re-verifies every fix through six gates, and gates the
 > release with **technical barriers** (Claude Code hooks, git pre-commit, GitHub Actions) — not just words in a prompt.
 >
+> **Three paths** from the start menu: **(1) a new project set up healthy from day one** — the auditor's rules, an independent read-only
+> *reviewer* subagent and the same technical gates live inside the project, no separate auditor needed; **(2) audit a project on this
+> computer** (rescue of a project in trouble); **(3) audit a GitHub repo** from its URL only (nothing installed at the client).
+>
 > The tool, its prompts and documentation are in **Czech** today. An English layer is the most wanted contribution — see
 > [CONTRIBUTING.md](CONTRIBUTING.md). Windows (`START.cmd`) and macOS/Linux (`start.sh`) are supported.
 
@@ -26,8 +30,8 @@ STOP-THE-LINE, každou opravu nezávisle ověří (šest bran) a vydání povol�
 Vznikl z reálné potřeby: agenti píšou kód rychle, ale „hotovo" často neznamená hotovo. Auditor je druhý pár očí, který nemá motivaci
 schválit vlastní práci.
 
-**Pro koho:** **záchrana** rozjetého projektu je primární účel; **prevence** od prvního dne funguje také (pravidla a brány pro agenta), ale první audit
-prázdného repa skoro nic nenajde. Především tedy pro rozjetý projekt v problémech — žere tokeny, agent vyrábí nesmysly, v repu je nepořádek. Auditor zpětně dožene,
+**Pro koho:** **záchrana** rozjetého projektu je primární účel auditora. Pro **nový projekt** je `[1]` zdravý start: pravidla auditora, nezávislý
+kontrolor a pojistky přímo v projektu, bez samostatného auditora (docs §10d). Především tedy pro rozjetý projekt v problémech — žere tokeny, agent vyrábí nesmysly, v repu je nepořádek. Auditor zpětně dožene,
 co chybí (testy, pořádek, zálohy), a dopředu vynutí, aby testy vznikaly se zadáním. Do hodiny první lidská stránka `AUDIT/00_prvni_dojem.md`.
 
 **Není to jednorázový sken.** Auditor v projektu zůstává: každé vydání jde přes jeho bránu, každý start Kapitána začíná jeho zprávami,
@@ -36,9 +40,14 @@ každá oprava se nezávisle ověřuje a chování Kapitána se měří (falešn
 **Auditor vs. CI:** nenahrazuje CI, krmí ho — každý nález musí skončit jako mechanická pojistka (test/lint/hook/CI check). Co CI neumí
 (záměr, průchod funkcí bez testů, „zelený test testuje něco jiného“, nezapojená oprava, smyčka s agentem), dělá auditor. Podrobně v docs §3b.
 
+**Tři cesty (rozcestník `START.cmd` / `start.sh`):** `[1]` **nový projekt** zdravě od začátku (pravidla, nezávislý kontrolor a pojistky přímo
+v projektu; doporučeno v kombinaci se samostatným auditorem, který běží periodicky a může zastavit vydání) · `[2]` **audit projektu na disku** (záchrana rozjetého projektu) · `[3]` **audit GitHub repa**
+(klient pošle jen adresu, u něj se nic neinstaluje).
+**Statistika:** na konci každého auditu `STATISTIKA.html` — řádky kódu, obrazovky, nálezy, čas a přesné tokeny.
+
 ## Rychlý start
 
-**Windows:** rozbal, poklepej na `START.cmd` → `[1]` (cesta k projektu) nebo `[2]` (prohledá disky, vybereš projekty v prohlížeči).
+**Windows:** rozbal, poklepej na `START.cmd` → `[1]` nový projekt · `[2]` audit projektu na disku (cesta, nebo Enter = prohledat disky a vybrat) · `[3]` GitHub repo.
 **macOS / Linux:** `bash start.sh`.
 
 Instalátor se na nic technického neptá. Vytvoří vedle projektu složku `<projekt>-audit` (workspace auditora), nastaví pojistky na obou
@@ -65,7 +74,7 @@ Detaily: [`auditor/CLAUDE.md`](auditor/CLAUDE.md) (ústava auditora), [`auditor/
 
 ## CI
 
-Každý push a PR běží na **Windows, Linuxu i macOS**: syntaxe Node/bash/PowerShell (vč. BOM a zákazu bash4-ismů), samotest bran (71 scénářů)
+Každý push a PR běží na **Windows, Linuxu i macOS**: syntaxe Node/bash/PowerShell (vč. BOM a zákazu bash4-ismů), samotest bran (94 scénářů vč. nového projektu)
 a end-to-end instalace do fixture repa s rozdělanou prací (ověřuje, že se do gitu uloží jen soubory instalace a brána blokuje). Tag `v*` vydá zip
 jako GitHub Release. Workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
