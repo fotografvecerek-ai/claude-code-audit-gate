@@ -21,7 +21,7 @@ $model = if ($Yes) { $Model } else { Ask "Model hlavního vlákna auditora (clau
 
 # 1) workspace
 New-Item -ItemType Directory -Force -Path $ws | Out-Null
-foreach ($d in 'CLAUDE.md','README.md','BRIDGE.md','.claude','checklists','templates','tools','kapitan-side') { Copy-Item -Recurse -Force (Join-Path $pkg $d) $ws }
+foreach ($d in 'CLAUDE.md','README.md','BRIDGE.md','.claude','checklists','templates','tools','kapitan-side','starter') { Copy-Item -Recurse -Force (Join-Path $pkg $d) $ws }
 # AUDIT/ = data auditora (nalezy, verdikty, bus, retro) - pri aktualizaci se NIKDY neprepisuje; ze sablony jen chybejici soubory
 Get-ChildItem (Join-Path $pkg 'AUDIT') -Recurse -File | ForEach-Object { $rel = $_.FullName.Substring((Join-Path $pkg 'AUDIT').Length); $dst = Join-Path (Join-Path $ws 'AUDIT') $rel; if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null; Copy-Item $_.FullName $dst } }
 foreach ($d in 'AUDIT/01_nalezy/momentky','AUDIT/03_dukazy','AUDIT/04_verdikty','AUDIT/bus','AUDIT/.auth') { New-Item -ItemType Directory -Force -Path (Join-Path $ws $d) | Out-Null }

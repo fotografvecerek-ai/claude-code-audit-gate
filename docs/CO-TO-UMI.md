@@ -168,12 +168,13 @@ Vlastník čte prakticky jen `02_HANDOFF.md` (co je špatně a proč), `05_relea
 | | ZÁCHRANA — rozjetý projekt | PREVENCE — nový projekt |
 |---|---|---|
 | Situace | projekt je rozbitý a nekonzistentní: žere tokeny, agent vyrábí nesmysly, nepořádek, žádné testy, neznámý stav záloh | prázdné nebo malé repo, chceš ho udržet zdravé |
-| Co auditor udělá | plný audit 12 oblastí, první dojem do hodiny, handoff, STOP-THE-LINE, ověření oprav, brána vydání | první audit skoro nic nenajde — hodnota jsou **pravidla a brány od prvního dne** |
-| Co funguje od začátku | — | test se zadáním, hygienický pre-commit, provizoria jen v `.tmp/`, jediný zdroj pravdy, brána vydání, most, audit s každým vydáním |
-| Pro koho je to stavěné | **ano, primárně** | ano, ale jde o prevenci, ne o audit |
+| Co zvolit v rozcestníku | `[2]` audit projektu na disku (nebo `[3]` z GitHubu) | `[1]` **nový projekt** — samostatný auditor netřeba |
+| Co dostaneš | plný audit 12 oblastí, první dojem do hodiny, handoff, STOP-THE-LINE, ověření oprav, brána vydání | pravidla auditora přímo v projektu, nezávislý **kontrolor** (subagent), stejné technické pojistky, CI (§10d) |
+| Co funguje od začátku | — | test se zadáním, „hotovo“ = ověřeno, pořádek v repu, jediný zdroj pravdy, zálohy, vydání jen s 🟢 kontrolora |
 
-Na rovinu: auditní mašinerie (průchod obrazovek, SSOT, hygiena, efektivita) je stavěná na existující kód. Kdo začíná s testy, CI
-a pořádkem od prvního dne, dostane z auditora hlavně nezávislou smyčku s agentem a pojistky, aby to tak zůstalo.
+Na rovinu: auditní mašinerie (průchod obrazovek, SSOT, hygiena, efektivita) je stavěná na existující kód — u prázdného repa by skoro nic
+nenašla. Proto nový projekt dostane místo auditora jeho pravidla a pojistky rovnou do sebe (§10d). Když se přesto dostane do problémů,
+připojíš auditora přes `[2]`.
 
 **Především pro rozjetý projekt, který se dostal do problémů.** Typická situace: máš skvělý projekt, ale žere ti tokeny, agent začíná vyrábět
 nesmysly, v repu je nepořádek a nevíš, kde začít. Když máš testy, CI a pořádek od prvního dne, jsi v pohodě a auditor ti přinese hlavně
@@ -191,7 +192,7 @@ příštím startu nebo kompakci.
 - Pro **vývojáře používajícího Claude Code na větší projekt**: druhé oči, které hlídají věci, na které se při rychlém vývoji zapomíná.
 - Pro **týmy s více agenty**: brána vydání a most fungují přes více strojů (workspace auditora je git repo).
 
-Není to pro jednorázový sken cizího repa — na to jsou lehčí nástroje. Auditor se vyplatí tam, kde se projekt **dál vyvíjí a vydává**.
+Jednorázový posudek cizího repa umí `[3]` (audit z GitHubu, §10b). Plnou hodnotu má auditor ale tam, kde se projekt **dál vyvíjí a vydává**.
 
 ## 10. Co si instaluje instalátor (a co ne)
 
@@ -201,6 +202,49 @@ Není to pro jednorázový sken cizího repa — na to jsou lehčí nástroje. A
 - Do gitu projektu se uloží jen soubory instalace; rozdělaná práce zůstane, jak byla (a auditor ji dostane jako první nález).
 - Instalátor se na nic technického neptá. Na konci se otevře okno auditora (sám začne intake) a okno Kapitána (počká, dokud běží starý).
 - Modely: auditor v plném profilu na nejsilnějším dostupném modelu (úsudek a verdikty), mechanické subagenty na levných.
+
+## 10b. Audit z GitHubu (bez instalace u klienta)
+
+`START.cmd` → `[3]` (mac/Linux `start.sh` → `[3]`): vložíš adresu GitHub repa, auditor si kód stáhne k sobě a udělá celý audit nad kopií.
+U klienta se nic neinstaluje a do jeho repa se nic nezapisuje. Soukromé repo: klient tě přizve jako spolupracovníka (stačí čtení) a ty máš
+přihlášené GitHub CLI. Výstup pro klienta: `ZPRAVA.html` (lidsky), `02_HANDOFF.md` (zadání pro jeho vývojáře nebo agenta), `STATISTIKA.html`.
+Rozdíly proti auditu vlastního projektu: chybí Kapitán a brány vydání (nemáš kam je nainstalovat), git praxe jen z historie, spotřebu tokenů
+agentů klienta lze posoudit jen z konfigurace v repu, dynamické testy jen s testovacím prostředím od klienta. Nová verze kódu:
+`aktualizovat-repo.cmd` ve workspace — auditor pak projde jen změny.
+
+## 10c. Statistika auditu
+
+Na konci každého auditu vznikne `AUDIT/STATISTIKA.html`: kolik souborů a řádků kódu auditor prošel, kolik obrazovek a prvků UI otestoval,
+kolik endpointů, kolik nálezů podle závažnosti a ověřených oprav, jak dlouho to trvalo (celkem i čistý čas práce) a kolik tokenů to stálo —
+přesně z transkriptů Claude Code, rozdělené podle modelů.
+
+## 10d. Nový projekt zdravě od začátku (bez samostatného auditora)
+
+`START.cmd` → `[1]` (mac/Linux `start.sh` → `[1]`): napíšeš název, zbytek se udělá sám — složka `C:\dev\<název>` (`~/dev/<název>`), git,
+soukromé repo na GitHubu jako záloha (Enter = ano), zástupce na ploše, a otevře se agent, který začne rozhovorem `/zacatek` (záměr, pro koho,
+jaká data, rozpočet → zadání, volba technologie s odůvodněním, kostra a první akceptační testy).
+
+Co projekt dostane (stejná pravidla, jaká auditor vynucuje u rozjetých projektů):
+
+| Co | Jak je to vynucené |
+|---|---|
+| Pravidla pro agenta v `CLAUDE.md` (test se zadáním, „hotovo" = ověřeno, jediný zdroj pravdy, pořádek, git a zálohy, bezpečnost, tokeny, technologie podle záměru) | pravidla + příkazy `/zadani`, `/hotovo`, `/uklid` |
+| Nezávislý **kontrolor** — subagent, jen čte a spouští testy, kontroluje proti checklistům auditora | hook povolí zápis do `docs/kontrola/` **jen** kontrolorovi (podle `agent_type`) a kontrolorovi nic jiného; hlavní agent si nemůže napsat „schváleno" |
+| STOP-THE-LINE při otevřeném P0/P1 | připomínka na začátku každé session + `release-check` zablokuje vydání |
+| Vydání jen s verdiktem 🟢 pro aktuální kód | `projekt-guard` (deploy, push do `main`) → `release-check` (commit, stáří, otevřené nálezy, čistý strom); CI job `vydani` |
+| Pořádek v repu, žádná tajemství a binárky | hook + git pre-commit + CI (`hygiene-all`, gitleaks) |
+| Pravidelná kontrola | na začátku session připomínka po 7 dnech nebo ~30 commitech → `/kontrola` |
+| Zpráva pro tebe | `docs/kontrola/ZPRAVA.html` — lidsky, u každého problému doporučení, otázky jako formulář s předvybranou odpovědí |
+
+**Kombinace (doporučeno):** při zakládání zvolíš `[1]` a vedle projektu se nainstaluje i samostatný auditor (`<název>-audit`). Kontrolor hlídá
+průběžně, auditor běží **periodicky** — před větším vydáním a jednou za měsíc (agent projektu to připomene). Jeho handoff agent čte na
+začátku každé session; když auditor vydání zastaví (🔴 v `05_release_gate.md`), `release-check` projektu vydání zablokuje, dokud auditor opravy
+neověří. Bez strany Kapitána a mostu — auditor se nemusí účastnit každého vydání, jen může zatáhnout za brzdu. Volba `[2]` = jen zdravý start.
+
+**Rozdíl proti samostatnému auditorovi (poctivě):** kontrolor běží ve stejném účtu a spouští ho sám agent, takže nezávislost je slabší
+(může mu špatně popsat rozsah; kontrolor má proto pravidlo „tvrzení agenta ignoruj, ověř sám"). Chybí měření chování agenta (falešná „hotovo",
+kola oprav) a průchod všech obrazovek Playwrightem. Pro nový projekt to stačí; když se projekt začne kazit, připoj auditora přes `[2]` —
+pravidla jsou stejná, pojistky si nepřekážejí.
 
 ## 11. Nejčastější otázky
 

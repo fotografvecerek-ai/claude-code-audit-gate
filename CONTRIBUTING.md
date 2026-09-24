@@ -4,7 +4,7 @@
 agent), never writes code or deploys, hands findings with proposed fixes to the project agent, enforces stop-the-line, independently
 verifies every fix (six gates) and gates the release with technical barriers (hooks, git pre-commit, CI). The tool and its documentation
 are currently in **Czech**. The most valuable first contribution is an **English (i18n) layer** — see the issue "i18n". PRs and issues in
-English are welcome. Run `node tools/selftest.mjs` before every PR (must be 100 % PASS; 70/70 on Windows, 71/71 elsewhere).
+English are welcome. Run `node tools/selftest.mjs` before every PR (must be 100 % PASS; 93/93 on Windows, 94/94 elsewhere).
 
 ## Co je vítané
 - Opravy chyb s reprodukcí (výpis okna, OS, verze Node/Git/Claude Code).
@@ -26,7 +26,7 @@ Každý PR běží `.github/workflows/ci.yml` na Windows/Linux/macOS: syntaxe, s
 
 ## Jak testovat
 ```
-node tools/selftest.mjs                 # brány, bus, gate-check, pre-commit (71 scénářů)
+node tools/selftest.mjs                 # brány, bus, gate-check, pre-commit (94 scénářů vč. nového projektu)
 bash install-multi.sh /cesta/k/projektum   # nebo START.cmd na Windows
 ```
 Chyby hlas přes issue se šablonou „Chyba instalace / běhu".

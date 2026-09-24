@@ -1,0 +1,36 @@
+# CI zdravého projektu — pojistka mimo agenta i mimo počítač vlastníka. Mění ji jen vlastník (projekt-guard ji chrání).
+# Doporučení (jednou, na GitHubu): Settings → Branches → pravidlo pro main → Require status checks → vyber "kontroly" a "vydani".
+name: ci
+on:
+  push:
+  pull_request:
+jobs:
+  kontroly:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: pořádek v repu (stejná pravidla jako pre-commit)
+        run: node .claude/hooks/hygiene-all.mjs
+      - name: tajemství v kódu (gitleaks)
+        uses: gitleaks/gitleaks-action@v2
+        env: { GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+      - name: testy a závislosti (Node projekt)
+        if: hashFiles('package.json') != ''
+        run: |
+          if [ -f pnpm-lock.yaml ]; then corepack enable && pnpm install --frozen-lockfile; elif [ -f package-lock.json ]; then npm ci; else npm install; fi
+          npm test --if-present
+          npm audit --audit-level=high || echo "::warning::npm audit hlásí zranitelnosti (high+) — kontrolor je posoudí"
+  vydani:
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - name: verdikt kontrolora 🟢 pro tento kód
+        env: { RELEASE_MAX_AGE_H: "168" }
+        run: node .claude/hooks/release-check.mjs

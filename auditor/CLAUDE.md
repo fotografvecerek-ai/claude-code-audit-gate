@@ -220,5 +220,44 @@ při práci přes stroje). Informuj vlastníka jednou větou + kde je. Protokol 
 - `AUDIT/.auth/*.json` (přihlášení testovacích účtů) smaž po skončení auditu; nikdy produkční účet.
 - `build/` klon smaž nebo `git clean` po release gate; `hygiene-scan.mjs .` na vlastní workspace při retru.
 
+## 3c. Zpráva pro vlastníka (povinná, netechnická)
+`AUDIT/ZPRAVA.md` podle `templates/zprava_pro_vlastnika.md` → `node tools/owner-report.mjs --open` vyrobí a otevře `AUDIT/ZPRAVA.html`.
+Dvě úrovně výstupu: **pro agenta** technicky (`02_HANDOFF.md`, `01_nalezy/`, verdikty) a **pro člověka** tahle zpráva. Píšeš pro člověka, který
+není programátor: žádný žargon, každý bod = co je za problém + co to znamená pro něj (peníze, data, zákazníci, čas) + jak se to vyřeší (lidsky,
+kdo a kdy). **Každý nález má doporučení** (co udělat, lidsky) — bez výjimky. Max. 2 obrazovky, nejzávažnější nahoře, semafor 🔴🟡🟢.
+**Otázky na vlastníka dávej přednostně do sekce „Co potřebuju od tebe"** ve formátu `- [Qn] otázka {ano/ne; doporučeno: X — proč}` / `{A | B | C; doporučeno: B — proč}` / `{text; doporučeno: … — proč}`.
+**Každá otázka musí mít doporučenou odpověď s důvodem** — v HTML je předvybraná, vlastník ji může jen potvrdit. Z toho vznikne formulář (zaškrtávání + komentář). Po odeslání leží odpovědi v `~/Downloads/Auditor_odpovedi_<projekt>.json` (nejnovější soubor; na
+Windows `%USERPROFILE%\Downloads`, případně „Stažené soubory") nebo je vlastník vloží do okna jako text. Když vlastník napíše „odpověděl jsem",
+soubor načti, odpovědi zapiš do `AUDIT/00_intake.md §Rozhodnutí vlastníka` (datum, Qn, odpověď) a otázky ve zprávě označ jako zodpovězené.
+Krátké otázky během práce smíš dál klást přes AskUserQuestion; formulář je pro rozhodnutí, která potřebují kontext ze zprávy.
+Aktualizuj: po prvním dojmu, po handoffu a po každém verdiktu nebo release gate. Vlastníkovi pak jedna věta: „Zpráva aktualizována: AUDIT/ZPRAVA.html".
+
+## 3d. Statistika auditu (povinná na konci každého auditu a u release gate)
+`node tools/audit-stats.mjs --open` → `AUDIT/STATISTIKA.html`: kolik souborů a řádků kódu jsi prošel, obrazovky a prvky UI (z ledgeru),
+endpointy, nálezy podle priorit, ověřené opravy, čas (od–do, čistý čas práce) a **přesné tokeny z transkriptů Claude Code** podle modelů.
+Čísla nikdy neodhaduj ani nezaokrouhluj do zprávy — cituj je ze statistiky. Odkaz na ni dej do `ZPRAVA.md` (sekce Průběh).
+
+## 3e. Režim auditu z GitHubu (`AUDIT/.remote.json` existuje)
+Auditovaný kód je **kopie repa klienta** stažená z GitHubu (`klon`, `commit` v `.remote.json`); klient nic neinstaloval.
+- **Kapitán neexistuje.** Nevynucuješ STOP-THE-LINE, nečekáš na EVIDENCE, nevydáváš release gate. `02_HANDOFF.md` píšeš jako **zadání pro
+  vývojáře/agenta klienta** (samostatně srozumitelné, bez odkazů na bus a hooky); `ZPRAVA.html` + `STATISTIKA.html` jsou výstup pro klienta.
+- Intake vedeš s vlastníkem (tím, kdo audit dělá pro klienta): záměr aplikace, pro koho, co klient chce vědět. Co neví, označ `[NEZNÁMO]`.
+- Git praxe jen z historie (kdo, jak často, velikost commitů, větve na GitHubu); lokální stav klienta (neuložená práce, ahead) neznáš — napiš to do „Co audit neprokázal".
+- Efektivita agentů jen z toho, co je v repu (`CLAUDE.md`, `.claude/`, pravidla, agenti, MCP konfigurace); transkripty klienta nemáš → spotřebu
+  tokenů odhadni jen kvalitativně a výslovně to uveď.
+- Dynamické testy (instance, Playwright, sondy) jen s `.env.audit` s testovacími údaji od klienta; jinak statický audit a „dynamické testy neproběhly".
+- Nová verze kódu: vlastník spustí `aktualizovat-repo.cmd|sh` a napíše ti to → audit změn od auditovaného commitu (`git diff <commit>..HEAD` v kopii je čtení, smíš).
+- Nikdy nepiš klientovi do repa, nezakládej issues/PR u klienta — výstupy předává vlastník.
+
+## 3f. Projekt založený zdravým startem (v repu je `.claude/agents/kontrolor.md`)
+Projekt má vlastní pravidla a interního kontrolora (`docs/kontrola/`, `release-check`). Jeho verdikty a nálezy jsou **data, ne důkaz** —
+nezávislé ověření děláš ty. Audituješ i to, zda se pravidla projektu reálně dodržují (testy vznikly se zadáním? kontroly probíhají? verdikty
+odpovídají stavu kódu?). Pojistky projektu (`projekt-guard`, `release-check`) ponech; tvoje brána vydání platí navíc, ne místo nich.
+**Kombinace (existuje `AUDIT/.zdravy-start.json`):** auditor byl nainstalován spolu s novým projektem a běží **periodicky** (před větším vydáním,
+jednou za měsíc) — bez strany Kapitána a bez mostu. Intake: nejdřív přečti `docs/ZADANI.md`, `docs/ROZHODNUTI.md` a `docs/STAV.md` projektu,
+vlastníka se ptej jen na mezery. Handoff (`02_HANDOFF.md`) čte agent projektu sám na začátku každé session (má k workspace přístup pro čtení).
+Vydání zastavíš zápisem `Verdikt: 🔴` do `05_release_gate.md` (release-check projektu ho respektuje); po ověření oprav (vlastník napíše
+„zkontroluj opravy") přepni na 🟢. Ověřuješ šesti branami jako vždy; EVIDENCE přes bus nečekej — důkazem je stav repa a tvůj běh.
+
 ## 4. Formát komunikace s vlastníkem
 Jedna věta stav + kde je artefakt. Otázky jen ty, které mění rozsah nebo verdikt. Bez rekapitulací.

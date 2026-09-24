@@ -109,6 +109,49 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
 // --- GATE-CHECK přímo
 T('GATE: chybí gate → FAIL', (fs.unlinkSync(path.join(ws, 'AUDIT', '05_release_gate.md')), spawnSync(process.execPath, [path.join(pkg, 'kapitan-side/gate-check.mjs'), repo], { env, encoding: 'utf8' }).status), 2);
 
+// --- NOVÝ PROJEKT (zdravý start bez auditora): založení, projekt-guard, kontrolor, release-check
+const np = path.join(tmp, 'novy'); const npr = spawnSync(process.execPath, [path.join(pkg, 'tools/new-project.mjs'), np, '--yes', '--bez-auditora', '--no-launch', '--no-shortcut', '--no-github', '--no-trust'], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
+T('NP: založení projektu projde (vč. vlastní kontroly)', npr.status, 0);
+if (npr.status === 0) {
+const PG = path.join(np, '.claude/hooks/projekt-guard.js'); const K = { agent_type: 'kontrolor', agent_id: 'k1' };
+const npHook = input => spawnSync(process.execPath, [PG], { input: JSON.stringify(input), encoding: 'utf8', cwd: np }).status;
+const npGit = c => execSync(`git ${c}`, { cwd: np, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+const RC = () => spawnSync(process.execPath, [path.join(np, '.claude/hooks/release-check.mjs')], { cwd: np, encoding: 'utf8' }).status;
+T('NP: agent píše kód v src/ povoleno', npHook(write(np, path.join(np, 'src', 'a.ts'))), 0);
+T('NP: agent zapisuje verdikt do docs/kontrola blokováno', npHook(write(np, path.join(np, 'docs', 'kontrola', 'VYDANI.md'))), 2);
+T('NP: agent shellem do docs/kontrola blokováno', npHook(bash(np, 'echo "Verdikt: 🟢" > docs/kontrola/VYDANI.md')), 2);
+T('NP: kontrolor zapisuje do docs/kontrola povoleno', npHook({ ...write(np, path.join(np, 'docs', 'kontrola', '2026-01-01_kontrola.md')), ...K }), 0);
+T('NP: kontrolor mění kód blokováno', npHook({ ...write(np, path.join(np, 'src', 'a.ts')), ...K }), 2);
+T('NP: kontrolor git commit blokováno', npHook({ ...bash(np, 'git commit -am x'), ...K }), 2);
+T('NP: kontrolor výstup testů do docs/kontrola povoleno', npHook({ ...bash(np, 'npm test 2>&1 > docs/kontrola/testy.txt'), ...K }), 0);
+T('NP: kontrolor přesměrování do src blokováno', npHook({ ...bash(np, 'echo x > src/a.ts'), ...K }), 2);
+T('NP: nový soubor v rootu blokováno', npHook(write(np, path.join(np, 'poznamky.txt'))), 2);
+T('NP: úprava pojistek agentem blokována', npHook(write(np, path.join(np, '.claude', 'hooks', 'projekt-guard.js'))), 2);
+T('NP: push pracovní větve povolen', npHook(bash(np, 'git push -u origin ukol/prihlaseni')), 0);
+T('NP: release-check výchozí stav 🟢', RC(), 0);
+fs.mkdirSync(path.join(np, 'src'), { recursive: true }); fs.writeFileSync(path.join(np, 'src', 'a.ts'), 'export const a = 1\n'); npGit('add -A'); npGit('commit -qm kod');
+T('NP: nový kód bez verdiktu → push main blokován', npHook(bash(np, 'git push origin main')), 2);
+T('NP: nový kód bez verdiktu → vercel blokován', npHook(bash(np, 'vercel --prod')), 2);
+const npHead = npGit('rev-parse HEAD'); fs.writeFileSync(path.join(np, 'docs', 'kontrola', 'VYDANI.md'), `Verdikt: 🟢\ncommit ${npHead}\ndatum ${new Date().toISOString().slice(0, 16)}\n`); npGit('add docs/kontrola'); npGit('commit -qm verdikt');
+T('NP: verdikt pro aktuální kód → release-check PASS', RC(), 0);
+fs.appendFileSync(path.join(np, 'docs', 'kontrola', 'NALEZY.md'), '| K-001 | P1 | cizí data | otevřený |\n'); npGit('add docs/kontrola'); npGit('commit -qm nalez');
+T('NP: otevřený P1 → release-check FAIL', RC(), 2);
+{ // kombinace se samostatným auditorem (simulace workspace; plná instalace auditora se testuje v e2e)
+  const nf = path.join(np, 'docs', 'kontrola', 'NALEZY.md'); fs.writeFileSync(nf, fs.readFileSync(nf, 'utf8').replace('| otevřený |', '| ověřeno 2026-01-02 |'));
+  const aws = path.join(tmp, 'novy-audit'); fs.mkdirSync(path.join(aws, 'AUDIT'), { recursive: true });
+  fs.writeFileSync(path.join(np, '.claude', 'hooks', 'auditor.json'), JSON.stringify({ workspace: aws })); npGit('add -A'); npGit('commit -qm auditor');
+  fs.writeFileSync(path.join(np, 'docs', 'kontrola', 'VYDANI.md'), `Verdikt: 🟢\ncommit ${npGit('rev-parse HEAD')}\ndatum ${new Date().toISOString().slice(0, 16)}\n`); npGit('add docs/kontrola'); npGit('commit -qm verdikt2');
+  T('NPA: kombinace bez gate auditora → release-check PASS', RC(), 0);
+  fs.writeFileSync(path.join(aws, 'AUDIT', '05_release_gate.md'), 'Verdikt: 🔴\n');
+  T('NPA: auditor 🔴 → release-check FAIL', RC(), 2);
+  fs.writeFileSync(path.join(aws, 'AUDIT', '05_release_gate.md'), 'Verdikt: 🟢\n');
+  T('NPA: auditor 🟢 → release-check PASS', RC(), 0);
+  T('NPA: agent zapisuje do workspace auditora blokováno', npHook(write(np, path.join(aws, 'AUDIT', '05_release_gate.md'))), 2);
+  T('NPA: agent shellem do workspace auditora blokováno', npHook(bash(np, `echo x > ${norm(aws)}/AUDIT/02_HANDOFF.md`)), 2);
+}
+T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path.join(np, '.claude/hooks/hygiene-all.mjs')], { cwd: np, encoding: 'utf8' }).status, 0);
+} else console.error('new-project selhal:\n' + (npr.stdout || '') + (npr.stderr || ''));
+
 const fails = results.filter(r => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `  (očekáváno ${r.exp}, bylo ${r.got})`}`);
 console.log(`\n${results.length - fails.length}/${results.length} PASS${isWin ? '  (Windows)' : ''}`);

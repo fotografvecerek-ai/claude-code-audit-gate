@@ -60,6 +60,8 @@ auditor/
 │   └── static-checks.sh               ← tsc, eslint, pnpm audit, semgrep, gitleaks, jscpd, madge, knip, grep pravidla
 ├── tools/bus.mjs                 ← komunikační most (viz BRIDGE.md)
 ├── BRIDGE.md                     ← protokol mostu
+├── NOVY-PROJEKT.cmd + tools/new-project.mjs ← nový projekt zdravě od začátku (bez samostatného auditora)
+├── starter/                      ← šablona nového projektu: CLAUDE.md, subagent kontrolor, příkazy, hooky projekt-guard/release-check/session-start, CI, docs
 ├── INSTALL-MULTI.cmd / install-multi.sh ← průzkum disků → HTML report → profily → instalace více projektů
 ├── INSTALL.cmd / install.sh      ← instalace na jedno kliknutí (jeden projekt)
 ├── setup-auditor.ps1 / .sh       ← průvodce nastavením (parametry -Repo -Workspace -Remote -Model -Yes / env AUDITOR_*)
@@ -125,7 +127,7 @@ Gate platí pro merge --no-ff i squash auditovaného commitu, pokud je **hash st
 - Spuštění: `start-auditor.cmd` = `claude --add-dir <repo>` z workspace; první zpráva „Začni intake".
 
 ## Ověření po instalaci (vždy, i po každé změně hooků)
-`node tools/selftest.mjs` — 71 scénářů bran (auditor, Kapitán, pre-commit, bus, gate-check) musí být 100 % PASS.
+`node tools/selftest.mjs` — 94 scénářů bran (auditor, Kapitán, pre-commit, bus, gate-check, nový projekt: projekt-guard, kontrolor, release-check) musí být 100 % PASS.
 Na Windows navíc jednou spusť `claude --verbose` a ověř, že shellové příkazy chodí jako `Bash` (Git Bash) — hooky mají větev i pro
 `PowerShell`, ale rozhodující je skutečný `tool_name`.
 
@@ -187,6 +189,23 @@ AUDIT/
 ```
 
 Auditor nikdy nezapisuje mimo `AUDIT/` a `tools/`; Kapitán zapisuje jen do `03_dukazy/`.
+
+## Změny v1.3.0
+- Rozcestník `START.cmd`/`start.sh`: [1] nový projekt · [2] audit projektu na disku · [3] audit GitHub repa.
+- **Nový projekt zdravě od začátku**: `NOVY-PROJEKT.cmd` → `tools/new-project.mjs` → šablona `starter/` (CLAUDE.md, subagent `kontrolor`,
+  příkazy `/zacatek /zadani /hotovo /kontrola /vydani /uklid`, hooky `projekt-guard.js`, `release-check.mjs`, `session-start.mjs`,
+  `hygiene-all.mjs` + sdílená hygiena z `kapitan-side/hygiene/`, checklisty auditora do `.claude/kontrola/checklists/`, CI, dokumenty).
+  Nezávislost kontrolora vynucuje hook podle `agent_type`/`agent_id` z hook vstupu Claude Code. Ústava §3f: jak auditovat takový projekt.
+- **Kombinace** (výchozí při zakládání): vedle nového projektu i samostatný auditor bez strany Kapitána (`AUDIT/.zdravy-start.json`),
+  periodický; jeho 🔴 gate blokuje `release-check` projektu, handoff čte agent projektu při startu (ústava §3f). Workspace dostává i `starter/`.
+- Samotest 94 scénářů.
+
+## Změny v1.2.0
+- Audit z GitHubu (`audit-github.ps1|sh`, `AUDIT-GITHUB.cmd`, `tools/remote-clone.mjs`, ústava §3e) a statistika auditu (`tools/audit-stats.mjs`, §3d).
+
+## Změny v1.1.3
+- **Zpráva pro vlastníka** `AUDIT/ZPRAVA.html`: netechnická, max. 2 obrazovky, semafor, „co to znamená pro tebe", „co potřebuju od tebe"; auditor ji píše
+  podle `templates/zprava_pro_vlastnika.md` a aktualizuje po prvním dojmu, handoffu a každém verdiktu (`tools/owner-report.mjs`, bez závislostí, tisknutelná).
 
 ## Změny v1.1.0
 - **Aktualizace zachovává audit**: `AUDIT/` (nálezy, verdikty, handoff, bus, retro CHYBOVNÍK, průběh) se při opakované instalaci NIKDY nepřepisuje —

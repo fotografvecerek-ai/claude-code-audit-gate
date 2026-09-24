@@ -105,8 +105,10 @@ elseif (-not $ghOk) {
 
 Step "Zástupci na ploše"
 try { $wsh = New-Object -ComObject WScript.Shell; $desk = [Environment]::GetFolderPath('Desktop')
-  foreach ($pair in @(@("Auditor - $name", 'start-auditor.cmd'), @("Kapitan - $name", 'start-kapitan.cmd'))) { $lnk = $wsh.CreateShortcut((Join-Path $desk "$($pair[0]).lnk")); $lnk.TargetPath = 'cmd.exe'; $lnk.Arguments = "/k `"$Workspace\$($pair[1])`""; $lnk.WorkingDirectory = $Workspace; $lnk.IconLocation = 'shell32.dll,137'; $lnk.Save() }
-  Ok "na ploše: 'Auditor - $name' a 'Kapitan - $name' (Kapitán počká, dokud v projektu běží starý)" } catch { Warn "zástupce se nepodařilo vytvořit: $_" }
+  $combo = Test-Path (Join-Path $Workspace 'AUDIT\.zdravy-start.json')
+  $pairs = @(,@("Auditor - $name", 'start-auditor.cmd')); if (-not (Test-Path (Join-Path $Workspace 'AUDIT\.remote.json')) -and -not $combo) { $pairs += ,@("Kapitan - $name", 'start-kapitan.cmd') }
+  foreach ($pair in $pairs) { $lnk = $wsh.CreateShortcut((Join-Path $desk "$($pair[0]).lnk")); $lnk.TargetPath = 'cmd.exe'; $lnk.Arguments = "/k `"$Workspace\$($pair[1])`""; $lnk.WorkingDirectory = $Workspace; $lnk.IconLocation = 'shell32.dll,137'; $lnk.Save() }
+  if ($combo) { Ok "na ploše: 'Auditor - $name' (agent projektu má vlastního zástupce 'Projekt - $name')" } else { Ok "na ploše: 'Auditor - $name' a 'Kapitan - $name' (Kapitán počká, dokud v projektu běží starý)" } } catch { Warn "zástupce se nepodařilo vytvořit: $_" }
 
 Step "Přístup Claude Code ke složkám (bez dialogu při prvním startu)"
 node (Join-Path $Workspace 'tools\trust-folders.mjs') $Workspace $Repo 2>&1 | ForEach-Object { "  $_" }
@@ -117,6 +119,8 @@ $st | Select-String -Pattern '^FAIL|/\d+ PASS|^Error|Command failed' | ForEach-O
 if ($stOk) { Ok "samotest v pořádku" } else { Write-Host "  ❌ SAMOTEST NEPROŠEL - auditora zatím nespouštěj. Zkopíruj celý tento výpis a pošli ho Claude, opraví to." -ForegroundColor Red }
 
 Write-Host "`n================ HOTOVO: $name ================" -ForegroundColor Green
+if (Test-Path (Join-Path $Workspace 'AUDIT\.zdravy-start.json')) { Write-Host "Samostatný auditor připojen k novému projektu (kombinace): spouštíš ho zástupcem 'Auditor - $name' před větším vydáním nebo jednou za měsíc." -ForegroundColor Cyan; exit 0 }
+if (Test-Path (Join-Path $Workspace 'AUDIT\.remote.json')) { Write-Host "Audit z GitHubu: auditor pracuje nad kopií repa, klientovi se nic neinstaluje." -ForegroundColor Cyan } else {
 Write-Host "CO SE STALO (nic z toho nemusíš dělat ručně):" -ForegroundColor Cyan
 Write-Host "  - Auditor je nainstalovaný v  $Workspace  a za chvíli se sám otevře a začne intake (ptá se lidsky; odpovídáš)."
 Write-Host "  - Kapitán (tvůj projektový agent) už auditora vidí automaticky, ať ho spustíš jakkoliv (nastavení projektu) - při startu dostane jeho zprávy."
@@ -125,6 +129,7 @@ Write-Host "    Ruční deploy: $dw <tvůj příkaz>"
 Write-Host "`nMUSÍŠ NĚCO VYPNOUT? Ne. Jen pokud ti teď běží Kapitán (Claude Code v projektu), ZAVŘI HO A SPUSŤ ZNOVU - nové pojistky" -ForegroundColor Yellow
 Write-Host "a zprávy od auditora se načítají jen při startu. Během auditu může Kapitán normálně pracovat; auditor pracuje na vlastní kopii." -ForegroundColor Yellow
 if ($todo.Count) { Write-Host "`nCO SE NEPODAŘILO UDĚLAT AUTOMATICKY (můžeš nechat na později, auditor ti připomene):" -ForegroundColor Yellow; $i = 1; foreach ($t in $todo) { Write-Host "  $i. $t"; $i++ } }
+}
 Write-Host "`nPozn.: pokud na GitHubu uvidíš červený běh 'auditor-gate', je to správně - zezelená, až auditor povolí vydání."
 $oldMsg = "Auditor byl nainstalován. Dokonči jen rozdělanou položku (nic nového nezačínej), ulož práci do gitu (git add + commit + push), napiš mi jednou větou, kde jsi skončil, a ukonči session (/exit). Příště tě spustím znovu - nová session má napojení na auditora."
 if ($stOk -and -not $NoLaunch) {
