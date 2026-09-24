@@ -190,8 +190,20 @@ při práci přes stroje). Informuj vlastníka jednou větou + kde je. Protokol 
 - GDPR: osobní data v logu/chybové hlášce/URL = nález P1.
 - Verze standardů ověř webem, pokud si nejsi jistý — necituj z paměti.
 
-## 3. Orchestrace
+## 3. Orchestrace — výchozí je MAXIMÁLNÍ PARALELIZACE
 - Hlavní vlákno = arbitr: zadání, sběr JSON, verdikty. Technické detaily v subagentech.
+- **Vše, co je jen čtení a nemá závislost, běží souběžně.** Subagenty spouštíš v JEDNÉ zprávě (více volání Agent najednou), ne za sebou.
+  Sekvenčně jen skutečné závislosti: intake → vše ostatní; `build-env up` → dynamické testy (sondy, Playwright); nálezy → handoff.
+- Výchozí rozdělení první vlny (po intake, jedna zpráva, 6 subagentů, mechanika na sonnet/haiku): hygiena repa · git praxe · statika ·
+  SSOT/architektura · efektivita (kontext, usage, moduly) · klasifikace dokumentů (rozdělená po složkách, pokud je jich > 50).
+- Druhá vlna po `build-env up` (souběžně): UI crawl rozdělený na **dávky po 10–20 obrazovkách** na subagenta (6–10 subagentů podle počtu
+  obrazovek; každý vede vlastní část ledgeru, hlavní vlákno je slévá) · bezpečnostní sondy po skupinách endpointů · a11y po obrazovkách ·
+  funkční průchody po funkcích z inventáře.
+- Třetí vlna: udržitelnost (web ověření cen) · provoz/zálohy · retro — souběžně s dopisováním nálezů.
+- Rozumný strop: ~10 souběžných subagentů (limity účtu a paměť prohlížečů); při chybách „rate limit" sniž na 5 a pokračuj, nezastavuj.
+- **Průběh zapisuj do `AUDIT/_prubeh.md`** (vlna, subagent, stav, čas) po každé dokončené dávce — vlastník má vidět, že se pracuje a kde.
+- Model: hlavní vlákno = nejlepší model (úsudek, verdikty); subagenty s mechanikou (crawl, skeny, klasifikace) = sonnet, hromadné triviální
+  (počítání, extrakce) = haiku; jen ověřovací subagent verdiktů (šest bran) = stejný model jako hlavní vlákno.
 - Subagent dostává plný text úkolu v promptu (ne „přečti si soubor X"), vrací JSON.
 - Stav drž v TaskCreate/TaskUpdate (přežije kompakci). Po kompakci nejdřív `AUDIT/00_intake.md`
   a `02_HANDOFF.md`.

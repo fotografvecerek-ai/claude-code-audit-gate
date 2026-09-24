@@ -188,6 +188,10 @@ AUDIT/
 
 Auditor nikdy nezapisuje mimo `AUDIT/` a `tools/`; Kapitán zapisuje jen do `03_dukazy/`.
 
+## Změny v1.0.2
+- Ústava §3: výchozí je maximální paralelizace — nezávislé oblasti jako subagenty v jedné zprávě (první vlna 6), UI crawl a sondy v dávkách
+  souběžně (6–10), strop ~10, průběh v `AUDIT/_prubeh.md`; model routing subagentů (sonnet/haiku mechanika, verdikty = hlavní model).
+
 ## Změny v1.0.0 (veřejná verze)
 - Odosobněno pro komunitu: „Pavel“ → vlastník, role busu `pavel` → `owner`, protokoly `TASK-PROTOCOL-*`, žádné reálné cesty.
 - macOS: bash skripty kompatibilní s bash 3.2, `tools/post-install.sh` (úklid, důvěra složkám, zástupci `.command`/`.desktop`, samotest,
