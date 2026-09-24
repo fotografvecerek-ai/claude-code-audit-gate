@@ -76,7 +76,8 @@ subagent s promptem z `templates/` a vrací JSON nálezů. Ty jen sbíráš a de
    Nástroj: `tools/endpoint-probe.mjs` proti lokálnímu buildu (nikdy proti produkci bez
    souhlasu vlastníka).
 3. **Funkce**: pro každou položku feature inventory: AK „z reálného vstupního bodu UI udělá X"
-   → Playwright průchod (touch emulace u mobile) → PASS/FAIL + screenshot.
+   → Playwright průchod (touch emulace u mobile) → PASS/FAIL + screenshot. **Funkce bez akceptačního testu v repu = nález** (P2; P1 u funkcí
+   s daty/platbami) s návrhem testu; při dalším auditu kontroluješ, že nová zadání vznikla s testem (audit-rezim §4b) — test má růst se zadáním, ne zpětně.
 4. **UI/design**: `tools/playwright/ui-sanity.spec.ts` — překryvy prvků, pořadí vrstev
    (elementFromPoint ≠ očekávaný prvek), ořezaný text, horizontální scroll, dropdown logika
    (otevře/zavře klikem mimo, Escape, jen jedno otevřené), pořadí a konzistence položek
@@ -201,6 +202,9 @@ při práci přes stroje). Informuj vlastníka jednou větou + kde je. Protokol 
   funkční průchody po funkcích z inventáře.
 - Třetí vlna: udržitelnost (web ověření cen) · provoz/zálohy · retro — souběžně s dopisováním nálezů.
 - Rozumný strop: ~10 souběžných subagentů (limity účtu a paměť prohlížečů); při chybách „rate limit" sniž na 5 a pokračuj, nezastavuj.
+- **První dojem pro vlastníka do ~1 hodiny**: po doběhnutí 1. vlny napiš `AUDIT/00_prvni_dojem.md` — jedna stránka lidsky: co žere tokeny
+  (CLAUDE.md, MCP, model routing), kde je nepořádek (root, binárky, staré zdroje pravdy), jestli je práce zálohovaná (ahead/dirty), co je
+  nejnaléhavější a co bude trvat. Vlastník nemá čekat hodiny na první informaci. Pošli mu jednu větu + cestu.
 - **Průběh zapisuj do `AUDIT/_prubeh.md`** (vlna, subagent, stav, čas) po každé dokončené dávce — vlastník má vidět, že se pracuje a kde.
 - Model: hlavní vlákno = nejlepší model (úsudek, verdikty); subagenty s mechanikou (crawl, skeny, klasifikace) = sonnet, hromadné triviální
   (počítání, extrakce) = haiku; jen ověřovací subagent verdiktů (šest bran) = stejný model jako hlavní vlákno.

@@ -25,6 +25,9 @@ skill `audit-rezim`. Auditor = jediná brána vydání; jeho verdikt nelze nahra
    Deploy = nejdřív `node <ws>/kapitan-side/gate-check.mjs <repo>` (hook ho vynutí i v .bat) → `post APPLIED --ref <deploy id>` po nasazení.
 4. **Status** vždy jeden z: `DONE` / `DONE_WITH_CONCERNS <co>` / `BLOCKED <proč>` / `NEEDS_CONTEXT <co>`. Falešné DONE =
    porušení; auditor ho odhalí šesti branami a položka se vrací s iterací +1 (max 3, pak eskalace vlastníkovi).
+4b. **Test se zadáním (platí pro NOVÁ zadání, ne jen pro opravy)**: každé nové zadání od vlastníka = nejdřív akceptační test napsaný vlastníkovými
+   slovy („z reálného vstupního bodu UI udělá X“), teprve pak implementace. Funkce bez akceptačního testu = nález auditora při dalším auditu.
+   Testy rostou se zadáním, ne zpětně.
 5. **Nic navíc**: diff jen pro položku. Nápady na vylepšení → kanban, ne do diffu.
 6. **Vydání**: až `05_release_gate.md` 🟢. Kapitán nikdy nezapisuje do `AUDIT/` mimo `03_dukazy/`; nikdy neupravuje verdikty.
 7. **Efektivita — trvalé povinnosti Kapitána** (auditor kontroluje při každém auditu):

@@ -11,3 +11,10 @@ Historie změn je v `README.md` (sekce „Změny v…"). Od zveřejnění (v1.0.
 
 ## 1.0.2
 - Výchozí maximální paralelizace auditu (subagenty v jedné zprávě, dávky crawl/sond, strop ~10), průběh v AUDIT/_prubeh.md.
+
+## 1.0.3
+- CI/CD pro repo samotné: GitHub Actions na Windows/Linux/macOS (syntaxe, samotest, e2e instalace), release workflow na tag `v*` (zip jako Release). Badge v README.
+- Docs §3b „Auditor vs. CI“ (CZ+EN) + odstavec v README.
+
+## 1.1.0
+- Aktualizace nikdy nepřepisuje AUDIT/ (dřív přepsala CHYBOVNIK.md). Test se zadáním (audit-rezim §4b), nález „funkce bez testu", sekce TST v handoffu; AUDIT/00_prvni_dojem.md do ~1 h; přerámování pro záchranu rozjetého projektu; Auditor vs. CI.

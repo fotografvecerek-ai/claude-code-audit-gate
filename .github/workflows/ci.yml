@@ -1,0 +1,114 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  selftest:
+    name: selftest (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: git identity (selftest vytváří dočasná repa)
+        run: |
+          git config --global user.email ci@ci
+          git config --global user.name ci
+      - name: syntax – Node tools and hooks
+        shell: bash
+        run: |
+          set -e
+          for f in auditor/tools/*.mjs auditor/kapitan-side/*.mjs auditor/kapitan-side/hygiene/*.mjs; do node --check "$f"; done
+          for f in auditor/.claude/hooks/*.js auditor/kapitan-side/*.js auditor/kapitan-side/hygiene/*.js; do node --check "$f"; done
+      - name: syntax – bash (bash 3.2 kompatibilita se ověřuje během macOS e2e)
+        if: runner.os != 'Windows'
+        run: |
+          bash -n start.sh
+          for f in auditor/*.sh auditor/tools/*.sh auditor/kapitan-side/hygiene/*.sh; do bash -n "$f"; done
+          if ! grep -rnE "mapfile|readarray|declare -A|xargs -r|-newermt" --include=*.sh . ; then echo "ok: no bash4isms"; else echo "bash4ism found"; exit 1; fi
+      - name: syntax – PowerShell (parser 5.1-kompatibilní, BOM)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $errs = $null
+          foreach ($f in Get-ChildItem auditor -Filter *.ps1) {
+            $bytes = [IO.File]::ReadAllBytes($f.FullName)
+            if (-not ($bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF)) { throw "$($f.Name): chybí UTF-8 BOM" }
+            [System.Management.Automation.Language.Parser]::ParseFile($f.FullName, [ref]$null, [ref]$errs) | Out-Null
+            if ($errs) { $errs | ForEach-Object { Write-Error $_.Message }; throw "$($f.Name): parse error" }
+          }
+          Write-Host "ok: ps1 parse + BOM"
+      - name: selftest bran (71 scénářů; Windows 70)
+        run: node auditor/tools/selftest.mjs
+
+  e2e-install:
+    name: e2e install (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    needs: selftest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: git identity
+        run: |
+          git config --global user.email ci@ci
+          git config --global user.name ci
+      - name: fixture repo (dirty tree + staged file, jako reálný projekt)
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/app/src" && cd "$RUNNER_TEMP/app"
+          git init -q -b main
+          echo '{"name":"app","dependencies":{"next":"15"}}' > package.json
+          echo '# projekt' > CLAUDE.md
+          echo 'x' > src/a.ts
+          printf '@echo off\nvercel --prod\n' > deploy.bat
+          git add -A && git commit -qm init
+          echo 'rozdelane' >> CLAUDE.md
+          echo 'todo' > pozadavky.md && git add pozadavky.md
+      - name: install (bash) – Linux/macOS
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          HOME="$RUNNER_TEMP/home" mkdir -p "$RUNNER_TEMP/home/Desktop"
+          HOME="$RUNNER_TEMP/home" bash auditor/install.sh "$RUNNER_TEMP/app" < /dev/null
+      - name: install (PowerShell) – Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $repo = Join-Path $env:RUNNER_TEMP 'app'; $ws = Join-Path $env:RUNNER_TEMP 'app-audit'
+          powershell -NoProfile -ExecutionPolicy Bypass -File auditor/setup-auditor.ps1 -Repo $repo -Workspace $ws -Yes -Model opus -Kapitan ano -Hygiena ano -CI ne
+          if ($LASTEXITCODE -ne 0) { throw "setup failed" }
+          powershell -NoProfile -ExecutionPolicy Bypass -File auditor/post-install.ps1 -Repo $repo -Workspace $ws -NoGitHub -NoLaunch
+          if ($LASTEXITCODE -ne 0) { throw "post-install failed" }
+      - name: assert – workspace, brána, commit jen instalace, cizí soubory netknuté
+        shell: bash
+        run: |
+          set -e
+          WS="$RUNNER_TEMP/app-audit"; REPO="$RUNNER_TEMP/app"
+          test -f "$WS/CLAUDE.md" && test -f "$WS/.claude/settings.json" && test -f "$REPO/.claude/hooks/kapitan-audit-guard.js"
+          node -e "const s=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));if(!Array.isArray(s.hooks.PreToolUse))throw new Error('auditor hooks not array')" "$WS/.claude/settings.json"
+          node -e "const s=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));if(!Array.isArray(s.permissions.additionalDirectories)||!Array.isArray(s.hooks.PreToolUse))throw new Error('kapitan settings not arrays')" "$REPO/.claude/settings.json"
+          node "$WS/tools/guard-check.mjs" "$WS" "$REPO"
+          cd "$REPO"
+          git log --oneline | head -3
+          git show --stat --oneline HEAD | grep -q '.claude/hooks/kapitan-audit-guard.js'
+          ! git show --stat --oneline HEAD | grep -q 'pozadavky.md'
+          git status --porcelain | grep -q '^A  pozadavky.md'
+          git status --porcelain | grep -q '^ M CLAUDE.md'
+          ! grep -q 'auditor-gate' deploy.bat
+          echo "e2e ok"

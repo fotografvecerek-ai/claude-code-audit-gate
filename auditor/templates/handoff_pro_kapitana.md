@@ -34,6 +34,10 @@ P0 provozních incidentů a pracuje výhradně na položkách níže v uvedeném
 
 Plný text každé položky: `AUDIT/01_nalezy/A-###.md` (Kapitán ho čte celý — subagentům předává plný text v promptu).
 
+## Testy se zadáním (TST, trvale)
+- TST-1: <funkce bez akceptačního testu: …> → test vlastníkovými slovy z reálného vstupního bodu UI; důkaz: test v repu + běh
+- Trvale: každé nové zadání = nejdřív akceptační test, pak implementace (audit-rezim §4b); auditor při dalším auditu kontroluje poměr funkce : testy
+
 ## Návrhy architektury (P2, samostatná dávka PO uzavření P0/P1 — vlastník schvaluje zařazení)
 - ARCH-1: <např. policy vrstva oprávnění> — proč, co se změní, rizika, jak ověřit.
 - ARCH-2: <rozdělení souboru X podle domén> — cílový strom, mapování, pořadí přesunů.

@@ -21,7 +21,9 @@ $model = if ($Yes) { $Model } else { Ask "Model hlavního vlákna auditora (clau
 
 # 1) workspace
 New-Item -ItemType Directory -Force -Path $ws | Out-Null
-foreach ($d in 'CLAUDE.md','README.md','BRIDGE.md','.claude','checklists','templates','tools','kapitan-side','AUDIT') { Copy-Item -Recurse -Force (Join-Path $pkg $d) $ws }
+foreach ($d in 'CLAUDE.md','README.md','BRIDGE.md','.claude','checklists','templates','tools','kapitan-side') { Copy-Item -Recurse -Force (Join-Path $pkg $d) $ws }
+# AUDIT/ = data auditora (nalezy, verdikty, bus, retro) - pri aktualizaci se NIKDY neprepisuje; ze sablony jen chybejici soubory
+Get-ChildItem (Join-Path $pkg 'AUDIT') -Recurse -File | ForEach-Object { $rel = $_.FullName.Substring((Join-Path $pkg 'AUDIT').Length); $dst = Join-Path (Join-Path $ws 'AUDIT') $rel; if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null; Copy-Item $_.FullName $dst } }
 foreach ($d in 'AUDIT/01_nalezy/momentky','AUDIT/03_dukazy','AUDIT/04_verdikty','AUDIT/bus','AUDIT/.auth') { New-Item -ItemType Directory -Force -Path (Join-Path $ws $d) | Out-Null }
 # stav repa PŘED instalací: co bylo změněné/nové už předtím, instalace necommitne (patří to vlastníkovi / auditorovi jako nález)
 if (Test-Path (Join-Path $repo '.git')) { $pre = git -C $repo status --porcelain 2>$null; Set-Content (Join-Path $ws 'AUDIT/.pre-install-status.txt') ($pre -join "`n") -Encoding UTF8 }

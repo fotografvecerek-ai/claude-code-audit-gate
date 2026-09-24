@@ -40,6 +40,22 @@ operates in the project long-term**.
 | Checks code | Checks **code, security, every feature from the UI, single source of truth, repo hygiene, git practice, agent efficiency (tokens, model routing), fitness of the stack for the stated intent, backups and restorability** |
 | Does not measure whether it helped | Measures **first-pass yield, rounds per fix, false-"done" rate**, token usage before/after |
 
+## 3b. Auditor vs. CI (a common objection: "this should be continuous integration")
+
+Half true — and that half is by design. CI reliably enforces rules somebody already wrote (lint, tests, scanners). The auditor is the one who
+**writes and evolves those rules**: every finding must end as a mechanical guard (test, lint, hook, CI check), otherwise it is not closed.
+So the auditor feeds CI rather than replacing it — and its own gates (hook, pre-commit, GitHub Actions) are CI mechanisms.
+
+What CI does not do and the auditor does: learns the intent from the owner (intake); walks every feature from the UI without pre-written
+tests; notices that a green test tests something other than what broke, or that a fix is in the code but not wired in; proposes the fix and
+the red test; judges architecture, stale sources of truth in documents, token usage and model routing of agents, fitness of the stack for
+the intent, restorability of backups; and runs the long-term loop with the coding agent (handoff → fix → independent verification → verdict
+→ measuring false "done"s).
+
+Where the objection is strong: a team with mature CI, code review and security review already has most of this — there the auditor mainly
+adds the loop with the agent and the measurement of its behaviour. The target audience is people building with agents who have no CI and
+don't know how to set one up: the auditor builds it for them, finding by finding.
+
 ## 4. What it audits
 
 Each area has its own checklist (`auditor/checklists/`) and tool (`auditor/tools/`). The order is deliberate — cleanup exposes sources of
@@ -155,6 +171,18 @@ Everything in `<project>-audit/AUDIT/`:
 The owner practically reads only `02_HANDOFF.md` (what is wrong and why), `05_release_gate.md` (may we ship?) and `06`/`07`.
 
 ## 9. Who it is for
+
+**Primarily for a running project that got into trouble.** The typical situation: you have a great project, but it burns tokens, the agent
+starts producing nonsense, the repo is a mess and you don't know where to start. If you had tests, CI and order from day one, you are fine
+and the auditor mainly adds an independent loop with the agent. If you are dealing with it after three months of coding without tests —
+that is exactly where the auditor starts: it catches up on what is missing and, going forward, enforces that tests are born with the
+requirement. Within about an hour you get the first human-readable page (`AUDIT/00_prvni_dojem.md`): what burns tokens, where the mess is,
+whether the work is backed up.
+
+**Updating the package keeps the audit.** A new version installs the same way over the same project: the constitution, checklists, tools
+and hooks are replaced; the `AUDIT/` folder (findings, verdicts, handoff, messages, retro) is never overwritten. A running auditor session
+picks up the new constitution at its next start or compaction.
+
 
 - **Product owners who are not programmers** and let agents build the application: the auditor is their independent CTO who has no
   incentive to approve its own work.

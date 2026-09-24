@@ -1,4 +1,4 @@
-AUDITOR v1.0.2 — NÁVOD (čti tohle jako první)
+AUDITOR v1.1.0 — NÁVOD (čti tohle jako první)
 =====================================================
 
 CO TO JE
@@ -135,7 +135,9 @@ KDYŽ NĚCO NEJDE
 - „model not available“ / Fable není na účtu → v okně auditora napiš  /model opus  (nebo sonnet).
 - Chromium se nestáhl → cd <projekt>-audit\tools && npx playwright install chromium
 - První CI běh „auditor-gate" na GitHubu je červený, dokud auditor nevydá gate — to je záměr.
-- Aktualizace balíku → spusť START.cmd znovu; workspace se doplní, AUDIT\ (nálezy, historie) zůstane.
+- Aktualizace balíku → rozbal novou verzi přes starou složku a spusť START.cmd znovu se stejným projektem: vymění se
+  ústava, checklisty, nástroje a hooky; AUDIT\ (nálezy, verdikty, handoff, zprávy, retro) se NIKDY nepřepisuje. Běžící
+  auditor si novou ústavu načte při příštím startu. Rozjetý audit tím nepřijdeš o nic.
 - Více projektů = více workspace; každý má vlastní bus, gate a port. Jeden balík, jedna instance
   na projekt. Na více strojích drž stejné cesty (C:\dev\...).
 

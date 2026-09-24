@@ -12,7 +12,9 @@ WS=${AUDITOR_WS:-$(ask "Workspace auditora (vytvoří se)" "$(dirname "$REPO")/$
 REMOTE=${AUDITOR_REMOTE:-$(ask "Git remote pro AUDIT workspace (prázdné = jen lokální)" "")}
 MODEL=${AUDITOR_MODEL:-$(ask "Model hlavního vlákna auditora (claude-fable-5-1 / opus / sonnet)" "claude-fable-5-1")}
 
-mkdir -p "$WS"; for d in CLAUDE.md README.md BRIDGE.md .claude checklists templates tools kapitan-side AUDIT; do cp -r "$PKG/$d" "$WS/"; done
+mkdir -p "$WS"; for d in CLAUDE.md README.md BRIDGE.md .claude checklists templates tools kapitan-side; do cp -r "$PKG/$d" "$WS/"; done
+# AUDIT/ = data auditora - pri aktualizaci se neprepisuje; ze sablony jen chybejici soubory
+( cd "$PKG/AUDIT" && find . -type f | while read -r f; do [ -e "$WS/AUDIT/$f" ] || { mkdir -p "$WS/AUDIT/$(dirname "$f")"; cp "$f" "$WS/AUDIT/$f"; }; done )
 mkdir -p "$WS"/AUDIT/{01_nalezy/momentky,03_dukazy,04_verdikty,bus,.auth}
 [ -d "$REPO/.git" ] && git -C "$REPO" status --porcelain > "$WS/AUDIT/.pre-install-status.txt" 2>/dev/null || true
 [ -f "$WS/tools/audit.config.json" ] || cp "$WS/tools/audit.config.example.json" "$WS/tools/audit.config.json"
