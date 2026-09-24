@@ -68,6 +68,21 @@ jobs:
         run: |
           git config --global user.email ci@ci
           git config --global user.name ci
+      # Instalátor jen ověřuje, že `claude` existuje, a zapisuje ho do spouštěcích skriptů; v CI se nespouští.
+      - name: stub claude CLI – Linux/macOS
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          printf '#!/bin/sh\nexit 0\n' > "$RUNNER_TEMP/bin/claude" && chmod +x "$RUNNER_TEMP/bin/claude"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: stub claude CLI – Windows
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:RUNNER_TEMP 'bin'; New-Item -ItemType Directory -Force $bin | Out-Null
+          Set-Content (Join-Path $bin 'claude.cmd') '@exit /b 0' -Encoding ASCII
+          Add-Content $env:GITHUB_PATH $bin
       - name: fixture repo (dirty tree + staged file, jako reálný projekt)
         shell: bash
         run: |
