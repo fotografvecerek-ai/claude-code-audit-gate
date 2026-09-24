@@ -7,6 +7,7 @@ function Step($t) { Write-Host "`n== $t" -ForegroundColor Cyan }
 function Ok($t) { Write-Host "  ✅ $t" -ForegroundColor Green }
 function Warn($t) { Write-Host "  ⚠ $t" -ForegroundColor Yellow }
 $name = Split-Path $Repo -Leaf
+$commitFailed = $false
 $todo = @()
 
 Step "Konfigurace testů (obrazovky z routeru)"
@@ -41,7 +42,9 @@ if (Test-Path $preF) { $preDirty = Get-Content $preF | Where-Object { $_ } | For
 $paths = @(@('.claude', '.github', '.gitattributes', '.gitignore', 'CLAUDE.md') + $patched) | Where-Object { Test-Path $_ }
 $cand = @(); if ($paths) { $cand = @(git status --porcelain --untracked-files=all -- @paths 2>$null | Where-Object { $_ } | ForEach-Object { $_.Substring(3).Trim().Trim('"') }) }
 $ours = @(); foreach ($f in $cand) { if ($preDirty -contains $f) { $left += $f } else { $ours += $f } }
-if ($ours) { git add -- @ours 2>&1 | Out-Null; git commit -q -m "chore(audit): instalace auditora (hooky, skill audit-rezim, CI brána, hygiena)" -- @ours 2>&1 | ForEach-Object { "  $_" }; if ($LASTEXITCODE -eq 0) { Ok "do gitu uloženo $($ours.Count) souborů instalace" } else { Warn "commit instalace neprošel (viz výše) - soubory jsou na disku, do gitu je uloží Kapitán v audit režimu"; $todo += "Commit souborů instalace v repu (Kapitán)." } } else { Ok "nic nového ke commitu" }
+if ($ours) { git add -- @ours 2>&1 | Out-Null; $gn = git config user.name; $ge = git config user.email; if (-not $gn) { $gn = "auditor-install" }; if (-not $ge) { $ge = "auditor-install@local" }
+  git -c "user.name=$gn" -c "user.email=$ge" commit -q -m "chore(audit): instalace auditora (hooky, skill audit-rezim, CI brána, hygiena)" -- @ours 2>&1 | ForEach-Object { "  $_" }
+  if ($LASTEXITCODE -eq 0) { Ok "do gitu uloženo $($ours.Count) souborů instalace" } else { Write-Host "  ❌ POJISTKY NEJSOU ULOŽENÉ V GITU - commit selhal (viz výše). Instalace NENÍ hotová; pošli tento výpis." -ForegroundColor Red; $stOk = $false; $commitFailed = $true } } else { Ok "nic nového ke commitu" }
 if ($left) { Warn "neuloženo do gitu (měl jsi v nich rozdělané změny už před instalací, nechávám je tobě): $($left -join ', ')" }
 $dirtyN = @(git status --porcelain | Where-Object { $_ }).Count
 if ($dirtyN -gt 0) { Warn "v projektu zůstává $dirtyN souborů, které nejsou uložené v gitu (bylo to tak už před instalací). Nic s tím dělat nemusíš - auditor to zapíše jako první nález a navrhne, co z toho patří do gitu a co ne." }
@@ -49,6 +52,7 @@ $appBranch = git rev-parse --abbrev-ref HEAD
 Pop-Location
 }
 
+if ($commitFailed) { Write-Host "`nInstalace přerušena: pojistky nejsou v gitu." -ForegroundColor Red; exit 1 }
 Step "GitHub automatizace (gh CLI)"
 $gh = Get-Command gh -ErrorAction SilentlyContinue
 $ghOk = $false; if ($gh) { gh auth status 2>&1 | Out-Null; $ghOk = ($LASTEXITCODE -eq 0) }

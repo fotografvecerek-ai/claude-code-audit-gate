@@ -18,3 +18,7 @@ Historie změn je v `README.md` (sekce „Změny v…"). Od zveřejnění (v1.0.
 
 ## 1.1.0
 - Aktualizace nikdy nepřepisuje AUDIT/ (dřív přepsala CHYBOVNIK.md). Test se zadáním (audit-rezim §4b), nález „funkce bez testu", sekce TST v handoffu; AUDIT/00_prvni_dojem.md do ~1 h; přerámování pro záchranu rozjetého projektu; Auditor vs. CI.
+- Docs/README/NAVOD: „Pro koho" výslovně — záchrana rozjetého projektu (primární) vs. prevence od prvního dne (sekundární).
+
+## 1.1.1
+- Instalátor: commit pojistek použije vlastní git identitu, když uživatel žádnou nemá; když commit i tak selže, končí červeně (ne „HOTOVO"). Nalezeno CI (macOS/Linux e2e).
