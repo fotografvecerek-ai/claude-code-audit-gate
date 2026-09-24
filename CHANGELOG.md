@@ -22,3 +22,6 @@ Historie změn je v `README.md` (sekce „Změny v…"). Od zveřejnění (v1.0.
 
 ## 1.1.1
 - Instalátor: commit pojistek použije vlastní git identitu, když uživatel žádnou nemá; když commit i tak selže, končí červeně (ne „HOTOVO"). Nalezeno CI (macOS/Linux e2e).
+
+## 1.1.2
+- Veřejné repo bez osobních odkazů: výchozí cesta v setup-auditor.ps1 obecná, TASK-PROTOCOL bez názvu projektu, checklist udržitelnosti bez fotokoutku. CI převzato z GitHubu (náhrada claude CLI).

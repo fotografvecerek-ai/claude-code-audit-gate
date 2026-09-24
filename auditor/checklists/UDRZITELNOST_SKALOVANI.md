@@ -9,7 +9,7 @@ Bez záměru nelze technologii posoudit: totéž řešení je správné pro jedn
 2. Co se stane, když to 1 den nepoběží: nic / ztráta zakázek / smluvní pokuta / ztráta dat zákazníků? (→ požadovaná dostupnost a RPO/RTO)
 3. Kdo to bude provozovat: ty sám + agenti / zaměstnanec / externí firma / kupující po exitu (M&A — investor bude číst stack)?
 4. Rozpočet na provoz měsíčně dnes a strop; kde jsou data uložena právně (EU/GDPR, DPA s dodavateli)?
-5. Exit/růst: je v plánu prodej, franšíza, white-label, mobilní app, offline režim (fotokoutek offline-first!)?
+5. Exit/růst: je v plánu prodej, franšíza, white-label, mobilní app, offline režim (zařízení bez stálého připojení)?
 Výstup do `AUDIT/00_intake.md §Záměr`: `stupeň: OSOBNÍ | FIRMA | B2B-SÍŤ | PRODUKT | MASOVÝ` + horizonty + dostupnost + rozpočet + provozovatel.
 
 ## 1. Matice hodnocení (každá vrstva × 3 horizonty → 🟢 vyhovuje / 🟡 vyhovuje s podmínkou / 🔴 nevyhovuje + migrační cesta)
