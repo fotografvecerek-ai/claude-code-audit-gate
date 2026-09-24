@@ -172,6 +172,18 @@ The owner practically reads only `02_HANDOFF.md` (what is wrong and why), `05_re
 
 ## 9. Who it is for
 
+### Rescue (primary purpose) vs. prevention (secondary)
+
+| | RESCUE — a running project | PREVENTION — a new project |
+|---|---|---|
+| Situation | the project is broken and inconsistent: burns tokens, the agent produces nonsense, mess, no tests, unknown backup state | an empty or small repo you want to keep healthy |
+| What the auditor does | full 12-area audit, first impression within an hour, handoff, STOP-THE-LINE, fix verification, release gate | the first audit finds almost nothing — the value is **rules and gates from day one** |
+| What works from day one | — | test with the requirement, hygiene pre-commit, temp files only in `.tmp/`, single source of truth, release gate, bus, an audit with every release |
+| Built for this? | **yes, primarily** | yes, but as prevention, not as an audit |
+
+Plainly: the audit machinery (screen crawl, SSOT, hygiene, efficiency) is built for existing code. If you start with tests, CI and order
+from day one, the auditor mainly gives you an independent loop with the agent and the guards that keep it that way.
+
 **Primarily for a running project that got into trouble.** The typical situation: you have a great project, but it burns tokens, the agent
 starts producing nonsense, the repo is a mess and you don't know where to start. If you had tests, CI and order from day one, you are fine
 and the auditor mainly adds an independent loop with the agent. If you are dealing with it after three months of coding without tests —

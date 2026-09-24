@@ -26,7 +26,8 @@ STOP-THE-LINE, každou opravu nezávisle ověří (šest bran) a vydání povol�
 Vznikl z reálné potřeby: agenti píšou kód rychle, ale „hotovo" často neznamená hotovo. Auditor je druhý pár očí, který nemá motivaci
 schválit vlastní práci.
 
-**Pro koho:** především pro rozjetý projekt v problémech — žere tokeny, agent vyrábí nesmysly, v repu je nepořádek. Auditor zpětně dožene,
+**Pro koho:** **záchrana** rozjetého projektu je primární účel; **prevence** od prvního dne funguje také (pravidla a brány pro agenta), ale první audit
+prázdného repa skoro nic nenajde. Především tedy pro rozjetý projekt v problémech — žere tokeny, agent vyrábí nesmysly, v repu je nepořádek. Auditor zpětně dožene,
 co chybí (testy, pořádek, zálohy), a dopředu vynutí, aby testy vznikaly se zadáním. Do hodiny první lidská stránka `AUDIT/00_prvni_dojem.md`.
 
 **Není to jednorázový sken.** Auditor v projektu zůstává: každé vydání jde přes jeho bránu, každý start Kapitána začíná jeho zprávami,

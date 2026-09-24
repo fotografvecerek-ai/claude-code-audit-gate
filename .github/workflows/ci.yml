@@ -100,9 +100,7 @@ jobs:
         shell: bash
         run: |
           HOME="$RUNNER_TEMP/home" mkdir -p "$RUNNER_TEMP/home/Desktop"
-          # git identita i pro podvržený HOME (jinak commit instalace selže „Author identity unknown")
-          HOME="$RUNNER_TEMP/home" git config --global user.email ci@ci
-          HOME="$RUNNER_TEMP/home" git config --global user.name ci
+          # záměrně BEZ git identity v tomto HOME: instalátor musí commit zvládnout vlastní identitou a nikdy neskončit "HOTOVO" bez commitu
           HOME="$RUNNER_TEMP/home" bash auditor/install.sh "$RUNNER_TEMP/app" < /dev/null
       - name: install (PowerShell) – Windows
         if: runner.os == 'Windows'

@@ -163,6 +163,18 @@ Vlastník čte prakticky jen `02_HANDOFF.md` (co je špatně a proč), `05_relea
 
 ## 9. Pro koho to je
 
+### Záchrana (primární účel) vs. prevence (sekundární)
+
+| | ZÁCHRANA — rozjetý projekt | PREVENCE — nový projekt |
+|---|---|---|
+| Situace | projekt je rozbitý a nekonzistentní: žere tokeny, agent vyrábí nesmysly, nepořádek, žádné testy, neznámý stav záloh | prázdné nebo malé repo, chceš ho udržet zdravé |
+| Co auditor udělá | plný audit 12 oblastí, první dojem do hodiny, handoff, STOP-THE-LINE, ověření oprav, brána vydání | první audit skoro nic nenajde — hodnota jsou **pravidla a brány od prvního dne** |
+| Co funguje od začátku | — | test se zadáním, hygienický pre-commit, provizoria jen v `.tmp/`, jediný zdroj pravdy, brána vydání, most, audit s každým vydáním |
+| Pro koho je to stavěné | **ano, primárně** | ano, ale jde o prevenci, ne o audit |
+
+Na rovinu: auditní mašinerie (průchod obrazovek, SSOT, hygiena, efektivita) je stavěná na existující kód. Kdo začíná s testy, CI
+a pořádkem od prvního dne, dostane z auditora hlavně nezávislou smyčku s agentem a pojistky, aby to tak zůstalo.
+
 **Především pro rozjetý projekt, který se dostal do problémů.** Typická situace: máš skvělý projekt, ale žere ti tokeny, agent začíná vyrábět
 nesmysly, v repu je nepořádek a nevíš, kde začít. Když máš testy, CI a pořádek od prvního dne, jsi v pohodě a auditor ti přinese hlavně
 nezávislou smyčku s agentem. Když to řešíš po třech měsících kódování bez testů — přesně tam auditor začíná: zpětně dožene, co chybí, a

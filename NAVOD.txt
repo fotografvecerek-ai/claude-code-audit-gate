@@ -1,4 +1,4 @@
-AUDITOR v1.1.0 — NÁVOD (čti tohle jako první)
+AUDITOR v1.1.1 — NÁVOD (čti tohle jako první)
 =====================================================
 
 CO TO JE
@@ -9,6 +9,9 @@ git praxi, efektivitu agentů (tokeny, modely), zálohy a vhodnost technologie p
 Sám NIC nekóduje, nemění a nevydává. Nálezy s návrhem řešení předá „Kapitánovi" (tvému projektovému
 agentovi), vynutí, aby je opravil jako první, každou opravu nezávisle ověří a teprve pak povolí vydání.
 Brány jsou technické (hooky, git hook, CI), ne jen věty v promptu.
+PRO KOHO: primárně ZÁCHRANA rozjetého projektu, který je rozbitý a nekonzistentní (žere tokeny, agent
+vyrábí nesmysly, nepořádek). PREVENCE od prvního dne jde také — pravidla a brány pro Kapitána (test se
+zadáním, hygiena, brána vydání) fungují hned; první audit prázdného repa ale skoro nic nenajde.
 
 CO POTŘEBUJEŠ
 -------------
