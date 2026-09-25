@@ -62,6 +62,7 @@ foreach ($p in $plan) {
   if ($p.noGit) { node (Join-Path $pkg 'tools\git-init-project.mjs') $p.repo; if ($LASTEXITCODE -ne 0) { $summary += "$($p.name): git init selhal (velké soubory?)"; continue }; $p.dirty = 0 }
   if ($p.dirty -gt 0) { Write-Host "`n$($p.name): $($p.dirty) souborů není uložených v gitu - to je v pořádku, instaluji dál; tvoje soubory se nemění a auditor to zapíše jako první nález." -ForegroundColor Yellow }
   $ws = Join-Path (Split-Path $p.repo -Parent) "$($p.name)-audit"
+  if (Test-Path (Join-Path $ws '.claude\settings.json')) { node (Join-Path $pkg 'tools\update-install.mjs') $p.repo $ws; $summary += "$($p.name): $(if ($LASTEXITCODE -eq 0) { 'AKTUALIZOVÁNO (rozjetý audit zůstává)' } else { 'CHYBA aktualizace' })"; continue }
   Write-Host "`n================ $($p.name) → $($p.profile) ================" -ForegroundColor Green
   switch ($p.profile) {
     'PLNY'      { $k = 'ano'; $h = 'ano'; $c = if ($p.github) { 'ano' } else { 'ne' }; $m = 'claude-fable-5-1' }

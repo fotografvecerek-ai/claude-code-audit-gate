@@ -133,6 +133,11 @@ if ($todo.Count) { Write-Host "`nCO SE NEPODAŘILO UDĚLAT AUTOMATICKY (můžeš
 Write-Host "`nPozn.: pokud na GitHubu uvidíš červený běh 'auditor-gate', je to správně - zezelená, až auditor povolí vydání."
 $oldMsg = "Auditor byl nainstalován. Dokonči jen rozdělanou položku (nic nového nezačínej), ulož práci do gitu (git add + commit + push), napiš mi jednou větou, kde jsi skončil, a ukonči session (/exit). Příště tě spustím znovu - nová session má napojení na auditora."
 if ($stOk -and -not $NoLaunch) {
+  if (Test-Path (Join-Path $Repo '.claude\hooks\kapitan-audit-guard.js')) { node (Join-Path $Workspace 'tools\opravneni.mjs') $Workspace $Repo --ask }
+  Write-Host "`n== Telegram (vlastní bot pro auditora i Kapitána; když Kapitán už most má, zůstává)" -ForegroundColor Cyan
+  node (Join-Path $Workspace 'tools\telegram-setup.mjs') --ws $Workspace --repo $Repo --role obe
+}
+if ($stOk -and -not $NoLaunch) {
   Write-Host "`nBĚŽÍ TI TEĎ KAPITÁN V TOMTO PROJEKTU?" -ForegroundColor Yellow
   Write-Host "  Do běžícího okna nejde zvenku psát. Zpráva pro něj je ve SCHRÁNCE: přepni do jeho okna, Ctrl+V, Enter." -ForegroundColor Yellow
   Write-Host "  (Text: $oldMsg)"

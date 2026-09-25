@@ -12,10 +12,16 @@ const arr = v => v == null ? [] : Array.isArray(v) ? v : [v];   // oprava rozbal
 s.env = { ...(s.env && typeof s.env === 'object' ? s.env : {}), AUDITOR_WORKSPACE: wsP, AUDITOR_TARGET_REPO: repoP };
 s.permissions = s.permissions && typeof s.permissions === 'object' ? s.permissions : {};
 s.permissions.additionalDirectories = [...new Set([...arr(s.permissions.additionalDirectories).map(String), ws.replace(/\\/g, '/')])];
+// povolení, aby auto-režim neblokoval komunikaci s auditorem a kontrolu vydání (deny má vždy přednost; hooky hlídají zbytek)
+const allowAdd = ['Bash(node .claude/hooks/auditor-bus.mjs:*)', 'Bash(node .claude/hooks/gate-check.mjs:*)', `Bash(node ${wsP}/tools/bus.mjs:*)`, `Bash(node "${wsP}/tools/bus.mjs":*)`, `Bash(node ${wsP}/kapitan-side/gate-check.mjs:*)`, `Bash(node "${wsP}/kapitan-side/gate-check.mjs":*)`];
+s.permissions.allow = [...new Set([...arr(s.permissions.allow).map(String), ...allowAdd])];
 s.hooks = s.hooks && typeof s.hooks === 'object' ? s.hooks : {};
 const has = (list, needle) => list.some(e => JSON.stringify(e).includes(needle));
 const pre = arr(s.hooks.PreToolUse); if (!has(pre, 'kapitan-audit-guard.js')) pre.push({ matcher: 'Edit|Write|NotebookEdit|Bash|PowerShell', hooks: [{ type: 'command', command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/kapitan-audit-guard.js" || exit 2', timeout: 15 }] }); s.hooks.PreToolUse = pre;
-const ss = arr(s.hooks.SessionStart); if (!has(ss, 'inbox --for kapitan')) ss.push({ matcher: 'startup|resume|compact', hooks: [{ type: 'command', command: `node "${wsP}/tools/bus.mjs" inbox --for kapitan --unacked --brief` }] }); s.hooks.SessionStart = ss;
+const ss = arr(s.hooks.SessionStart); if (!has(ss, 'kapitan-role.mjs')) ss.unshift({ matcher: 'startup|resume|compact', hooks: [{ type: 'command', command: `node "${wsP}/tools/kapitan-role.mjs" "${wsP}"` }] }); if (!has(ss, 'inbox --for kapitan')) ss.push({ matcher: 'startup|resume|compact', hooks: [{ type: 'command', command: `node "${wsP}/tools/bus.mjs" inbox --for kapitan --unacked --brief` }] }); s.hooks.SessionStart = ss;
+// doručení zpráv od auditora během práce (po každém nástroji) a před koncem tahu (nepotvrzené zprávy tah nezavřou)
+const post = arr(s.hooks.PostToolUse); if (!has(post, 'bus-notify.mjs')) post.push({ matcher: '*', hooks: [{ type: 'command', command: `node "${wsP}/tools/bus-notify.mjs" --for kapitan --event post`, timeout: 10 }] }); s.hooks.PostToolUse = post;
+const stop = arr(s.hooks.Stop); if (!has(stop, 'bus-notify.mjs')) stop.push({ hooks: [{ type: 'command', command: `node "${wsP}/tools/bus-notify.mjs" --for kapitan --event stop`, timeout: 10 }] }); s.hooks.Stop = stop;
 for (const k of Object.keys(s.hooks)) s.hooks[k] = arr(s.hooks[k]).map(e => (e && typeof e === 'object' && e.hooks !== undefined) ? { ...e, hooks: arr(e.hooks) } : e);
 fs.writeFileSync(sp, JSON.stringify(s, null, 2) + '\n');
 console.log(`settings Kapitána sloučeny: ${sp} (hooky PreToolUse ${s.hooks.PreToolUse.length}, SessionStart ${s.hooks.SessionStart.length}, additionalDirectories ${s.permissions.additionalDirectories.length})`);

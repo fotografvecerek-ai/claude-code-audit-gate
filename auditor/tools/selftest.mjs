@@ -152,6 +152,103 @@ T('NP: otevřený P1 → release-check FAIL', RC(), 2);
 T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path.join(np, '.claude/hooks/hygiene-all.mjs')], { cwd: np, encoding: 'utf8' }).status, 0);
 } else console.error('new-project selhal:\n' + (npr.stdout || '') + (npr.stderr || ''));
 
+// --- ZKRATKA KAPITÁNA NA MOST (.claude/hooks/auditor-bus.mjs): vždy jako Kapitán, i když se pokusí vydávat za auditora
+{ fs.mkdirSync(path.join(ws, 'tools'), { recursive: true }); fs.copyFileSync(path.join(pkg, 'tools/bus.mjs'), path.join(ws, 'tools/bus.mjs'));
+  const ab = spawnSync(process.execPath, [path.join(pkg, 'kapitan-side/auditor-bus.mjs'), 'post', '--from', 'auditor', '--type', 'STATUS', '--id', 'A-9', '--status', 'STARTED'], { env, encoding: 'utf8' });
+  const f = fs.readdirSync(path.join(ws, 'AUDIT', 'bus')).filter(x => /A-9\.json$/.test(x)).pop() || '';
+  T('BUS-K: zkratka posílá vždy jako Kapitán', ab.status === 0 && /_kapitan_STATUS_A-9/.test(f) ? 1 : 0, 1);
+  T('BUS-K: neplatný stav (věta místo STARTED) odmítnut', spawnSync(process.execPath, [path.join(pkg, 'kapitan-side/auditor-bus.mjs'), 'post', '--type', 'STATUS', '--id', 'A-9', '--status', 'Všech 59 zpráv'], { env, encoding: 'utf8' }).status === 0 ? 0 : 1, 1); }
+
+// --- DORUČENÍ ZPRÁV BĚHEM PRÁCE (bus-notify): nová zpráva se oznámí jednou po nástroji; nepotvrzená zastaví konec tahu
+{ fs.copyFileSync(path.join(pkg, 'tools/bus-notify.mjs'), path.join(ws, 'tools/bus-notify.mjs')); const BN = path.join(ws, 'tools/bus-notify.mjs');
+  bus('post', '--from', 'auditor', '--type', 'NOTE', '--id', 'A-7', '--text', 'nova zprava pro kapitana');
+  const n = (ev, extra = {}) => spawnSync(process.execPath, [BN, '--for', 'kapitan', '--event', ev], { input: JSON.stringify(extra), encoding: 'utf8' });
+  const p1 = n('post'); T('NOTIFY: nová zpráva doručena Kapitánovi během práce', /additionalContext/.test(p1.stdout) && /nova zprava pro kapitana/.test(p1.stdout) ? 1 : 0, 1);
+  T('NOTIFY: podruhé se neopakuje', n('post').stdout === '' ? 1 : 0, 1);
+  T('NOTIFY: nepotvrzená zpráva zastaví konec tahu', n('stop').status, 2);
+  T('NOTIFY: druhý pokus o konec tahu projde (stop_hook_active)', n('stop', { stop_hook_active: true }).status, 0); }
+
+// --- TELEGRAM: vlastní most projektu se pozná (nový bot se nezakládá); bot v konfiguraci → spouštěč s kanálem a vlastní složkou stavu
+{ const tr = path.join(tmp, 'tgapp'), tw = path.join(tmp, 'tgapp-audit'); fs.mkdirSync(path.join(tr, 'scripts'), { recursive: true }); fs.mkdirSync(path.join(tw, 'tools'), { recursive: true });
+  fs.writeFileSync(path.join(tr, 'scripts', 'telegram_bridge.py'), '#');
+  const det = JSON.parse(spawnSync(process.execPath, [path.join(pkg, 'tools/telegram-setup.mjs'), '--ws', tw, '--repo', tr, '--detect'], { encoding: 'utf8' }).stdout || '{}');
+  T('TG: vlastní Telegram most Kapitána rozpoznán', det.kapitan?.mode, 'vlastni');
+  fs.mkdirSync(path.join(tmp, 'tg-state-a'), { recursive: true }); fs.writeFileSync(path.join(tmp, 'tg-state-a', '.env'), 'TELEGRAM_BOT_TOKEN=1:x\n');
+  fs.writeFileSync(path.join(tw, '.telegram.json'), JSON.stringify({ auditor: { mode: 'channel', stateDir: path.join(tmp, 'tg-state-a'), bot: 'x_bot' }, kapitan: { mode: 'vlastni' } }));
+  spawnSync(process.execPath, [path.join(pkg, 'tools/write-launchers.mjs'), tw, tr], { encoding: 'utf8' });
+  const la = fs.readFileSync(path.join(tw, isWin ? 'start-auditor.cmd' : 'start-auditor.sh'), 'utf8'), lk = fs.readFileSync(path.join(tw, isWin ? 'start-kapitan.cmd' : 'start-kapitan.sh'), 'utf8');
+  T('TG: auditor startuje s vlastním botem (kanál + složka stavu)', /--channels plugin:telegram@claude-plugins-official/.test(la) && /TELEGRAM_STATE_DIR/.test(la) ? 1 : 0, 1);
+  T('TG: Kapitán s vlastním mostem zůstává beze změny', /--channels/.test(lk) ? 0 : 1, 1);
+  T('TG: role s botem dostane pokyn k Telegramu v úvodní zprávě (vlastník ho nepíše)', /nastrojem reply/.test(la) && !/nastrojem reply/.test(lk) ? 1 : 0, 1);
+  T('TG: okno s botem po startu ohlásí „se spouští" (ping)', /telegram-ping\.mjs/.test(la) && !/telegram-ping/.test(lk) ? 1 : 0, 1);
+  const pg = spawnSync(process.execPath, [path.join(pkg, 'tools/telegram-ping.mjs'), path.join(tmp, 'neni'), 'auditor', 'x'], { encoding: 'utf8', timeout: 8000 });
+  T('TG: ping bez bota tiše skončí (nezdrží start)', pg.status === 0 && !pg.stdout.trim() ? 1 : 0, 1);
+  const pd = path.join(tmp, 'plugdir'); fs.mkdirSync(path.join(pd, '.claude'), { recursive: true }); fs.writeFileSync(path.join(pd, '.claude', 'settings.local.json'), '\uFEFF' + JSON.stringify({ permissions: { allow: ['Bash(x:*)'] }, enabledPlugins: {} }));
+  spawnSync(process.execPath, [path.join(pkg, 'tools/telegram-ping.mjs'), path.join(tmp, 'neni'), 'kapitan', 'x', '--plugin-dir', pd], { encoding: 'utf8', timeout: 8000 });
+  const pj = JSON.parse(fs.readFileSync(path.join(pd, '.claude', 'settings.local.json'), 'utf8').replace(/^\uFEFF/, ''));
+  T('TG: start okna znovu zapne Telegram plugin, když ho něco vypnulo (cizí nastavení zůstane)', pj.enabledPlugins?.['telegram@claude-plugins-official'] === true && pj.permissions?.allow?.[0] === 'Bash(x:*)' ? 1 : 0, 1);
+  T('TG: spouštěč hlídá zapnutý plugin (--plugin-dir)', /--plugin-dir/.test(la) ? 1 : 0, 1);
+  { const wr = path.join(tmp, 'rj-audit'); fs.mkdirSync(path.join(wr, 'AUDIT', '01_nalezy'), { recursive: true }); fs.mkdirSync(path.join(wr, 'tools'), { recursive: true });
+    const gen = () => { spawnSync(process.execPath, [path.join(pkg, 'tools/write-launchers.mjs'), wr, tr], { encoding: 'utf8' }); return path.join(wr, isWin ? 'start-auditor.cmd' : 'start-auditor.sh'); };
+    const runs = () => { const f = gen(); if (isWin) return /01_nalezy\\A-\*\.md/.test(fs.readFileSync(f, 'utf8')) ? 'ok' : 'x';
+      const r = spawnSync('bash', ['-c', `cd "${wr}" && if [ -e AUDIT/00_intake.md ] || [ -e AUDIT/02_HANDOFF.md ] || ls AUDIT/01_nalezy/A-*.md >/dev/null 2>&1; then echo C; else echo I; fi`], { encoding: 'utf8' }); return r.stdout.trim(); };
+    const before = runs(); fs.writeFileSync(path.join(wr, 'AUDIT', '01_nalezy', 'A-001.md'), '#'); const after = runs();
+    T('START: rozjetý audit se pozná i bez 00_intake.md (podle nálezů), prázdný workspace ne', isWin ? after : `${before}${after}`, isWin ? 'ok' : 'IC');
+    T('START: spouštěč auditora hledá i handoff a nálezy', /02_HANDOFF\.md/.test(fs.readFileSync(gen(), 'utf8')) ? 1 : 0, 1); }
+  T('START: úvodní zpráva je před --add-dir/--channels (jinak ji Claude Code spolkne jako složku)', [la, lk].every(t => /claude ("[^"]{20,}"|'[^']{20,}') --add-dir/.test(t) && !/--add-dir ("[^"]*"|'[^']*') ("|')(Jsi|Pokracuj|Zacni)/.test(t)) ? 1 : 0, 1);
+  fs.writeFileSync(path.join(tw, '.telegram.json'), JSON.stringify({ kapitan: { mode: 'vlastni', soubory: ['scripts/telegram_bridge.py'], volba: 'vlastni' } }));
+  const d2 = JSON.parse(spawnSync(process.execPath, [path.join(pkg, 'tools/telegram-setup.mjs'), '--ws', tw, '--repo', tr, '--detect'], { encoding: 'utf8' }).stdout || '{}');
+  T('TG: volba „jen vlastní most" se pamatuje (neptá se znovu)', d2.kapitan?.volba, 'vlastni');
+  const sd2 = r => { const w = path.join(tmp, r, 'app-audit'); fs.mkdirSync(path.join(tmp, r, 'app'), { recursive: true }); fs.mkdirSync(w, { recursive: true });
+    return JSON.parse(spawnSync(process.execPath, [path.join(pkg, 'tools/telegram-setup.mjs'), '--ws', w, '--repo', path.join(tmp, r, 'app'), '--role', 'auditor', '--detect'], { encoding: 'utf8' }).stdout || '{}').auditor?.budouciSlozka || ''; };
+  const s1 = sd2('pc1'), s2 = sd2('pc2');
+  T('TG: dva projekty stejného jména mají každý svého bota (složka podle otisku cesty)', s1 && s2 && s1 !== s2 && /telegram-app-[0-9a-f]{6}-auditor$/.test(s1) ? 1 : 0, 1);
+  const cdir = path.join(tmp, 'cfgdir'); fs.mkdirSync(path.join(cdir, 'channels', 'telegram-app-auditor'), { recursive: true }); fs.writeFileSync(path.join(cdir, 'channels', 'telegram-app-auditor', '.env'), 'TELEGRAM_BOT_TOKEN=1:x\n');
+  const w3 = path.join(tmp, 'pc3', 'app-audit'); fs.mkdirSync(path.join(tmp, 'pc3', 'app'), { recursive: true }); fs.mkdirSync(w3, { recursive: true });
+  const d3 = JSON.parse(spawnSync(process.execPath, [path.join(pkg, 'tools/telegram-setup.mjs'), '--ws', w3, '--repo', path.join(tmp, 'pc3', 'app'), '--role', 'auditor', '--detect'], { encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: cdir } }).stdout || '{}');
+  T('TG: cizí bot stejného jména projektu se nepřebírá', d3.auditor?.mode, 'zadny');
+  { const w4 = path.join(tmp, 'pc4', 'app-audit'), r4 = path.join(tmp, 'pc4', 'app'); fs.mkdirSync(r4, { recursive: true }); fs.mkdirSync(w4, { recursive: true });
+    const aDir = path.join(cdir, 'channels', 'telegram-app-auditor');   // bot auditora (token 1:x) zapsaný v konfiguraci
+    fs.writeFileSync(path.join(w4, '.telegram.json'), JSON.stringify({ auditor: { mode: 'channel', stateDir: aDir, bot: 'a_bot' } }));
+    const kDir = JSON.parse(spawnSync(process.execPath, [path.join(pkg, 'tools/telegram-setup.mjs'), '--ws', w4, '--repo', r4, '--role', 'kapitan', '--detect'], { encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: cdir } }).stdout || '{}').kapitan?.budouciSlozka;
+    fs.mkdirSync(kDir, { recursive: true }); fs.writeFileSync(path.join(kDir, '.env'), 'TELEGRAM_BOT_TOKEN=1:x\n');   // omylem vložený token auditora
+    const d4 = JSON.parse(spawnSync(process.execPath, [path.join(pkg, 'tools/telegram-setup.mjs'), '--ws', w4, '--repo', r4, '--detect'], { encoding: 'utf8', env: { ...process.env, CLAUDE_CONFIG_DIR: cdir } }).stdout || '{}');
+    T('TG: token auditora vložený Kapitánovi se nepoužije (jeden bot = jedno okno), auditor bota drží', `${d4.kapitan?.mode}/${d4.auditor?.mode}`, 'zadny/channel');
+    fs.writeFileSync(path.join(w4, '.telegram.json'), JSON.stringify({ auditor: { mode: 'channel', stateDir: aDir }, kapitan: { mode: 'channel', stateDir: kDir } }));
+    spawnSync(process.execPath, [path.join(pkg, 'tools/write-launchers.mjs'), w4, r4], { encoding: 'utf8' });
+    const l4 = f => fs.readFileSync(path.join(w4, isWin ? f + '.cmd' : f + '.sh'), 'utf8');
+    T('TG: stejný bot zapsaný oběma rolím → kanál jen auditor', `${/--channels/.test(l4('start-auditor'))}/${/--channels/.test(l4('start-kapitan'))}`, 'true/false'); }
+  fs.rmSync(path.join(tmp, 'tg-state-a', '.env')); spawnSync(process.execPath, [path.join(pkg, 'tools/write-launchers.mjs'), tw, tr], { encoding: 'utf8' });
+  T('TG: bez tokenu na tomto počítači spouštěč kanál nepřidá', /--channels/.test(fs.readFileSync(path.join(tw, isWin ? 'start-auditor.cmd' : 'start-auditor.sh'), 'utf8')) ? 0 : 1, 1);
+  fs.writeFileSync(path.join(tw, '.telegram.json'), JSON.stringify({ kapitan: { mode: 'vlastni', soubory: ['scripts/telegram_bridge.py'] } }));
+  spawnSync(process.execPath, [path.join(pkg, 'tools/telegram-setup.mjs'), '--ws', tw, '--repo', tr, '--role', 'kapitan', '--yes', '--kapitan-most', 'Standard'], { encoding: 'utf8' });
+  T('TG: neplatná volba --kapitan-most se ignoruje (neuloží se)', JSON.parse(fs.readFileSync(path.join(tw, '.telegram.json'), 'utf8')).kapitan?.volba ?? 'zadna', 'zadna'); }
+
+// --- NEZÁVISLOST NA PROSTŘEDÍ: balík se nikde neřídí názvem počítače (musí fungovat u kohokoliv, na jakémkoliv počítači)
+{ const hits = []; const walk = d => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) { if (!/^(node_modules|\.git)$/.test(e.name)) walk(p); }
+    else if (/\.(mjs|js|ps1|sh|cmd)$/.test(e.name) && e.name !== 'selftest.mjs' && /COMPUTERNAME|os\.hostname|\$\(hostname\)|\bhostname\b\s*\)/.test(fs.readFileSync(p, 'utf8'))) hits.push(path.relative(pkg, p)); } };
+  for (const d of ['tools', 'kapitan-side', 'starter', '.claude']) if (fs.existsSync(path.join(pkg, d))) walk(path.join(pkg, d));   // jen soubory balíku — ve workspace leží i kopie projektu (build/ apod.), ty se netestují
+  for (const f of fs.readdirSync(pkg)) if (/\.(ps1|sh|cmd)$/.test(f) && /COMPUTERNAME|os\.hostname|\$\(hostname\)/.test(fs.readFileSync(path.join(pkg, f), 'utf8'))) hits.push(f);
+  T('NEZÁVISLOST: žádná logika podle názvu počítače', hits.slice(0, 5).join(', '), ''); }
+
+// --- SAMOSTATNOST KAPITÁNA: úroveň 2 přidá povolení skriptů/DB do settings.local.json, úroveň 1 je odebere (cizí pravidla zůstanou); destruktivní SQL vždy blok
+{ const orp = path.join(tmp, 'opr'), orw = path.join(tmp, 'opr-audit'); fs.mkdirSync(path.join(orp, '.claude'), { recursive: true }); fs.mkdirSync(orw, { recursive: true });
+  fs.writeFileSync(path.join(orp, '.claude', 'settings.local.json'), JSON.stringify({ permissions: { allow: ['Bash(moje:*)'] } }));
+  const op = lv => spawnSync(process.execPath, [path.join(pkg, 'tools/opravneni.mjs'), orw, orp, '--level', lv], { encoding: 'utf8' });
+  const al = () => JSON.parse(fs.readFileSync(path.join(orp, '.claude', 'settings.local.json'), 'utf8')).permissions.allow;
+  op('2'); T('OPR: SAMOSTATNÝ povolí skripty a databázi', al().includes('Bash(psql:*)') && al().includes('Bash(node scripts/:*)') ? 1 : 0, 1);
+  op('1'); T('OPR: OPATRNÝ je zase odebere, cizí pravidla zůstanou', !al().includes('Bash(psql:*)') && al().includes('Bash(moje:*)') ? 1 : 0, 1);
+  T('OPR: DROP TABLE blokován i u samostatného Kapitána', hook(KG, bash(repo, 'psql $DB -c "DROP TABLE users"')), 2);
+  T('OPR: DELETE bez WHERE blokován', hook(KG, bash(repo, 'psql -c "delete from denicek_posts;"')), 2);
+  T('OPR: DELETE s WHERE povolen', hook(KG, bash(repo, 'psql -c "delete from denicek_posts where id = 5;"')), 0); }
+
+// --- ROLE KAPITÁNA (agent musí vědět, že je Kapitán — CLAUDE.md blok + SessionStart hook)
+{ const kr = path.join(tmp, 'role'); fs.mkdirSync(kr, { recursive: true }); fs.writeFileSync(path.join(kr, 'CLAUDE.md'), '# App\n\n## Audit režim (závazné)\nExistuje-li starý text.\n\n## Jiné\nx\n');
+  const run2 = () => spawnSync(process.execPath, [path.join(pkg, 'tools/kapitan-role.mjs'), ws, '--claude-md', kr], { encoding: 'utf8' }).status;
+  run2(); run2(); const cm = fs.readFileSync(path.join(kr, 'CLAUDE.md'), 'utf8');
+  T('ROLE: CLAUDE.md má blok role právě jednou a starý blok zmizel', (cm.match(/Tvoje role: Kapitán/g) || []).length === 1 && !cm.includes('## Audit režim') && cm.includes('## Jiné') ? 1 : 0, 1);
+  T('ROLE: SessionStart hook říká agentovi, že je Kapitán', /Jsi KAPITÁN/.test(spawnSync(process.execPath, [path.join(pkg, 'tools/kapitan-role.mjs'), ws], { encoding: 'utf8' }).stdout) ? 1 : 0, 1); }
+
 const fails = results.filter(r => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `  (očekáváno ${r.exp}, bylo ${r.got})`}`);
 console.log(`\n${results.length - fails.length}/${results.length} PASS${isWin ? '  (Windows)' : ''}`);

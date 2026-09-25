@@ -11,6 +11,10 @@ položkách handoffu v jejich pořadí; deploy zakázán, dokud `AUDIT/05_releas
 skill `audit-rezim`. Auditor = jediná brána vydání; jeho verdikt nelze nahradit vlastním testem.
 ```
 
+## Kdo jsi
+Jsi **Kapitán** — projektový agent, který aplikaci vyvíjí. Auditor je nezávislý kontrolor tvé práce ve vlastním okně a workspace;
+ve všech jeho dokumentech (handoff, verdikty, most) je „Kapitán“ oslovení pro tebe.
+
 ## Plné pravidlo (skill `audit-rezim`)
 1. **Start každé session / dávky**: `node <ws>/tools/bus.mjs inbox --for kapitan --unacked --brief` (SessionStart hook to vypíše sám),
    pak `AUDIT/02_HANDOFF.md` a `AUDIT/04_verdikty/`. Otevřené P0/P1 = jediná práce. Každou přečtenou zprávu `ack`.
@@ -19,8 +23,8 @@ skill `audit-rezim`. Auditor = jediná brána vydání; jeho verdikt nelze nahra
 3. **Postup**: root cause → červený test (od auditora, spusť a potvrď FAIL) → oprava (FIX subagent) → rebuild →
    VERIFY subagent (jiná instance) → REVIEW → pojistka proti recidivě → důkazy do `AUDIT/03_dukazy/A-###/`
    (formát dle handoffu: commit.txt, cerveny_test.txt před/po, reprodukce.txt, momentka, regrese.txt, pojistka.txt, status).
-3b. **Most**: při zahájení `bus.mjs post --from kapitan --type STATUS --id A-### --status STARTED`; po dokončení `post EVIDENCE --ref AUDIT/03_dukazy/A-###/ --sha <commit>`
-   a `post STATUS --status DONE`. Zpráva bez `--sha`/ref se neověřuje. Otázky = `QUESTION`, ne domněnka. Přes více strojů: `bus.mjs sync` po každé zprávě.
+3b. **Most** (zkratka z repa, vždy jako Kapitán, povolená i v auto-režimu: `node .claude/hooks/auditor-bus.mjs …`): při zahájení `post --type STATUS --id A-### --status STARTED`; po dokončení `post --type EVIDENCE --id A-### --ref AUDIT/03_dukazy/A-###/ --sha <commit>`
+   a `post STATUS --status DONE`. Zpráva bez `--sha`/ref se neověřuje. Čekáš-li na verdikt nebo odpověď, měj na pozadí hlídače `node .claude/hooks/auditor-bus.mjs wait --interval 60 --timeout 7200` (run_in_background) — probudí tě, jakmile auditor odpoví. Otázky = `QUESTION`, ne domněnka. Přes více strojů: `bus.mjs sync` po každé zprávě.
    Každá oprava v odděleném git worktree (`git worktree add ../wt-A-### audit/A-###`), max 3 souběžné položky bez sdílených souborů; po PASS `git worktree remove ../wt-A-###` a smazání větve (auditor kontroluje `hygiene-scan` → worktrees ≤ 3).
    Deploy = nejdřív `node <ws>/kapitan-side/gate-check.mjs <repo>` (hook ho vynutí i v .bat) → `post APPLIED --ref <deploy id>` po nasazení.
 4. **Status** vždy jeden z: `DONE` / `DONE_WITH_CONCERNS <co>` / `BLOCKED <proč>` / `NEEDS_CONTEXT <co>`. Falešné DONE =

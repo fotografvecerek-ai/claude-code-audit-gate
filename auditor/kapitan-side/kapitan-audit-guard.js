@@ -42,6 +42,8 @@ process.stdin.on('end', () => {
   if (tool === 'Bash' || tool === 'PowerShell') {
     const cmd = String(ti.command || '');
     if (/\bgit\s+(-C\s+\S+\s+)?push\b.*(--force|-f\b)/i.test(cmd)) block('force push zakázán.');
+    // destruktivní SQL přímo v příkazu (platí i pro úroveň SAMOSTATNÝ/PLNÝ): smazání tabulek/databáze, vyprázdnění, DELETE/UPDATE bez WHERE
+    if (/\bdrop\s+(table|database|schema)\b|\btruncate\s+(table\s+)?["\w]|\bdelete\s+from\s+[\w."]+\s*(;|"|'|$)(?![^;]*\bwhere\b)|\bupdate\s+[\w."]+\s+set\b(?![^;]*\bwhere\b)|\bsupabase\s+db\s+reset\b/i.test(cmd)) block('DESTRUKTIVNÍ SQL (DROP/TRUNCATE/DELETE či UPDATE bez WHERE/db reset) — takový zásah dělá jen vlastník ručně, se zálohou.');
     // SELF-PROTECT i přes shell: zápis/mazání/přesun souborů hooků, settings, CI brány
     if (/(\.claude\/(hooks|settings)|\.github\/workflows\/auditor-gate|\.git\/hooks)/i.test(cmd.replace(/\\/g, '/')) && /(>>?|\btee\b|\bcp\b|\bmv\b|\brm\b|\bdel\b|\bsed\s+-i|remove-item|set-content|out-file|copy-item|move-item|\bgit\s+rm\b|\bchmod\b|\btruncate\b|\bnpx\s+prettier\b)/i.test(cmd)) block('SELF-PROTECT: zápis do .claude/hooks, settings nebo CI brány přes shell je zakázán.');
     if (/bus\.mjs\s+post\b/.test(cmd) && !/--from\s+kapitan\b/.test(cmd)) block('bus post: Kapitán smí posílat jen --from kapitan.');

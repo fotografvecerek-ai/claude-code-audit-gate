@@ -46,7 +46,7 @@ jobs:
             if ($errs) { $errs | ForEach-Object { Write-Error $_.Message }; throw "$($f.Name): parse error" }
           }
           Write-Host "ok: ps1 parse + BOM"
-      - name: selftest bran (94 scénářů; Windows 93)
+      - name: selftest bran (126 scénářů)
         run: node auditor/tools/selftest.mjs
 
   e2e-install:
@@ -111,6 +111,13 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "setup failed" }
           powershell -NoProfile -ExecutionPolicy Bypass -File auditor/post-install.ps1 -Repo $repo -Workspace $ws -NoGitHub -NoLaunch
           if ($LASTEXITCODE -ne 0) { throw "post-install failed" }
+      - name: aktualizace rozjetého auditu – bez intake, AUDIT/ beze změny
+        shell: bash
+        run: |
+          WS="$RUNNER_TEMP/app-audit"; echo "# intake" > "$WS/AUDIT/00_intake.md"; before=$(cat "$WS/AUDIT/00_intake.md")
+          node auditor/tools/update-install.mjs "$RUNNER_TEMP/app" "$WS" | tee "$RUNNER_TEMP/upd.log"
+          grep -q "AKTUALIZOVÁNO" "$RUNNER_TEMP/upd.log" && [ "$(cat "$WS/AUDIT/00_intake.md")" = "$before" ]
+          grep -q "Tvoje role: Kapitán" "$RUNNER_TEMP/app/CLAUDE.md"
       - name: nový projekt (zdravý start) – založení + vlastní kontrola
         shell: bash
         run: |
@@ -134,4 +141,7 @@ jobs:
           git status --porcelain | grep -q '^A  pozadavky.md'
           git status --porcelain | grep -q '^ M CLAUDE.md'
           ! grep -q 'auditor-gate' deploy.bat
+          grep -q 'Tvoje role: Kapitán' CLAUDE.md && grep -q 'kapitan-role.mjs' .claude/settings.json
+          test -f .claude/hooks/auditor-bus.mjs && grep -q 'auditor-bus.mjs' .claude/settings.json
+          grep -q 'bus-notify.mjs' .claude/settings.json && grep -q 'bus-notify.mjs' "$WS/.claude/settings.json"
           echo "e2e ok"

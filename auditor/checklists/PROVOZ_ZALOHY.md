@@ -1,6 +1,6 @@
 # Checklist PROVOZ, ZÁLOHY, LICENCE — obnovitelnost, ne existence zálohy
 
-KinoXT3 §3: „existence ZIPu není obnovitelnost", „health 200 není readiness". Auditor ověřuje **celý řetězec**, ne artefakt.
+Poučení z praxe: „existence ZIPu není obnovitelnost", „health 200 není readiness". Auditor ověřuje **celý řetězec**, ne artefakt.
 
 ## 1. Zálohy a obnova (P0 u dat zákazníků)
 - [ ] **Inventura autoritativních zdrojů dat**: DB (všechny schémata/tabulky vč. druhé DB), soubory v R2/Storage, konfigurace tenantů, tajemství, e-mailové šablony, číselníky v JSON. Záloha pokrývá 100 % seznamu (plošné AK), ne „hlavní DB".
@@ -20,7 +20,7 @@ KinoXT3 §3: „existence ZIPu není obnovitelnost", „health 200 není readine
 ## 3. Závislosti a licence
 - [ ] `npx license-checker --summary` (ověř nástroj) / `pnpm licenses list`: žádné GPL/AGPL/SSPL v distribuovaném klientském kódu bez rozhodnutí vlastníka; neznámé licence = seznam.
 - [ ] Datové zdroje: licence a share-alike podmínky (ODbL trap — OSM v cestovní aplikaci; CC BY-4.0 atribuce u Ortofoto ČR) doloženy v `docs/LICENCE_DAT.md`.
-- [ ] Fonty, ikony, obrázky v `public/`: původ a licence známá; cizí fotografie/performeři (KinoXT3) = původ a souhlas.
+- [ ] Fonty, ikony, obrázky v `public/`: původ a licence známá; cizí fotografie/performeři = původ a souhlas.
 - [ ] Marketingový text vs. realita: „šifrováno", „zálohováno", „GDPR compliant" v UI/webu odpovídá doloženému stavu (KATALOG §3, §7).
 
 ## 4. Dokumentace vs. realita

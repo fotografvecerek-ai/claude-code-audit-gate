@@ -15,12 +15,21 @@ echo.
 set "REPO=%~1"
 if "%REPO%"=="" set /p "REPO=Cesta k projektu (Enter = nevim, prohledat disky): "
 if "%REPO%"=="" (call "%~dp0INSTALL-MULTI.cmd" & exit /b)
+set "REPO=%REPO:"=%"
+if "%REPO:~-1%"=="\" set "REPO=%REPO:~0,-1%"
 if not exist "%REPO%\" (echo Slozka "%REPO%" neexistuje. & pause & exit /b 1)
 if not exist "%REPO%\.git" (
   echo Slozka neni git repo - zakladam ho ^(jen .gitignore + prvni ulozeni, nic se nemaze^). Auditor git potrebuje.
   node "%~dp0tools\git-init-project.mjs" "%REPO%" || (pause & exit /b 1)
 )
 for %%I in ("%REPO%") do set "WS=%%~dpI%%~nxI-audit"
+if exist "%WS%\.claude\settings.json" (
+  echo Auditor je u tohoto projektu uz nainstalovany - jen aktualizuji nastaveni, rozjety audit zustava.
+  node "%~dp0tools\update-install.mjs" "%REPO%" "%WS%"
+  echo.
+  pause
+  exit /b
+)
 echo.
 echo Repo:      %REPO%
 echo Workspace: %WS%

@@ -13,6 +13,7 @@ if ($LASTEXITCODE -ne 0 -or -not $json) { Write-Host "Repo se nepodařilo stáhn
 $r = $json | ConvertFrom-Json
 Write-Host "  kopie repa: $($r.repo)  (větev $($r.branch), commit $($r.commit))" -ForegroundColor Green
 $ws = Join-Path (Split-Path $r.repo -Parent) "$($r.name)-audit"
+if (Test-Path (Join-Path $ws '.claude\settings.json')) { node (Join-Path $pkg 'tools\update-install.mjs') $r.repo $ws; Write-Host "  Kód klienta stažen znovu (commit $($r.commit)). Napiš auditorovi: Repo aktualizováno, zkontroluj změny." -ForegroundColor Green; Start-Process cmd.exe -ArgumentList '/k', "`"$ws\start-auditor.cmd`""; exit 0 }
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkg 'setup-auditor.ps1') -Repo $r.repo -Workspace $ws -Yes -Model 'claude-fable-5-1' -Kapitan ne -Hygiena ne -CI ne
 if ($LASTEXITCODE -ne 0) { Write-Host "Instalace auditora selhala." -ForegroundColor Red; exit 1 }
 # režim vzdáleného auditu: auditor ví, že Kapitán není a výstup je pro klienta

@@ -17,7 +17,7 @@ Projdi ŠEST BRAN (každá = fakt + příkaz + výstup):
 5. UŽIVATELSKÝ FLOW FUNGUJE: reprodukce z REÁLNÉHO vstupního bodu (Playwright, touch u mobile) → očekávaný výsledek; reload; dvojklik; chybový stav; screenshot do AUDIT/04_verdikty/momentky/.
 6. VÝSLEDEK A BEZPEČNOST ZACHOVÁNY: regrese 0 failů (spusť sám), console 0 errors, žádný nový nález z rychlého re-skenu dotčené oblasti (endpoint-probe / ui-sanity na dotčené obrazovce), pojistka proti recidivě je zapojená.
 
-Vlastní PROTIPŘÍKLAD před porovnáním diffu: souběh (2 paralelní požadavky), retry po ztracené odpovědi, pád mezi dvěma zápisy, poškozený/chybějící artefakt (ne jen chybějící — i POŠKOZENÝ existující stav), neplatný vstup, stale klient, obejití jinou cestou (Host/path/přímé API). Testuj KOMBINACE přepínačů/stavů, ne jen jednotlivé cesty (KinoXT3: `--dry-run --rollback` prošlo 18/18 testů a mazalo živý soubor).
+Vlastní PROTIPŘÍKLAD před porovnáním diffu: souběh (2 paralelní požadavky), retry po ztracené odpovědi, pád mezi dvěma zápisy, poškozený/chybějící artefakt (ne jen chybějící — i POŠKOZENÝ existující stav), neplatný vstup, stale klient, obejití jinou cestou (Host/path/přímé API). Testuj KOMBINACE přepínačů/stavů, ne jen jednotlivé cesty (z praxe: `--dry-run --rollback` prošlo 18/18 testů a mazalo živý soubor).
 Ověř exit kódy skriptů Kapitána při chybě (STOP musí být nenulový) a vazbu souboru na commit (`git hash-object` vs `git rev-parse <sha>:<cesta>`), ne vizuální shodu.
 Rozliš: chyba produktu / chyba testu / chyba prostředí / neprůkazné. Chyba prostředí NENÍ FAIL Kapitána.
 Zakázané formulace: „mělo by", „vypadá", „pravděpodobně". Jen pozitivní signály (počet>0, status, screenshot), žádný grep, který může matchnout chybovou hlášku.

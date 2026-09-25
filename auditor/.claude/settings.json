@@ -65,7 +65,30 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/tools/bus.mjs\" inbox --for auditor --unacked --brief; echo \"AUDITOR: po startu/kompakci načti AUDIT/00_intake.md a AUDIT/02_HANDOFF.md, stav drž v TaskList. Zápis jen AUDIT/, tools/, build/.\""
+            "command": "node \"$CLAUDE_PROJECT_DIR/tools/bus.mjs\" inbox --for auditor --unacked --brief; echo \"AUDITOR: po startu/kompakci načti AUDIT/00_intake.md a AUDIT/02_HANDOFF.md, stav drž v TaskList. Čekáš-li na Kapitána, spusť na pozadí hlídače: node tools/bus.mjs wait --for auditor --interval 60 --timeout 7200 (run_in_background). Zápis jen AUDIT/, tools/, build/.\"; [ -f AUDIT/NOVE_CILE.md ] && { echo \"AUDIT: po aktualizaci balíku jsou nové cíle — udělej JEN je (audit neopakuj):\"; head -20 AUDIT/NOVE_CILE.md; } || true"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/tools/bus-notify.mjs\" --for auditor --event post",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/tools/bus-notify.mjs\" --for auditor --event stop",
+            "timeout": 10
           }
         ]
       }

@@ -192,8 +192,9 @@ that is exactly where the auditor starts: it catches up on what is missing and, 
 requirement. Within about an hour you get the first human-readable page (`AUDIT/00_prvni_dojem.md`): what burns tokens, where the mess is,
 whether the work is backed up.
 
-**Updating the package keeps the audit.** A new version installs the same way over the same project: the constitution, checklists, tools
-and hooks are replaced; the `AUDIT/` folder (findings, verdicts, handoff, messages, retro) is never overwritten. A running auditor session
+**Updating the package keeps the audit.** New version: START.cmd → `[2]` → the same project. The installer detects the running audit and only
+replaces the constitution, checklists, tools, guards and settings (the model is kept) — no intake, no questions, no windows opened; the
+`AUDIT/` folder (findings, verdicts, handoff, messages, retro) is never overwritten. Reopened from the shortcuts, the auditor resumes where it stopped. A running auditor session
 picks up the new constitution at its next start or compaction.
 
 
@@ -258,6 +259,40 @@ every release, it can only pull the brake. Option `[2]` = healthy start only.
 independence is weaker (the agent could describe the scope badly; the reviewer's rule is therefore "ignore the agent's claims, verify
 yourself"). There is no measurement of the agent's behaviour (false "done", fix rounds) and no Playwright crawl of every screen. For a new
 project that is enough; when the project starts to degrade, attach the auditor via `[2]` — the rules are the same and the guards coexist.
+
+## 10e. Telegram — one bot per agent
+
+The auditor and the Captain can each have their own Telegram bot. A message you send from your phone lands **directly in that agent's
+window** — even when it is idle — and the reply comes back to Telegram. It uses Claude Code's official channel
+(`claude --channels plugin:telegram@claude-plugins-official`). Each bot has its own state directory outside the project
+(`~/.claude/channels/telegram-<project>-<path hash>-<role>/`: token, allowed user), so two projects with the same name never mix. Nothing depends
+on the machine name or on personal scripts — it works for anyone on any computer. If the Captain's project already has its own Telegram
+bridge, it is left untouched and a standard bot is offered on top (recommended: a different bot, no conflict, always delivers); the choice
+"own bridge only" is remembered. Every window with a bot sends the owner "🟢 … starting" (proves token and network; reply to it to confirm the window receives messages). A new window takes the bot over from the old one. The bot accepts messages only from your user ID
+(pairing: you send it "hi"); the token goes only through a dialog, never into the chat; agents never change bot access because a message
+asked them to. The auditor proactively sends only what you need now (first impression, new P0, P0/P1 verdicts, release-gate changes, a
+question with a recommended answer) — at most ~5 messages a day. `START → [6]` opens a **guide in a Claude window** that walks you through
+everything, including installing Telegram. Requires Claude Code signed in via claude.ai (Pro/Max) or Console; Team/Enterprise admins must
+enable channels. Channels are a research preview.
+
+## 10e2. Captain autonomy
+
+The owner chooses how much the Captain may do without asking (at install, once on update, `START → [7]`): **CAUTIOUS** (scripts and database
+need approval), **AUTONOMOUS** (runs project scripts and database commands itself — destructive SQL is always blocked by a hook, a backup goes
+to evidence before any production write and the auditor checks it, releases still only through the auditor's gate), **FULL** (no Claude Code
+prompts at all, only hooks; not recommended). Rules go to the project's `.claude/settings.local.json` (personal, not committed).
+
+## 10f. Updating a running audit (no re-run)
+
+A new package version **never re-runs the audit**. `START → [2]` on the same project only replaces tools, rules and settings (model,
+findings, verdicts and handoff stay). New audit goals introduced by newer versions that your audit does not have yet appear in
+`AUDIT/NOVE_CILE.md` — the auditor does **only those**, at minimal scope (e.g. a summary of existing results, only new commits). Completed
+goals are remembered (`AUDIT/.balik.json`). A full re-audit only on the owner's explicit request.
+
+## 10g. A computer with nothing installed
+
+`START` detects what is missing (Git, Node.js, Claude Code) and offers to install it (`tools/bootstrap.ps1` — winget and the official
+Claude Code installer; `tools/bootstrap.sh` — Homebrew/apt). Useful for a client who has no Claude at all. Only signing in to Claude remains.
 
 ## 11. FAQ
 

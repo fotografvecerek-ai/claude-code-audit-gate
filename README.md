@@ -9,6 +9,9 @@
 > proposed fixes to the project agent, enforces *stop-the-line*, independently re-verifies every fix through six gates, and gates the
 > release with **technical barriers** (Claude Code hooks, git pre-commit, GitHub Actions) — not just words in a prompt.
 >
+> **New in 1.4:** a separate Telegram bot for the auditor and for the Captain (messages land directly in the agent's window); updates
+> never re-run a running audit (only new goals); START installs Git, Node.js and Claude Code on a bare machine.
+>
 > **Three paths** from the start menu: **(1) a new project set up healthy from day one** — the auditor's rules, an independent read-only
 > *reviewer* subagent and the same technical gates live inside the project, no separate auditor needed; **(2) audit a project on this
 > computer** (rescue of a project in trouble); **(3) audit a GitHub repo** from its URL only (nothing installed at the client).
@@ -43,6 +46,10 @@ každá oprava se nezávisle ověřuje a chování Kapitána se měří (falešn
 **Tři cesty (rozcestník `START.cmd` / `start.sh`):** `[1]` **nový projekt** zdravě od začátku (pravidla, nezávislý kontrolor a pojistky přímo
 v projektu; doporučeno v kombinaci se samostatným auditorem, který běží periodicky a může zastavit vydání) · `[2]` **audit projektu na disku** (záchrana rozjetého projektu) · `[3]` **audit GitHub repa**
 (klient pošle jen adresu, u něj se nic neinstaluje).
+**Telegram:** auditor i Kapitán mají každý svého bota — zpráva z mobilu přijde přímo do okna agenta (`START → [6]`, průvodce v okně Claude).
+**Aktualizace:** nová verze rozjetý audit neopakuje, doplní jen nové cíle (`AUDIT/NOVE_CILE.md`).
+**Samostatnost Kapitána:** volíš, jestli smí sám spouštět skripty a databázi (`START → [7]`); destruktivní SQL blokuje pojistka vždy.
+**Počítač bez Claude:** START sám doinstaluje Git, Node.js a Claude Code.
 **Statistika:** na konci každého auditu `STATISTIKA.html` — řádky kódu, obrazovky, nálezy, čas a přesné tokeny.
 
 ## Rychlý start
@@ -74,7 +81,7 @@ Detaily: [`auditor/CLAUDE.md`](auditor/CLAUDE.md) (ústava auditora), [`auditor/
 
 ## CI
 
-Každý push a PR běží na **Windows, Linuxu i macOS**: syntaxe Node/bash/PowerShell (vč. BOM a zákazu bash4-ismů), samotest bran (94 scénářů vč. nového projektu)
+Každý push a PR běží na **Windows, Linuxu i macOS**: syntaxe Node/bash/PowerShell (vč. BOM a zákazu bash4-ismů), samotest bran (110 scénářů vč. nového projektu, Telegramu a samostatnosti)
 a end-to-end instalace do fixture repa s rozdělanou prací (ověřuje, že se do gitu uloží jen soubory instalace a brána blokuje). Tag `v*` vydá zip
 jako GitHub Release. Workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 

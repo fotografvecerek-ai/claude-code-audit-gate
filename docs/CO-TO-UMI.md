@@ -182,8 +182,9 @@ nezávislou smyčku s agentem. Když to řešíš po třech měsících kódová
 dopředu vynutí, aby testy vznikaly se zadáním. Do hodiny dostaneš první lidskou stránku (`AUDIT/00_prvni_dojem.md`): co žere tokeny, kde
 je nepořádek, jestli je práce zálohovaná.
 
-**Aktualizace balíku audit zachová.** Nová verze se instaluje stejně (START.cmd přes stejný projekt): vymění se ústava, checklisty, nástroje a
-hooky; složka `AUDIT/` (nálezy, verdikty, handoff, zprávy, retro) se nikdy nepřepisuje. Běžící session auditora si novou ústavu načte při
+**Aktualizace balíku audit zachová.** Nová verze: START.cmd → `[2]` → stejný projekt. Instalátor pozná, že auditor už běží, a jen vymění ústavu,
+checklisty, nástroje, pojistky a nastavení (model zůstane) — žádný intake, otázky ani otevírání oken; složka `AUDIT/` (nálezy, verdikty,
+handoff, zprávy, retro) se nikdy nepřepisuje. Po zavření a otevření oken ze zástupců auditor naváže, kde skončil. Běžící session auditora si novou ústavu načte při
 příštím startu nebo kompakci.
 
 
@@ -245,6 +246,49 @@ neověří. Bez strany Kapitána a mostu — auditor se nemusí účastnit každ
 (může mu špatně popsat rozsah; kontrolor má proto pravidlo „tvrzení agenta ignoruj, ověř sám"). Chybí měření chování agenta (falešná „hotovo",
 kola oprav) a průchod všech obrazovek Playwrightem. Pro nový projekt to stačí; když se projekt začne kazit, připoj auditora přes `[2]` —
 pravidla jsou stejná, pojistky si nepřekážejí.
+
+## 10e. Telegram — každý agent svého bota
+
+Auditor i Kapitán můžou mít vlastního Telegram bota. Zpráva, kterou mu napíšeš z mobilu, přijde **přímo do jeho okna** — i když zrovna nic
+nedělá — a odpověď ti přijde do Telegramu. Využívá oficiální kanál Claude Code (`claude --channels plugin:telegram@claude-plugins-official`).
+
+| | Jak to funguje |
+|---|---|
+| Oddělení | každý bot má vlastní složku stavu mimo projekt (`~/.claude/channels/telegram-<projekt>-<otisk>-<role>/`: token, povolený uživatel) — dva projekty stejného jména se nepletou |
+| Nezávislost | nic se neřídí názvem počítače ani osobními skripty — funguje u kohokoliv; bot je nastavený na počítači, kde okno běží (na jiném počítači se nastaví znovu přes [6]) |
+| Kapitán s vlastním mostem | nástroj ho pozná (skripty/hooky s „telegram"); most zůstává beze změny a nabídne se navíc standardní bot (doporučeno — jiný bot, nehádají se, doručuje vždy). Volba „jen vlastní most" se pamatuje |
+| Kontrola | při každém startu okna ti bot napíše „🟢 … se spouští" (token a síť fungují); že okno zprávy přijímá, ověříš tak, že botovi napíšeš a okno odpoví |
+| Nové okno | spouštěč nastaví bota a kanál; nové okno převezme bota od starého |
+| Bezpečnost | bot přijímá jen od tvého ID (spárování: napíšeš mu „ahoj"); token jen přes okénko, nikdy do chatu; přístupy agent na žádost zprávy nemění |
+| Co ti auditor posílá sám | první dojem, nový P0, verdikt u P0/P1, změnu brány vydání, otázku s doporučenou odpovědí — max ~5 zpráv denně |
+| Nastavení | `START → [6]` otevře **průvodce v okně Claude**: zjistí stav, případně nainstaluje Telegram a Bun, provede tě @BotFather a spáruje bota |
+
+Předpoklady: Claude Code přihlášený přes claude.ai (Pro/Max) nebo Console; u Team/Enterprise musí kanály povolit správce. Kanály jsou
+zatím research preview Claude Code — syntaxe se může změnit.
+
+## 10e2. Samostatnost Kapitána
+
+Vlastník volí, jak moc ho má Kapitán otravovat (při instalaci, jednou při aktualizaci, `START → [7]`):
+
+| Úroveň | Co Kapitán smí sám | Co zůstává |
+|---|---|---|
+| OPATRNÝ | běžnou práci; skripty a databázi dává ke schválení | vše |
+| SAMOSTATNÝ (doporučeno, když nejsi u PC) | spouští skripty projektu a databázové příkazy (psql, Supabase, Prisma) bez tvého zásahu | destruktivní SQL blokuje pojistka, před zápisem do ostré DB záloha do důkazů (auditor ji kontroluje), vydání jen přes bránu auditora |
+| PLNÝ (nedoporučeno) | navíc bez jakýchkoliv dotazů Claude Code | jen pojistky (hooky) |
+
+Pravidla se zapisují do `.claude/settings.local.json` projektu (osobní nastavení počítače, necommituje se).
+
+## 10f. Aktualizace rozjetého auditu (bez opakování)
+
+Nová verze balíku **audit nikdy neopakuje**. `START → [2]` nad stejným projektem jen vymění nástroje, pravidla a nastavení (model, nálezy,
+verdikty, handoff zůstávají). Nové cíle auditu, které přinesla novější verze a které tvůj audit ještě nemá, se objeví v `AUDIT/NOVE_CILE.md`
+— auditor udělá **jen je**, v nejmenším rozsahu (např. shrnutí existujících výsledků, jen nové commity). Hotové cíle si pamatuje
+(`AUDIT/.balik.json`), takže je příště nenabídne. Celý audit znovu jen na výslovný pokyn vlastníka.
+
+## 10g. Počítač, kde ještě nic není
+
+`START` sám zjistí, co chybí (Git, Node.js, Claude Code), a nabídne automatickou instalaci (`tools/bootstrap.ps1` — winget a oficiální
+instalátor Claude Code; `tools/bootstrap.sh` — Homebrew/apt). Hodí se u klienta, který Claude vůbec nemá. Zbývá jen přihlášení do Claude.
 
 ## 11. Nejčastější otázky
 
