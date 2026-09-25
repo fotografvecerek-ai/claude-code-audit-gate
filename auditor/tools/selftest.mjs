@@ -195,7 +195,7 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
     const before = runs(); fs.writeFileSync(path.join(wr, 'AUDIT', '01_nalezy', 'A-001.md'), '#'); const after = runs();
     T('START: rozjetý audit se pozná i bez 00_intake.md (podle nálezů), prázdný workspace ne', isWin ? after : `${before}${after}`, isWin ? 'ok' : 'IC');
     T('START: spouštěč auditora hledá i handoff a nálezy', /02_HANDOFF\.md/.test(fs.readFileSync(gen(), 'utf8')) ? 1 : 0, 1); }
-  T('START: úvodní zpráva je před --add-dir/--channels (jinak ji Claude Code spolkne jako složku)', [la, lk].every(t => /claude ("[^"]{20,}"|'[^']{20,}') --add-dir/.test(t) && !/--add-dir ("[^"]*"|'[^']*') ("|')(Jsi|Pokracuj|Zacni)/.test(t)) ? 1 : 0, 1);
+  T('START: úvodní zpráva je před --add-dir/--channels (jinak ji Claude Code spolkne jako složku)', [la, lk].every(t => /(claude|"\$CB"|"%CB%") ("[^"]{20,}"|'[^']{20,}') --add-dir/.test(t) && !/--add-dir ("[^"]*"|'[^']*') ("|')(Jsi|Pokracuj|Zacni)/.test(t)) ? 1 : 0, 1);
   fs.writeFileSync(path.join(tw, '.telegram.json'), JSON.stringify({ kapitan: { mode: 'vlastni', soubory: ['scripts/telegram_bridge.py'], volba: 'vlastni' } }));
   const d2 = JSON.parse(spawnSync(process.execPath, [path.join(pkg, 'tools/telegram-setup.mjs'), '--ws', tw, '--repo', tr, '--detect'], { encoding: 'utf8' }).stdout || '{}');
   T('TG: volba „jen vlastní most" se pamatuje (neptá se znovu)', d2.kapitan?.volba, 'vlastni');
@@ -248,6 +248,110 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
   run2(); run2(); const cm = fs.readFileSync(path.join(kr, 'CLAUDE.md'), 'utf8');
   T('ROLE: CLAUDE.md má blok role právě jednou a starý blok zmizel', (cm.match(/Tvoje role: Kapitán/g) || []).length === 1 && !cm.includes('## Audit režim') && cm.includes('## Jiné') ? 1 : 0, 1);
   T('ROLE: SessionStart hook říká agentovi, že je Kapitán', /Jsi KAPITÁN/.test(spawnSync(process.execPath, [path.join(pkg, 'tools/kapitan-role.mjs'), ws], { encoding: 'utf8' }).stdout) ? 1 : 0, 1); }
+
+// --- CODEX: stejné pojistky přes adaptér (apply_patch → soubory), pojistky/spouštěče z codex-setup, ověření otisků, most bez smyčky
+{ const CH = path.join(pkg, 'tools/codex-hook.mjs');
+  const cx = (guard, input) => spawnSync(process.execPath, [CH, '--ws', ws, '--repo', repo, '--guard', guard], { input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, HYGIENE_RULES: env.HYGIENE_RULES } }).status;
+  const patch = (cwd, kind, file) => ({ cwd, tool_name: 'apply_patch', tool_input: { command: `*** Begin Patch\n*** ${kind} File: ${file}\n+x\n*** End Patch` } });
+  T('CODEX: Kapitán apply_patch do nálezů auditora blokován', cx(KG, patch(repo, 'Add', path.join(ws, 'AUDIT', '01_nalezy', 'A-9.md'))), 2);
+  T('CODEX: Kapitán apply_patch do kódu (relativní cesta) povolen', cx(KG, patch(repo, 'Update', 'src/a.ts')), 0);
+  T('CODEX: Kapitán nesmí měnit .codex/hooks.json', cx(KG, patch(repo, 'Update', '.codex/hooks.json')), 2);
+  T('CODEX: destruktivní SQL přes Bash blokováno', cx(KG, { cwd: repo, tool_name: 'Bash', tool_input: { command: 'psql -c "DROP TABLE users"' } }), 2);
+  T('CODEX: auditor apply_patch do repa blokován', cx(AG, patch(ws, 'Update', path.join(repo, 'src', 'a.ts'))), 2);
+  T('CODEX: auditor apply_patch do AUDIT/ povolen', cx(AG, patch(ws, 'Add', 'AUDIT/01_nalezy/A-100.md')), 0);
+  T('CODEX: patch bez souborů = fail-closed', cx(KG, { cwd: repo, tool_name: 'apply_patch', tool_input: { command: 'nesmysl' } }), 2);
+  T('CODEX: prázdný apply_patch = fail-closed', cx(KG, { cwd: repo, tool_name: 'apply_patch', tool_input: {} }), 2);
+  T('CODEX: cesta s „.." do nálezů auditora blokována', cx(KG, patch(repo, 'Update', path.join(repo, 'src', '..', '..', path.basename(ws), 'AUDIT', '05_release_gate.md'))), 2);
+  T('CODEX: odsazená druhá hlavička patche se také kontroluje', cx(KG, { cwd: repo, tool_name: 'apply_patch', tool_input: { command: `*** Begin Patch\n*** Update File: src/a.ts\n+x\n   *** Add File: ${path.join(ws, 'AUDIT', '05_release_gate.md')}\n+y\n*** End Patch` } }), 2);
+  T('CODEX: patch poslaný přes shell (apply_patch <<EOF) se kontroluje', cx(KG, { cwd: repo, tool_name: 'Bash', tool_input: { command: `apply_patch <<'EOF'\n*** Begin Patch\n*** Add File: ${path.join(ws, 'AUDIT', '02_HANDOFF.md')}\n+x\n*** End Patch\nEOF` } }), 2);
+  const ctx = spawnSync(process.execPath, [CH, '--context', 'SessionStart', '--', 'node', '-e', 'console.log("ahoj")'], { input: '{}', encoding: 'utf8' });
+  T('CODEX: kontext pro model jako JSON (additionalContext)', /"additionalContext":"ahoj"/.test(ctx.stdout) ? 1 : 0, 1);
+  // codex-setup na čistém páru workspace + repo
+  const cw = path.join(tmp, 'cxapp-audit'), cr = path.join(tmp, 'cxapp'); fs.mkdirSync(path.join(cw, 'AUDIT', 'bus'), { recursive: true }); fs.mkdirSync(path.join(cw, 'tools'), { recursive: true }); fs.mkdirSync(path.join(cw, '.claude', 'hooks'), { recursive: true });
+  fs.mkdirSync(path.join(cr, '.claude', 'hooks'), { recursive: true }); fs.copyFileSync(path.join(pkg, 'kapitan-side/kapitan-audit-guard.js'), path.join(cr, '.claude/hooks/kapitan-audit-guard.js'));
+  fs.copyFileSync(path.join(pkg, '.claude/hooks/auditor-guard.js'), path.join(cw, '.claude/hooks/auditor-guard.js')); fs.writeFileSync(path.join(cw, 'CLAUDE.md'), '# ústava'); fs.copyFileSync(path.join(pkg, 'tools/bus.mjs'), path.join(cw, 'tools/bus.mjs'));
+  fs.writeFileSync(path.join(cr, '.codex-cizi'), ''); fs.mkdirSync(path.join(cr, '.codex'), { recursive: true }); fs.writeFileSync(path.join(cr, '.codex', 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo cizi' }] }] } }));
+  const cenv = { ...process.env, CODEX_HOME: path.join(tmp, 'codexhome') };
+  const setup = (...x) => spawnSync(process.execPath, [path.join(pkg, 'tools/codex-setup.mjs'), '--ws', cw, '--repo', cr, '--yes', ...x], { encoding: 'utf8', env: cenv });
+  setup('--auditor', 'codex', '--kapitan', 'codex');
+  const L = f => fs.readFileSync(path.join(cw, isWin ? f + '.cmd' : f + '.sh'), 'utf8');
+  const hk = JSON.parse(fs.readFileSync(path.join(cr, '.codex', 'hooks.json'), 'utf8')).hooks;
+  T('CODEX: setup zapíše pojistky Kapitána a cizí hook v hooks.json nechá', `${/codex-hook\.mjs/.test(JSON.stringify(hk.PreToolUse))}/${/echo cizi/.test(JSON.stringify(hk.PreToolUse))}/${!!hk.Stop}`, 'true/true/true');
+  T('CODEX: role Kapitána v AGENTS.md a ústava auditora v AGENTS.md', `${/auditor:role/.test(fs.readFileSync(path.join(cr, 'AGENTS.md'), 'utf8'))}/${/# ústava/.test(fs.readFileSync(path.join(cw, 'AGENTS.md'), 'utf8'))}`, 'true/true');
+  T('CODEX: spouštěče startují codex se sandboxem a ověřením pojistek', [L('start-auditor'), L('start-kapitan')].every(t => /codex .*-C .*-s (workspace-write|danger-full-access)/.test(t) && /codex-hooks-check\.mjs/.test(t) && !/\bclaude "/.test(t)) ? 1 : 0, 1);
+  T('CODEX: projekt i workspace důvěryhodné v config.toml Codexu', (fs.readFileSync(path.join(tmp, 'codexhome', 'config.toml'), 'utf8').match(/trust_level = "trusted"/g) || []).length, 2);
+  const HDIR = () => JSON.parse(fs.readFileSync(path.join(cw, '.agents.json'), 'utf8')).hooky;
+  const chk = () => spawnSync(process.execPath, [path.join(HDIR(), 'codex-hooks-check.mjs'), HDIR()], { encoding: 'utf8' }).status;
+  T('CODEX: pojistky Codexu leží mimo workspace i repo (agenti je v sandboxu nepřepíšou)', [cw, cr].some(d => HDIR().startsWith(d)) ? 0 : 1, 1);
+  T('CODEX: Kapitán smí zapisovat jen do důkazů a mostu, ne do celého workspace', /--add-dir "?'?[^ ]*03_dukazy/.test(L('start-kapitan')) && !new RegExp(`--add-dir ["']?${cw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}["']? `).test(L('start-kapitan')) ? 1 : 0, 1);
+  const c1 = chk(); fs.appendFileSync(path.join(cr, '.codex', 'hooks.json'), ' '); const c2 = chk();
+  T('CODEX: otisky pojistek sedí; po cizí změně hooks.json už ne (spouštěč pak agenta nespustí)', `${c1}/${c2}`, '0/1');
+  const tf = path.join(tmp, 'codexhome', 'config.toml'); const toml0 = fs.readFileSync(tf, 'utf8');
+  fs.writeFileSync(tf, toml0.replace(/trust_level = "trusted"/, 'trust_level = "untrusted"')); setup('--auditor', 'codex', '--kapitan', 'codex');
+  const toml1 = fs.readFileSync(tf, 'utf8');
+  T('CODEX: důvěra projektu se opraví a klíč se nezdvojí', `${(toml1.match(/\[projects\./g) || []).length}/${/untrusted/.test(toml1)}/${chk()}`, '2/false/0');
+  fs.writeFileSync(tf, toml1.replace(/trust_level = "trusted"/, 'trust_level = "untrusted"'));
+  T('CODEX: nedůvěryhodný projekt = spouštěč agenta nespustí (pojistky by se nenačetly)', chk(), 1); fs.writeFileSync(tf, toml1);
+  fs.appendFileSync(path.join(cw, '.claude', 'hooks', 'auditor-guard.js'), '\n// upraveno agentem'); setup('--auditor', 'codex', '--kapitan', 'codex');
+  T('CODEX: pojistky se berou z balíku, ne z upravitelné kopie ve workspace', /upraveno agentem/.test(fs.readFileSync(path.join(HDIR(), 'auditor-guard.js'), 'utf8')) ? 1 : 0, 0);
+  fs.writeFileSync(path.join(cr, '.codex', 'config.toml'), '[mcp_servers.x]\ncommand = "x"\n');
+  T('CODEX: nový projektový .codex/config.toml = spouštěč agenta nespustí', chk(), 1); fs.rmSync(path.join(cr, '.codex', 'config.toml'));
+  T('CODEX: auditor nesmí shellem měnit spouštěč Kapitána', hook(AG, bash(ws, `echo x >> ${path.join(ws, 'start-kapitan.sh')}`)), 2);
+  setup('--auditor', 'claude', '--kapitan', 'codex');
+  T('CODEX: přepnutí rolí nenechá staré otisky (kontrola dál sedí)', chk(), 0);
+  fs.writeFileSync(path.join(cr, '.codex', 'hooks.json'), '{ nesmysl'); const bad = setup('--auditor', 'codex', '--kapitan', 'codex');
+  T('CODEX: nečitelný hooks.json se nepřepíše (cizí hooky se neztratí)', `${bad.status !== 0}/${fs.readFileSync(path.join(cr, '.codex', 'hooks.json'), 'utf8')}`, 'true/{ nesmysl');
+  fs.writeFileSync(path.join(cr, '.codex', 'hooks.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: 'echo cizi' }] }] } }));
+  setup('--auditor', 'claude', '--kapitan', 'claude');
+  const hk2 = JSON.parse(fs.readFileSync(path.join(cr, '.codex', 'hooks.json'), 'utf8')).hooks;
+  T('CODEX: návrat do Claude Code odebere jen naše pojistky a vrátí spouštěče', `${/codex-hook/.test(JSON.stringify(hk2))}/${/echo cizi/.test(JSON.stringify(hk2))}/${/(\bclaude|"\$CB"|"%CB%") ["']/.test(L('start-kapitan'))}`, 'false/true/true');
+  // most v Codexu: konec tahu zastaví každá zpráva jen jednou (Codex nemá stop_hook_active)
+  fs.writeFileSync(path.join(cw, 'AUDIT', 'bus', '2026-01-01T00-00-00-000Z_auditor_NOTE_A-1.json'), JSON.stringify({ from: 'auditor', to: 'kapitan', type: 'NOTE', id: 'A-1', text: 'x', ack: [] }));
+  fs.copyFileSync(path.join(pkg, 'tools/bus-notify.mjs'), path.join(cw, 'tools/bus-notify.mjs'));
+  const st = () => spawnSync(process.execPath, [path.join(cw, 'tools/bus-notify.mjs'), '--for', 'kapitan', '--event', 'stop', '--once'], { input: '{}', encoding: 'utf8' }).status;
+  T('CODEX: nepotvrzená zpráva zastaví konec tahu jen jednou (žádná smyčka)', `${st()}/${st()}`, '2/0'); }
+
+// --- ÚSPORNÝ REŽIM: auditor sám nesmí plýtvat (delegace na levné modely, žádné celé velké soubory v hlavním vlákně, kompakce u ~200k)
+{ const ew = path.join(tmp, 'eco-audit'); fs.mkdirSync(path.join(ew, 'build', 'eco'), { recursive: true }); fs.mkdirSync(path.join(ew, 'build', 'eco-kopie'), { recursive: true });
+  fs.writeFileSync(path.join(ew, 'velky.md'), 'x'.repeat(70 * 1024)); fs.writeFileSync(path.join(ew, 'maly.md'), 'x');
+  const UG = path.join(pkg, 'tools/usporny-guard.mjs'); const ug = inp => spawnSync(process.execPath, [UG], { input: JSON.stringify({ cwd: ew, ...inp }), env: { ...process.env, AUDITOR_WORKSPACE: ew }, encoding: 'utf8' }).status;
+  T('ÚSPORA: obecný subagent bez levného modelu blokován', ug({ tool_name: 'Agent', tool_input: { subagent_type: 'general-purpose', prompt: 'x' } }), 2);
+  T('ÚSPORA: subagent s model sonnet povolen', ug({ tool_name: 'Agent', tool_input: { subagent_type: 'general-purpose', model: 'sonnet', prompt: 'x' } }), 0);
+  T('ÚSPORA: pruzkumnik/mechanik povoleni', `${ug({ tool_name: 'Agent', tool_input: { subagent_type: 'pruzkumnik' } })}${ug({ tool_name: 'Agent', tool_input: { subagent_type: 'mechanik' } })}`, '00');
+  T('ÚSPORA: celý velký soubor v hlavním vlákně blokován, s limitem povolen', `${ug({ tool_name: 'Read', tool_input: { file_path: 'velky.md' } })}${ug({ tool_name: 'Read', tool_input: { file_path: 'velky.md', limit: 100 } })}${ug({ tool_name: 'Read', tool_input: { file_path: 'maly.md' } })}`, '200');
+  T('ÚSPORA: cat velkého souboru blokován, s | head povolen', `${ug({ tool_name: 'Bash', tool_input: { command: 'cat velky.md' } })}${ug({ tool_name: 'Bash', tool_input: { command: 'cat velky.md | head -50' } })}`, '20');
+  T('ÚSPORA: uvnitř subagenta pojistka neplatí (má vlastní model a nástroje)', ug({ agent_id: 'a1', tool_name: 'Read', tool_input: { file_path: 'velky.md' } }), 0);
+  fs.writeFileSync(path.join(ew, '.rezim.json'), '{"rezim":"dukladny"}');
+  T('ÚSPORA: důkladný režim (volba vlastníka) pojistku vypne', ug({ tool_name: 'Agent', tool_input: { subagent_type: 'general-purpose' } }), 0);
+  const fm = f => (fs.readFileSync(path.join(pkg, '.claude/agents', f), 'utf8').match(/^model:\s*(\S+)/m) || [])[1];
+  T('ÚSPORA: subagenti auditora mají levné modely (pruzkumnik haiku, mechanik a lehký ověřovatel sonnet)', `${fm('pruzkumnik.md')}/${fm('mechanik.md')}/${fm('overovatel-lehky.md')}/${fm('overovatel.md')}`, 'haiku/sonnet/sonnet/inherit');
+  fs.rmSync(path.join(ew, '.rezim.json')); fs.mkdirSync(path.join(ew, 'tools'), { recursive: true });
+  spawnSync(process.execPath, [path.join(pkg, 'tools/write-launchers.mjs'), ew, path.join(tmp, 'eco')], { encoding: 'utf8' });
+  const la = fs.readFileSync(path.join(ew, isWin ? 'start-auditor.cmd' : 'start-auditor.sh'), 'utf8'), lk = fs.readFileSync(path.join(ew, isWin ? 'start-kapitan.cmd' : 'start-kapitan.sh'), 'utf8');
+  T('ÚSPORA: spouštěče kompaktují kontext u ~200 tis. tokenů (ne u ~1 mil.), auditor má levné subagenty', `${/CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000/.test(la)}/${/CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000/.test(lk)}/${/CLAUDE_CODE_SUBAGENT_MODEL=sonnet/.test(la)}`, 'true/true/true');
+  fs.copyFileSync(path.join(pkg, 'tools/uklid-workspace.mjs'), path.join(ew, 'tools/uklid-workspace.mjs'));
+  spawnSync(process.execPath, [path.join(ew, 'tools/uklid-workspace.mjs'), '--smazat'], { encoding: 'utf8', env: { ...process.env, AUDITOR_TARGET_REPO: path.join(tmp, 'eco') } });
+  T('ÚSPORA: úklid smaže kopie repa v build/, aktivní klon nechá', `${fs.existsSync(path.join(ew, 'build', 'eco'))}/${fs.existsSync(path.join(ew, 'build', 'eco-kopie'))}`, 'true/false');
+  T('ÚSPORA: auditorova pojistka úklid workspace pustí', hook(AG, bash(ws, 'node tools/uklid-workspace.mjs --smazat')), 0); }
+{ // KONTROLA PŘED STARTEM: spouštěč nejdřív ověří verzi Claude Code a pustí nejnovější nalezenou instalaci (ne starou z PATH)
+  const pw = path.join(tmp, 'pf-ws'); fs.mkdirSync(path.join(pw, 'tools'), { recursive: true }); fs.mkdirSync(path.join(pw, '.claude'), { recursive: true });
+  spawnSync(process.execPath, [path.join(pkg, 'tools/write-launchers.mjs'), pw, path.join(tmp, 'pf-repo')], { encoding: 'utf8' });
+  const lA = fs.readFileSync(path.join(pw, isWin ? 'start-auditor.cmd' : 'start-auditor.sh'), 'utf8'), lK = fs.readFileSync(path.join(pw, isWin ? 'start-kapitan.cmd' : 'start-kapitan.sh'), 'utf8');
+  const before = t => { const i = t.indexOf('preflight.mjs'), j = t.search(/(call "%CB%"|exec "\$CB") /); return i > 0 && j > i; };
+  T('START-KONTROLA: oba spouštěče volají kontrolu verze před startem a pouští vybranou instalaci', `${before(lA)}/${before(lK)}`, 'true/true');
+  T('START-KONTROLA: auditor nesmí upravit kontrolu před startem ani otisky nástrojů', `${hook(AG, { tool_name: 'Write', tool_input: { file_path: path.join(ws, 'tools', 'preflight.mjs'), content: 'x' }, cwd: ws })}${hook(AG, bash(ws, 'echo x > tools/preflight.mjs'))}${hook(AG, { tool_name: 'Write', tool_input: { file_path: path.join(ws, 'tools', 'moje.mjs'), content: 'x' }, cwd: ws })}`, '220');
+  const CL = path.join(pkg, '..', 'CHANGELOG.md');   // v balíku; ve workspace CHANGELOG není → jen tvar verze
+  if (!fs.existsSync(CL)) T('START-KONTROLA: VERZE nástrojů je platné číslo verze', /^\d+\.\d+\.\d+\s*$/.test(fs.readFileSync(path.join(pkg, 'tools', 'VERZE'), 'utf8')), true);
+  else T('START-KONTROLA: VERZE nástrojů odpovídá CHANGELOGu', fs.readFileSync(path.join(pkg, 'tools', 'VERZE'), 'utf8').trim(), [...fs.readFileSync(CL, 'utf8').matchAll(/^## (\d+)\.(\d+)\.(\d+)/gm)].map(m => m.slice(1).map(Number)).sort((x, y) => x[0] - y[0] || x[1] - y[1] || x[2] - y[2]).pop()?.join('.') || '?');
+  if (!isWin) {
+    const h = path.join(tmp, 'pf-home'), b = path.join(tmp, 'pf-bin'), vd = path.join(h, '.local', 'share', 'claude', 'versions'); fs.mkdirSync(vd, { recursive: true }); fs.mkdirSync(b, { recursive: true });
+    const stub = (f, v) => { fs.writeFileSync(f, `#!/bin/sh\n[ "$1" = update ] && { echo "Claude Code is up to date (${v})"; exit 0; }\necho "${v} (Claude Code)"\n`); fs.chmodSync(f, 0o755); };
+    stub(path.join(b, 'claude'), '2.1.270'); stub(path.join(vd, '2.1.282'), '2.1.282'); stub(path.join(vd, '2.1.200'), '2.1.200');
+    const pf = () => spawnSync(process.execPath, [path.join(pkg, 'tools/preflight.mjs'), pw, 'auditor', '--bin', '--offline'], { encoding: 'utf8', env: { ...process.env, HOME: h, PATH: `${b}:/usr/bin:/bin` } });
+    const r1 = pf(); T('START-KONTROLA: stará výchozí verze → spustí se nejnovější stažená (2.1.282)', (r1.stdout || '').trim(), path.join(vd, '2.1.282'));
+    stub(path.join(b, 'claude'), '2.1.290'); const r2 = pf(); T('START-KONTROLA: výchozí verze je nejnovější → spouštěč nic nemění', (r2.stdout || '').trim(), '');
+    fs.writeFileSync(path.join(pw, '.claude', 'settings.json'), '{"model":"claude-opus-4-1"}'); T('START-KONTROLA: pevně zadaný model → upozornění', /pevně zadaný/.test(pf().stderr || ''), true);
+  } }
 
 const fails = results.filter(r => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'PASS' : 'FAIL'}  ${r.name}${r.ok ? '' : `  (očekáváno ${r.exp}, bylo ${r.got})`}`);

@@ -1,7 +1,7 @@
 @echo off
 setlocal
 chcp 65001 >nul
-title AUDITOR 1.4.1
+title AUDITOR 1.7.0
 echo %~dp0 | findstr /i "\\Temp\\ \\AppData\\Local\\Temp" >nul && (
   echo Spoustis to primo ze ZIPu. Nejdriv zip ROZBAL do trvale slozky, napr. C:\dev\_auditor\ a spust START.cmd odtud.
   pause & exit /b 1
@@ -33,7 +33,7 @@ exit /b 0
 :menu
 cls
 echo ==========================================================
-echo   AUDITOR 1.4.1 - zdrave projekty a nezavisly audit
+echo   AUDITOR 1.7.0 - zdrave projekty a nezavisly audit
 echo ==========================================================
 echo.
 echo   Co chces delat?
@@ -49,7 +49,8 @@ echo                                     u nej se nic neinstaluje
 echo.
 echo   ----------------------------------------------------------
 echo   [4] Napoveda   [5] Samotest bran   [6] Telegram bot
-echo   [7] Samostatnost Kapitana (smi sam spoustet skripty a databazi?)   [0] Konec
+echo   [7] Samostatnost Kapitana (smi sam spoustet skripty a databazi?)
+echo   [8] Codex - auditor nebo Kapitan v OpenAI Codex misto Claude Code   [0] Konec
 echo.
 set "V="
 set /p "V=Volba (cislo a Enter): "
@@ -60,6 +61,7 @@ if "%V%"=="4" (start notepad "%~dp0NAVOD.txt" & goto menu)
 if "%V%"=="5" goto selftest
 if "%V%"=="6" goto telegram
 if "%V%"=="7" goto opravneni
+if "%V%"=="8" goto codex
 if "%V%"=="0" exit /b 0
 goto menu
 
@@ -91,5 +93,17 @@ for %%I in ("%R%") do set "WS=%%~dpI%%~nxI-audit"
 if not exist "%WS%\.claude\settings.json" (echo Auditor u tohoto projektu jeste neni - nejdriv volba [2]. & pause & goto menu)
 node "%~dp0auditor\tools\opravneni.mjs" "%WS%" "%R%" --ask
 echo Zavri okno Kapitana a otevri ho znovu ze zastupce - nova pravidla plati od startu.
+pause
+goto menu
+
+:codex
+set "R="
+set /p "R=Cesta k projektu, Enter = zpet: "
+if not defined R goto menu
+set "R=%R:"=%"
+if "%R:~-1%"=="\" set "R=%R:~0,-1%"
+for %%I in ("%R%") do set "WS=%%~dpI%%~nxI-audit"
+if not exist "%WS%\.claude\settings.json" (echo Auditor u tohoto projektu jeste neni - nejdriv volba [2]. & pause & goto menu)
+node "%~dp0auditor\tools\codex-setup.mjs" --ws "%WS%" --repo "%R%"
 pause
 goto menu

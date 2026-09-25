@@ -57,6 +57,16 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "matcher": "Agent|Task|Read|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/tools/usporny-guard.mjs\"",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "SessionStart": [
@@ -65,7 +75,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/tools/bus.mjs\" inbox --for auditor --unacked --brief; echo \"AUDITOR: po startu/kompakci načti AUDIT/00_intake.md a AUDIT/02_HANDOFF.md, stav drž v TaskList. Čekáš-li na Kapitána, spusť na pozadí hlídače: node tools/bus.mjs wait --for auditor --interval 60 --timeout 7200 (run_in_background). Zápis jen AUDIT/, tools/, build/.\"; [ -f AUDIT/NOVE_CILE.md ] && { echo \"AUDIT: po aktualizaci balíku jsou nové cíle — udělej JEN je (audit neopakuj):\"; head -20 AUDIT/NOVE_CILE.md; } || true"
+            "command": "node \"$CLAUDE_PROJECT_DIR/tools/bus.mjs\" inbox --for auditor --unacked --brief; echo \"AUDITOR (úsporný režim, CLAUDE.md §0b): po startu/kompakci načti AUDIT/_prubeh.md; z intake a handoffu jen potřebné části (Grep), stav drž v TaskList a _prubeh.md. Deleguj: pruzkumnik (haiku), mechanik (sonnet). Čekáš-li na Kapitána, spusť na pozadí hlídače: node tools/bus.mjs wait --for auditor --interval 60 --timeout 7200 (run_in_background). Zápis jen AUDIT/, tools/, build/.\"; [ -f AUDIT/NOVE_CILE.md ] && { echo \"AUDIT: po aktualizaci balíku jsou nové cíle — udělej JEN je (audit neopakuj):\"; head -20 AUDIT/NOVE_CILE.md; } || true"
           }
         ]
       }
@@ -98,5 +108,6 @@
   "statusLine": {
     "type": "command",
     "command": "node \"$CLAUDE_PROJECT_DIR/tools/statusline.mjs\""
-  }
+  },
+  "autoCompactWindow": 200000
 }

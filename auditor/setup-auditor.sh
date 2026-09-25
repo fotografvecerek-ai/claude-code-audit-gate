@@ -4,13 +4,14 @@ set -euo pipefail
 PKG="$(cd "$(dirname "$0")" && pwd)"
 ask(){ if [ "${AUDITOR_YES:-}" = "1" ]; then echo "$2"; return; fi; local a; read -r -p "$1 [$2]: " a; echo "${a:-$2}"; }
 askyn(){ if [ "${AUDITOR_YES:-}" = "1" ]; then echo "$2"; return; fi; local a; read -r -p "$1  [1] ano   [2] ne   (Enter = $2): " a; case "${a:-}" in "") echo "$2";; 1|a*|A*) echo ano;; *) echo ne;; esac; }
-for c in node git claude; do command -v $c >/dev/null || { echo "CHYBÍ: $c"; exit 1; }; done
+for c in node git; do command -v $c >/dev/null || { echo "CHYBÍ: $c"; exit 1; }; done
+command -v claude >/dev/null || command -v codex >/dev/null || { echo "CHYBÍ: claude (Claude Code) nebo codex (OpenAI Codex)"; exit 1; }
 echo "=== AUDITOR setup ==="
 REPO=${AUDITOR_REPO:-$(ask "Cesta k repu aplikace (Kapitán)" "$HOME/dev/moje-aplikace")}; [ -d "$REPO" ] || { echo "Repo neexistuje"; exit 1; }
 REPO=$(cd "$REPO" && pwd); NAME=$(basename "$REPO")
 WS=${AUDITOR_WS:-$(ask "Workspace auditora (vytvoří se)" "$(dirname "$REPO")/$NAME-audit")}
 REMOTE=${AUDITOR_REMOTE:-$(ask "Git remote pro AUDIT workspace (prázdné = jen lokální)" "")}
-MODEL=${AUDITOR_MODEL:-$(ask "Model hlavního vlákna auditora (claude-fable-5-1 / opus / sonnet)" "claude-fable-5-1")}
+MODEL=${AUDITOR_MODEL:-$(ask "Model hlavního vlákna auditora (best / opus / sonnet)" "best")}
 
 mkdir -p "$WS"; for d in CLAUDE.md README.md BRIDGE.md .claude checklists templates tools kapitan-side starter; do cp -r "$PKG/$d" "$WS/"; done
 # AUDIT/ = data auditora - pri aktualizaci se neprepisuje; ze sablony jen chybejici soubory

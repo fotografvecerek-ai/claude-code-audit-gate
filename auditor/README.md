@@ -190,6 +190,18 @@ AUDIT/
 
 Auditor nikdy nezapisuje mimo `AUDIT/` a `tools/`; Kapitán zapisuje jen do `03_dukazy/`.
 
+## Změny v1.7.0
+- Kontrola před startem (`tools/preflight.mjs`) ve spouštěčích: `claude update`, všechny instalace Claude Code, spustí se nejnovější; Codex přes npm;
+  upozornění na pevný model a novou verzi Auditoru. Výchozí model `best`. Aktualizace nepřepíše úpravy nástrojů auditora (otisky, záloha, `tools/mistni/`). Samotest 171.
+
+## Změny v1.6.0
+- Úsporný režim: kompakce u ~200 tis. tokenů, subagenti pruzkumnik/mechanik/overovatel(-lehky), pojistka `usporny-guard`, ústava §0b,
+  `uklid-workspace.mjs`, Ø kontext na krok v `audit-stats`, cíl C-160 pro rozjeté audity. Samotest 165.
+
+## Změny v1.5.0
+- Codex: auditor a/nebo Kapitán v OpenAI Codex CLI (`tools/codex-setup.mjs`, `codex-hook.mjs`, `codex-hooks-check.mjs`, `codex-start.mjs`,
+  START → [8]); stejné pojistky, AGENTS.md, sandbox, chráněná složka pojistek s otisky. Samotest 154.
+
 ## Změny v1.4.1
 - Telegram nezávislý na počítači a osobním nastavení: složka bota podle otisku cesty projektu, standardní bot i pro Kapitána s vlastním mostem
   (volba se pamatuje), ohlášení „běží" při startu okna (`tools/telegram-ping.mjs`), `telegram-setup.mjs --test`. jeden bot = jedno okno (duplicitní token se odmítne). plugin hlídaný při startu, odpověď jen přes reply kanálu. úvodní zpráva před volbami (neztrácí se). rozjetý audit podle kteréhokoliv výsledku. Samotest 126.

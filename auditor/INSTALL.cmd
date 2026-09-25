@@ -9,7 +9,9 @@ echo ==========================================================
 echo.
 where node >nul 2>nul || (echo CHYBI Node.js - nainstaluj: winget install OpenJS.NodeJS.LTS & pause & exit /b 1)
 where git  >nul 2>nul || (echo CHYBI Git - nainstaluj: winget install Git.Git & pause & exit /b 1)
-where claude >nul 2>nul || (echo CHYBI Claude Code - nainstaluj: npm i -g @anthropic-ai/claude-code & pause & exit /b 1)
+set "HASCLAUDE=1"
+where claude >nul 2>nul || set "HASCLAUDE="
+if not defined HASCLAUDE (where codex >nul 2>nul || (echo CHYBI Claude Code i Codex - nainstaluj jeden z nich: npm i -g @anthropic-ai/claude-code  nebo  npm i -g @openai/codex & pause & exit /b 1))
 where gh >nul 2>nul || echo Pozn.: gh CLI neni nainstalovane - GitHub kroky (secrets, chranena main) se preskoci. Doporuceno: winget install GitHub.cli ^&^& gh auth login
 echo.
 set "REPO=%~1"
@@ -36,6 +38,7 @@ echo Workspace: %WS%
 echo.
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup-auditor.ps1" -Repo "%REPO%" -Workspace "%WS%" -Yes
 if errorlevel 1 (echo. & echo Pruvodce skoncil chybou - viz vyse. & pause & exit /b 1)
+if not defined HASCLAUDE (echo Claude Code tu neni - auditor i Kapitan pobezi v Codexu. & node "%~dp0tools\codex-setup.mjs" --ws "%WS%" --repo "%REPO%" --auditor codex --kapitan codex --yes)
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0post-install.ps1" -Repo "%REPO%" -Workspace "%WS%"
 echo.
 pause

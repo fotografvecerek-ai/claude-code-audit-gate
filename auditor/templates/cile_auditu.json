@@ -1,9 +1,56 @@
 {
   "_": "Cíle auditu přidané v novějších verzích balíku. Po aktualizaci rozjetého auditu se provedou JEN ty, které v daném auditu ještě nejsou hotové (hotovo_kdyz = některý z těchto souborů v workspace existuje, nebo ID je v AUDIT/.balik.json → hotove). Nikdy ne celý audit znovu.",
   "cile": [
-    { "id": "C-120-ZPRAVA", "od_verze": "1.2.0", "cil": "Zpráva pro vlastníka v HTML s formulářem otázek", "postup": "Z hotových nálezů a verdiktů sestav AUDIT/ZPRAVA.md podle templates/zprava_pro_vlastnika.md (u každého nálezu doporučení, u každé otázky doporučená odpověď) a spusť node tools/owner-report.mjs --open. Nic znovu netestuj — jen shrň, co už víš.", "hotovo_kdyz": ["AUDIT/ZPRAVA.html"], "naklady": "nízké (jen shrnutí existujících výsledků)" },
-    { "id": "C-120-STATISTIKA", "od_verze": "1.2.0", "cil": "Statistika auditu (řádky kódu, obrazovky, nálezy, čas, přesné tokeny)", "postup": "node tools/audit-stats.mjs --open → AUDIT/STATISTIKA.html; odkaz do ZPRAVA.md (sekce Průběh).", "hotovo_kdyz": ["AUDIT/STATISTIKA.html", "AUDIT/statistika.json"], "naklady": "velmi nízké (skript, bez modelu)" },
-    { "id": "C-110-TEST-SE-ZADANIM", "od_verze": "1.1.0", "cil": "Kontrola, že nové funkce vznikají s akceptačním testem (audit-režim §4b)", "postup": "Jen commity od posledního auditovaného commitu: u nových funkcí ověř, že mají akceptační test; chybějící = nález P2 (P1 u dat/plateb). Starší funkce neprocházej znovu, pokud už mají nález.", "hotovo_kdyz": ["AUDIT/01_nalezy/.c110-hotovo"], "naklady": "nízké (jen nové commity)" },
-    { "id": "C-131-KAPITAN-KOMUNIKACE", "od_verze": "1.3.1", "cil": "Ověřit, že Kapitán po aktualizaci hlásí práci na mostu (STARTED/EVIDENCE/DONE) a potvrzuje zprávy", "postup": "node tools/bus.mjs metrics + inbox --for kapitan --unacked: po prvním restartu Kapitána má počet nepotvrzených zpráv klesat a u rozdělané položky přijít STARTED. Když ne do 2 h, jedna věta vlastníkovi (a Telegram, pokud je).", "hotovo_kdyz": ["AUDIT/.c131-hotovo"], "naklady": "velmi nízké" }
+    {
+      "id": "C-120-ZPRAVA",
+      "od_verze": "1.2.0",
+      "cil": "Zpráva pro vlastníka v HTML s formulářem otázek",
+      "postup": "Z hotových nálezů a verdiktů sestav AUDIT/ZPRAVA.md podle templates/zprava_pro_vlastnika.md (u každého nálezu doporučení, u každé otázky doporučená odpověď) a spusť node tools/owner-report.mjs --open. Nic znovu netestuj — jen shrň, co už víš.",
+      "hotovo_kdyz": [
+        "AUDIT/ZPRAVA.html"
+      ],
+      "naklady": "nízké (jen shrnutí existujících výsledků)"
+    },
+    {
+      "id": "C-120-STATISTIKA",
+      "od_verze": "1.2.0",
+      "cil": "Statistika auditu (řádky kódu, obrazovky, nálezy, čas, přesné tokeny)",
+      "postup": "node tools/audit-stats.mjs --open → AUDIT/STATISTIKA.html; odkaz do ZPRAVA.md (sekce Průběh).",
+      "hotovo_kdyz": [
+        "AUDIT/STATISTIKA.html",
+        "AUDIT/statistika.json"
+      ],
+      "naklady": "velmi nízké (skript, bez modelu)"
+    },
+    {
+      "id": "C-110-TEST-SE-ZADANIM",
+      "od_verze": "1.1.0",
+      "cil": "Kontrola, že nové funkce vznikají s akceptačním testem (audit-režim §4b)",
+      "postup": "Jen commity od posledního auditovaného commitu: u nových funkcí ověř, že mají akceptační test; chybějící = nález P2 (P1 u dat/plateb). Starší funkce neprocházej znovu, pokud už mají nález.",
+      "hotovo_kdyz": [
+        "AUDIT/01_nalezy/.c110-hotovo"
+      ],
+      "naklady": "nízké (jen nové commity)"
+    },
+    {
+      "id": "C-131-KAPITAN-KOMUNIKACE",
+      "od_verze": "1.3.1",
+      "cil": "Ověřit, že Kapitán po aktualizaci hlásí práci na mostu (STARTED/EVIDENCE/DONE) a potvrzuje zprávy",
+      "postup": "node tools/bus.mjs metrics + inbox --for kapitan --unacked: po prvním restartu Kapitána má počet nepotvrzených zpráv klesat a u rozdělané položky přijít STARTED. Když ne do 2 h, jedna věta vlastníkovi (a Telegram, pokud je).",
+      "hotovo_kdyz": [
+        "AUDIT/.c131-hotovo"
+      ],
+      "naklady": "velmi nízké"
+    },
+    {
+      "id": "C-160-USPORNY-REZIM",
+      "od_verze": "1.6.0",
+      "cil": "Přejít na úsporný režim (CLAUDE.md §0b) a změřit úsporu vlastní spotřeby",
+      "postup": "1) node tools/audit-stats.mjs → řádek „před\" (tokeny, Ø kontext/krok, podíl subagentů) do AUDIT/_prubeh.md. 2) node tools/uklid-workspace.mjs; je-li co mazat (kopie repa v build/ kromě aktivního klonu, test-results), --smazat. 3) Další práci deleguj jen na pruzkumnik/mechanik/overovatel-lehky/overovatel podle §0b. 4) Po první další vlně znovu audit-stats → řádek „po\" a jedna věta vlastníkovi: Ø kontext/krok před → po.",
+      "hotovo_kdyz": [
+        "AUDIT/.c160-hotovo"
+      ],
+      "naklady": "velmi nízké"
+    }
   ]
 }

@@ -10,6 +10,7 @@ const { execFileSync } = require('node:child_process'); const path = require('no
 const norm = p => { if (!p) return ''; p = String(p).replace(/\\/g, '/'); p = p.replace(/(^|[\s"'=(])([A-Za-z]):\//g, (_, pre, d) => `${pre}/${d.toLowerCase()}/`); return p.toLowerCase().replace(/\/+$/, ''); };
 const ws = norm(process.env.AUDITOR_WORKSPACE || ''), repo = norm(process.env.AUDITOR_TARGET_REPO || '');
 // HYGIENA: pravidla z JEDINÉHO zdroje hygiene-rules.json (kopie v <repo>/.claude/hooks/, originál v <ws>/kapitan-side/hygiene/)
+const collapse = p => { const s = String(p || '').replace(/^\\\\[?.]\\/, '').replace(/\\/g, '/'); const lead = s.startsWith('/') ? '/' : ''; const o = []; for (const g of s.split('/')) { if (!g || g === '.') continue; if (g === '..') o.pop(); else o.push(g); } return lead + o.join('/'); };   // „a/../b", \\?\ → pojistku nejde obejít cestou
 const fsx = require('node:fs');
 let R = null; for (const c of [path.join(__dirname, 'hygiene-rules.js'), path.join(__dirname, 'hygiene', 'hygiene-rules.js'), path.join(process.env.AUDITOR_WORKSPACE || '', 'kapitan-side/hygiene/hygiene-rules.js')]) { try { R = require(c).load(); break; } catch { } }
 const PROD_BRANCH = new RegExp(process.env.PROD_BRANCHES || '^(main|master|production|prod|release)$', 'i');
@@ -22,7 +23,7 @@ process.stdin.on('end', () => {
   if (!ws || /\[DOPLŇ|\[DOPLN/.test(ws) || !repo) block('AUDITOR_WORKSPACE / AUDITOR_TARGET_REPO nejsou nastaveny (fail-closed) — spusť setup-auditor, nebo hook odstraň ze settings.');
   if (!R) block('hygiene-rules.json nenalezen (fail-closed) — spusť setup-auditor (kopíruje pravidla do .claude/hooks/).');
   if (['Edit', 'Write', 'NotebookEdit', 'MultiEdit'].includes(tool)) {
-    const fp = norm(ti.file_path || ti.notebook_path || '');
+    const fp = norm(collapse(ti.file_path || ti.notebook_path || ''));
     if (fp.startsWith(ws + '/audit/')) {
       const ok = fp.startsWith(ws + '/audit/03_dukazy/') || (/\/audit\/bus\/[^/]*_kapitan_[^/]*\.json$/.test(fp));
       if (!ok) block(`Kapitán smí v AUDIT/ zapisovat jen do 03_dukazy/ a bus zprávy --from kapitan (${fp}). Nálezy, verdikty, handoff a gate patří auditorovi.`);
@@ -30,7 +31,7 @@ process.stdin.on('end', () => {
     if (fp.startsWith(ws + '/') && !fp.startsWith(ws + '/audit/')) block(`Workspace auditora je pro Kapitána read-only mimo AUDIT/03_dukazy (${fp}).`);
     if (repo && fp.startsWith(repo + '/')) {
       const relp = fp.slice(repo.length + 1); const base = relp.split('/').pop();
-      if (/^\.claude\/(hooks\/|settings(\.local)?\.json$)|^\.github\/workflows\/auditor-gate\.yml$|^\.git\/hooks\//.test(relp)) block(`SELF-PROTECT: ${relp} — hooky, settings a CI bránu mění jen vlastník ručně nebo setup-auditor, ne agent.`);
+      if (/^\.claude\/(hooks\/|settings(\.local)?\.json$)|^\.codex\/(hooks\.json|config\.toml)$|^\.github\/workflows\/auditor-gate\.yml$|^\.git\/hooks\//.test(relp)) block(`SELF-PROTECT: ${relp} — hooky, settings a CI bránu mění jen vlastník ručně nebo setup-auditor, ne agent.`);
       const isNew = !fsx.existsSync(ti.file_path || ti.notebook_path || '');
       if (!relp.includes('/') && isNew && !R.rootAllow.test(base)) block(`HYGIENA: nový soubor v rootu repa (${base}) — skripty → scripts/, dokumenty → docs/, provizoria → .tmp/tasks/<ID>/.`);
       if (R.junk.test(base) && !R.tmpOkDirs.test(relp)) block(`HYGIENA: provizorní/junk soubor (${relp}) mimo .tmp/tasks/<ID>/ — nevytvářej nepořádek; po úkolu uklidit.`);
@@ -45,7 +46,7 @@ process.stdin.on('end', () => {
     // destruktivní SQL přímo v příkazu (platí i pro úroveň SAMOSTATNÝ/PLNÝ): smazání tabulek/databáze, vyprázdnění, DELETE/UPDATE bez WHERE
     if (/\bdrop\s+(table|database|schema)\b|\btruncate\s+(table\s+)?["\w]|\bdelete\s+from\s+[\w."]+\s*(;|"|'|$)(?![^;]*\bwhere\b)|\bupdate\s+[\w."]+\s+set\b(?![^;]*\bwhere\b)|\bsupabase\s+db\s+reset\b/i.test(cmd)) block('DESTRUKTIVNÍ SQL (DROP/TRUNCATE/DELETE či UPDATE bez WHERE/db reset) — takový zásah dělá jen vlastník ručně, se zálohou.');
     // SELF-PROTECT i přes shell: zápis/mazání/přesun souborů hooků, settings, CI brány
-    if (/(\.claude\/(hooks|settings)|\.github\/workflows\/auditor-gate|\.git\/hooks)/i.test(cmd.replace(/\\/g, '/')) && /(>>?|\btee\b|\bcp\b|\bmv\b|\brm\b|\bdel\b|\bsed\s+-i|remove-item|set-content|out-file|copy-item|move-item|\bgit\s+rm\b|\bchmod\b|\btruncate\b|\bnpx\s+prettier\b)/i.test(cmd)) block('SELF-PROTECT: zápis do .claude/hooks, settings nebo CI brány přes shell je zakázán.');
+    if (/(\.claude\/(hooks|settings)|\.codex\/(hooks|config)|\.github\/workflows\/auditor-gate|\.git\/hooks)/i.test(cmd.replace(/\\/g, '/')) && /(>>?|\btee\b|\bcp\b|\bmv\b|\brm\b|\bdel\b|\bsed\s+-i|remove-item|set-content|out-file|copy-item|move-item|\bgit\s+rm\b|\bchmod\b|\btruncate\b|\bnpx\s+prettier\b)/i.test(cmd)) block('SELF-PROTECT: zápis do .claude/hooks, settings nebo CI brány přes shell je zakázán.');
     if (/bus\.mjs\s+post\b/.test(cmd) && !/--from\s+kapitan\b/.test(cmd)) block('bus post: Kapitán smí posílat jen --from kapitan.');
     const lc = norm(cmd);
     if (lc.includes(ws + '/audit/') && !lc.includes(ws + '/audit/03_dukazy') && !/bus\.mjs/.test(cmd) && /(>>?|\btee\b|\bcp\b|\bmv\b|\bsed\s+-i|\brm\b|\bdel\b|remove-item|set-content|out-file)/i.test(cmd)) block('Shellový zápis do AUDIT/ mimo 03_dukazy zakázán.');

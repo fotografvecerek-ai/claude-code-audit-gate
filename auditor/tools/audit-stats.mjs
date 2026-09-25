@@ -52,10 +52,11 @@ for (const f of jsonl) {
   }
 }
 const total = tok.input + tok.output + tok.cacheRead + tok.cacheWrite;
+const avgCtx = tok.calls ? Math.round((tok.input + tok.cacheRead + tok.cacheWrite) / tok.calls) : 0;   // Ø kontext na krok = hlavní ukazatel hospodárnosti (každý krok ho celý čte znovu)
 const dur = ms => { const h = Math.floor(ms / 36e5), m = Math.round((ms % 36e5) / 6e4); return h ? `${h} h ${m} min` : `${m} min`; };
 
 // 4) Výstup
-const S = { vytvoreno: new Date().toISOString(), workspace: ws, repo, commit, kod: code, commity: commits, nalezy: findings.length, priority: prio, verdikty: vc, crawl, probe, screenshoty: shots, zpravy_mostu: bus, metriky_kapitana: metrics,
+const S = { prumerny_kontext_na_krok: avgCtx, vytvoreno: new Date().toISOString(), workspace: ws, repo, commit, kod: code, commity: commits, nalezy: findings.length, priority: prio, verdikty: vc, crawl, probe, screenshoty: shots, zpravy_mostu: bus, metriky_kapitana: metrics,
   cas: { od: isFinite(tMin) ? new Date(tMin).toISOString() : null, do: tMax ? new Date(tMax).toISOString() : null, celkem_ms: isFinite(tMin) ? tMax - tMin : 0, aktivni_ms: activeMs, sessions }, tokeny: { ...tok, celkem: total } };
 fs.writeFileSync(A('statistika.json'), JSON.stringify(S, null, 2));
 const topExt = Object.entries(code.byExt).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${k} ${n(v)}`).join(', ');
@@ -102,6 +103,7 @@ ${metrics && metrics.first_pass_yield != null ? `| Kapitán: oprava napoprvé / 
 | Zápis do cache | ${n(tok.cacheWrite)} |
 | Výstup | ${n(tok.output)} |
 | Volání modelu / z toho subagenti | ${n(tok.calls)} / ${n(tok.subagentCalls)} |
+| **Ø kontext na jeden krok** (čím menší, tím hospodárnější) | **${n(avgCtx)}** |
 
 | Model | Volání | Vstup | Cache čtení | Výstup |
 |---|---|---|---|---|
@@ -113,4 +115,4 @@ Nejpoužívanější nástroje: ${Object.entries(tok.tools).sort((a, b) => b[1] 
 `;
 fs.writeFileSync(A('STATISTIKA.md'), md);
 spawnSync(process.execPath, [path.join(here, 'owner-report.mjs'), ws, '--src', 'STATISTIKA.md', '--out', 'STATISTIKA.html', ...(process.argv.includes('--open') ? ['--open'] : [])], { stdio: 'inherit' });
-console.log(`statistika: ${A('STATISTIKA.md')} · kód ${n(code.loc)} ř. · nálezy ${findings.length} · tokeny ${n(total)} · čas ${isFinite(tMin) ? dur(tMax - tMin) : '—'}`);
+console.log(`statistika: ${A('STATISTIKA.md')} · kód ${n(code.loc)} ř. · nálezy ${findings.length} · tokeny ${n(total)} · Ø kontext/krok ${n(avgCtx)} · subagenti ${tok.calls ? Math.round(100 * tok.subagentCalls / tok.calls) : 0} % kroků · modely ${Object.entries(tok.byModel).map(([k, v]) => `${k} ${v.calls}`).join(', ') || '—'} · čas ${isFinite(tMin) ? dur(tMax - tMin) : '—'}`);

@@ -118,7 +118,7 @@ for (const [ri, repo] of repos.entries()) {
     if (claude.auditorInstalled) reasons.push('auditor už nainstalován → reinstalace (aktualizace hooků), AUDIT/ zůstane');
     if (!claude.agents) reasons.push('projekt nemá subagenty → auditor to označí jako EFF nález');
   }
-  const plan = profile === 'PLNY' ? { kapitan: true, hygiena: true, ci: github, model: 'claude-fable-5-1', port: 3100 + out.length } : profile === 'LEHKY' ? { kapitan: true, hygiena: true, ci: false, model: 'opus', port: 3100 + out.length } : profile === 'JEN_AUDIT' ? { kapitan: false, hygiena: false, ci: false, model: 'sonnet', port: 3100 + out.length } : null;
+  const plan = profile === 'PLNY' ? { kapitan: true, hygiena: true, ci: github, model: 'best', port: 3100 + out.length } : profile === 'LEHKY' ? { kapitan: true, hygiena: true, ci: false, model: 'opus', port: 3100 + out.length } : profile === 'JEN_AUDIT' ? { kapitan: false, hygiena: false, ci: false, model: 'sonnet', port: 3100 + out.length } : null;
   process.stderr.write(`  ${((Date.now() - tR) / 1000).toFixed(1)} s\n`);
   out.push({ repo, name, noGit: isNoGit, cloud: an.cloud, stack: stack.join(', ') || 'neznámý', code, git: { ...git, lastAgeDays, myCommits, totalCommits, last: git.last || (isNoGit ? fs.statSync(repo).mtime.toISOString().slice(0, 10) : git.last) }, github, foreign, signals: sig, claude, profile, reasons, plan });
 }

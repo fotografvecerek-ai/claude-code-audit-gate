@@ -65,7 +65,7 @@ foreach ($p in $plan) {
   if (Test-Path (Join-Path $ws '.claude\settings.json')) { node (Join-Path $pkg 'tools\update-install.mjs') $p.repo $ws; $summary += "$($p.name): $(if ($LASTEXITCODE -eq 0) { 'AKTUALIZOVÁNO (rozjetý audit zůstává)' } else { 'CHYBA aktualizace' })"; continue }
   Write-Host "`n================ $($p.name) → $($p.profile) ================" -ForegroundColor Green
   switch ($p.profile) {
-    'PLNY'      { $k = 'ano'; $h = 'ano'; $c = if ($p.github) { 'ano' } else { 'ne' }; $m = 'claude-fable-5-1' }
+    'PLNY'      { $k = 'ano'; $h = 'ano'; $c = if ($p.github) { 'ano' } else { 'ne' }; $m = 'best' }
     'LEHKY'     { $k = 'ano'; $h = 'ano'; $c = 'ne'; $m = 'opus' }
     'JEN_AUDIT' { $k = 'ne';  $h = 'ne';  $c = 'ne'; $m = 'sonnet' }
   }

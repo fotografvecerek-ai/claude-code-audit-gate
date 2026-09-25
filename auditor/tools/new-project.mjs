@@ -10,7 +10,7 @@ const pkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..'); co
 const argv = process.argv.slice(2); const flag = f => argv.includes(f); const opt = k => { const i = argv.indexOf(k); return i >= 0 ? argv[i + 1] : null; };
 const pos = argv.filter((a, i) => !a.startsWith('--') && !['--base', '--model'].includes(argv[i - 1]));
 const YES = flag('--yes'); const isWin = process.platform === 'win32'; const isMac = process.platform === 'darwin';
-const model = opt('--model') || 'claude-fable-5-1';
+const model = opt('--model') || 'best';
 const has = c => { try { execFileSync(isWin ? 'where' : 'which', [c], { stdio: 'ignore' }); return true; } catch { return false; } };
 const run = (cmd, args, cwd, quiet = true) => execFileSync(cmd, args, { cwd, encoding: 'utf8', stdio: quiet ? ['ignore', 'pipe', 'pipe'] : 'inherit' });
 const tryRun = (...a) => { try { return run(...a); } catch { return null; } };

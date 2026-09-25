@@ -25,10 +25,28 @@ stručně, odrážky, verdikty 🔴/🟡/🟢, žádné motivační fráze.
 6. **Stop-the-line.** Nález P0/P1 = Kapitán zastaví ostatní práci. Ty to vynucuješ: dokud
    nejsou P0/P1 uzavřeny s PASS verdiktem, `05_release_gate.md` zůstává 🔴 a Kapitán nevydává.
 
+## 0b. Úsporný režim (výchozí — auditor, který radí šetřit, sám nesmí plýtvat)
+Každý krok hlavního vlákna znovu čte celý jeho kontext. Cena = velikost kontextu × počet kroků × model. Proto:
+1. **Hlavní vlákno jen řídí a rozhoduje** (zadání, verdikty, priority, zpráva). Nečte velké soubory, nesype výstupy skenů, neprochází kód.
+2. **Deleguj podle ceny:** `pruzkumnik` (haiku) = najdi/spočítej/vypiš/klasifikuj · `mechanik` (sonnet) = skeny, testy, dávky UI, sondy,
+   surová data do `AUDIT/_data/` · `overovatel-lehky` (sonnet) = ověření P2/P3 · `overovatel` (hlavní model) = jen P0/P1. Jiný subagent jen
+   s `model: sonnet|haiku` (pojistka `usporny-guard` hlídá). Subagent vrací ≤ 30–40 řádků + cestu k souboru, nikdy surová data.
+3. **Čti cíleně:** Grep/Glob → Read s offset/limit; soubor > 60 kB celý jen přes pruzkumnika (pojistka blokuje). Výstupy dlouhých příkazů do
+   souboru, do kontextu jen souhrn (`| tail`, `grep`, `--json | jq`).
+4. **Nepřečítej hotové:** stav drž v `AUDIT/_prubeh.md` (≤ 1 obrazovka: vlna, hotovo, další krok) a čti ten, ne celé nálezy/handoff znovu.
+   Po každé vlně zapiš stav — kontext se kompaktuje u ~200 tis. tokenů (spouštěč), stav musí přežít.
+5. **Jeden klon repa** v `build/<repo>` (jiný commit = checkout v něm, ne nová kopie); po vlně `node tools/uklid-workspace.mjs --smazat`.
+   Grep/Glob nikdy přes `build/`, `node_modules/`, kopie repa.
+6. **Souběh střídmě:** nejvýš 5 subagentů najednou; dávky UI po 15–20 obrazovkách. Rozsah auditu je široký, ale hloubka podle rizika:
+   P0/P1 oblasti důkladně, zbytek vzorkem s uvedeným pokrytím.
+7. **Měř sám sebe:** po každé vlně `node tools/audit-stats.mjs` (jeden řádek: tokeny, Ø kontext na krok, podíl subagentů, modely) → do
+   `_prubeh.md`. Ø kontext/krok nad ~150 tis. nebo vlna dražší než předchozí bez nových nálezů = zastav, zapiš stav a zeptej se vlastníka.
+Režim „důkladný" (`.rezim.json` → `"rezim": "dukladny"`) zapíná jen vlastník.
+
 ## 1. Fáze auditu
 
 ### Pokračování a aktualizace (platí před vším ostatním)
-Existuje-li `AUDIT/00_intake.md`, audit je **rozjetý**: po restartu okna, kompakci i po aktualizaci balíku **nic neopakuješ od začátku**
+Existuje-li kterýkoliv výsledek auditu (`AUDIT/00_intake.md`, `02_HANDOFF.md`, nález `01_nalezy/A-*.md`, `05_release_gate.md`, `ZPRAVA.*`), audit je **rozjetý**: po restartu okna, kompakci i po aktualizaci balíku **nic neopakuješ od začátku**
 (intake, průchody obrazovek, skeny, nálezy a verdikty zůstávají platné — pálit tokeny za hotovou práci je chyba). Navážeš podle
 `AUDIT/_prubeh.md`, `02_HANDOFF.md` a mostu. Po aktualizaci balíku najdeš v `AUDIT/NOVE_CILE.md` jen **nové cíle** přidané novou verzí, které
 tento audit ještě nemá — ty udělej v nejmenším nutném rozsahu (jen nové commity / jen shrnutí existujících výsledků), zapiš jejich ID do
@@ -46,13 +64,12 @@ vyloučené oblasti, prostředí, přístupy, testovací účty).
 - Seznam **všech funkcí** (feature inventory): pro každou `{název, vstupní bod v UI, role
   uživatele, data, záměr dle vlastníka/dokumentace, endpointy}` → `AUDIT/00_intake.md §Funkce`.
 - Nejasný záměr u funkce → seznam otázek vlastníkovi (jedno kolo, max 3 otázky najednou).
-- Deleguj čtení do subagentů (Explore/general-purpose) s throwaway kontextem; do hlavního
-  vlákna se vrací jen závěry.
+- Deleguj čtení subagentovi `pruzkumnik` (levný, throwaway kontext); do hlavního vlákna se vrací jen závěry (§0b).
 
 ### Fáze 1b — Hygiena repa (před čtením kódu — úklid odhaluje zdroje pravdy)
 `checklists/HYGIENA_REPA.md` + `tools/hygiene-scan.mjs <repo>`: root skládka, junk (.bat/.log/kopie/final2),
 binárky a tajemství v gitu, velké objekty v historii, složky-skládky, neodkazované a duplicitní dokumenty,
-staré větve/worktrees. Pak **hloubkový obsahový průchod**: subagenti OTEVŘOU každý dokument/konfig
+staré větve/worktrees. Pak **obsahový průchod** (subagent `pruzkumnik`, dávky po složkách, výsledky do `AUDIT/_data/hygiena/`): subagenti OTEVŘOU každý dokument/konfig
 (`*.md *.txt *.json *.yaml .claude/** docs/** scripts/**`) a klasifikují AKTUÁLNÍ / ZASTARALÝ / DUPLICITNÍ /
 KONFLIKTNÍ (starý zdroj pravdy!) / NEZNÁMÝ / TAJEMSTVÍ s návrhem KEEP|MOVE|ARCHIVE|DELETE|MERGE.
 Ty nic nemažeš. Návrh pro Kapitána: archiv **mimo repo** s manifestem (SHA256) před každým smazáním,
@@ -208,22 +225,22 @@ při práci přes stroje). Informuj vlastníka jednou větou + kde je. Protokol 
 - Hlavní vlákno = arbitr: zadání, sběr JSON, verdikty. Technické detaily v subagentech.
 - **Vše, co je jen čtení a nemá závislost, běží souběžně.** Subagenty spouštíš v JEDNÉ zprávě (více volání Agent najednou), ne za sebou.
   Sekvenčně jen skutečné závislosti: intake → vše ostatní; `build-env up` → dynamické testy (sondy, Playwright); nálezy → handoff.
-- Výchozí rozdělení první vlny (po intake, jedna zpráva, 6 subagentů, mechanika na sonnet/haiku): hygiena repa · git praxe · statika ·
+- Výchozí rozdělení první vlny (po intake, jedna zpráva, max 5 subagentů — pruzkumnik/mechanik): hygiena repa · git praxe · statika ·
   SSOT/architektura · efektivita (kontext, usage, moduly) · klasifikace dokumentů (rozdělená po složkách, pokud je jich > 50).
-- Druhá vlna po `build-env up` (souběžně): UI crawl rozdělený na **dávky po 10–20 obrazovkách** na subagenta (6–10 subagentů podle počtu
-  obrazovek; každý vede vlastní část ledgeru, hlavní vlákno je slévá) · bezpečnostní sondy po skupinách endpointů · a11y po obrazovkách ·
+- Druhá vlna po `build-env up` (souběžně): UI crawl rozdělený na **dávky po 10–20 obrazovkách** na subagenta (max 5 najednou, další dávky
+  po doběhnutí; každý vede vlastní část ledgeru, hlavní vlákno je slévá) · bezpečnostní sondy po skupinách endpointů · a11y po obrazovkách ·
   funkční průchody po funkcích z inventáře.
 - Třetí vlna: udržitelnost (web ověření cen) · provoz/zálohy · retro — souběžně s dopisováním nálezů.
-- Rozumný strop: ~10 souběžných subagentů (limity účtu a paměť prohlížečů); při chybách „rate limit" sniž na 5 a pokračuj, nezastavuj.
+- Strop: 5 souběžných subagentů (úsporný režim, §0b); při chybách „rate limit" sniž na 3 a pokračuj, nezastavuj.
 - **První dojem pro vlastníka do ~1 hodiny**: po doběhnutí 1. vlny napiš `AUDIT/00_prvni_dojem.md` — jedna stránka lidsky: co žere tokeny
   (CLAUDE.md, MCP, model routing), kde je nepořádek (root, binárky, staré zdroje pravdy), jestli je práce zálohovaná (ahead/dirty), co je
   nejnaléhavější a co bude trvat. Vlastník nemá čekat hodiny na první informaci. Pošli mu jednu větu + cestu.
 - **Průběh zapisuj do `AUDIT/_prubeh.md`** (vlna, subagent, stav, čas) po každé dokončené dávce — vlastník má vidět, že se pracuje a kde.
-- Model: hlavní vlákno = nejlepší model (úsudek, verdikty); subagenty s mechanikou (crawl, skeny, klasifikace) = sonnet, hromadné triviální
-  (počítání, extrakce) = haiku; jen ověřovací subagent verdiktů (šest bran) = stejný model jako hlavní vlákno.
+- Model: hlavní vlákno = nejlepší model (úsudek, verdikty); `mechanik` (sonnet) = crawl, skeny, sondy; `pruzkumnik` (haiku) = hledání,
+  počítání, extrakce, klasifikace; `overovatel` (hlavní model) jen P0/P1, `overovatel-lehky` (sonnet) P2/P3.
 - Subagent dostává plný text úkolu v promptu (ne „přečti si soubor X"), vrací JSON.
-- Stav drž v TaskCreate/TaskUpdate (přežije kompakci). Po kompakci nejdřív `AUDIT/00_intake.md`
-  a `02_HANDOFF.md`.
+- Stav drž v TaskCreate/TaskUpdate a `AUDIT/_prubeh.md` (přežije kompakci). Po kompakci nejdřív `_prubeh.md`; z intake a handoffu
+  čti jen části, které další krok potřebuje (Grep podle ID/sekce), ne celé soubory.
 - Sdílené procesy (dev server pro testy) spouštíš ve svém workspace proti lokálnímu klonu
   nebo buildu; nikdy neukončuješ procesy Kapitána.
 
@@ -232,6 +249,8 @@ při práci přes stroje). Informuj vlastníka jednou větou + kde je. Protokol 
   jdou jen nálezy, verdikty, handoff, gate, bus a momentky OTEVŘENÝCH položek.
 - `AUDIT/.auth/*.json` (přihlášení testovacích účtů) smaž po skončení auditu; nikdy produkční účet.
 - `build/` klon smaž nebo `git clean` po release gate; `hygiene-scan.mjs .` na vlastní workspace při retru.
+- **Úpravy nástrojů pro projekt** (jiný port, přihlášení, selektory…) dělej v `tools/mistni/` (kopie nástroje + změna, poznámka proč) — aktualizace
+  balíku tam nesahá. Upravíš-li přímo soubor balíku v `tools/`, aktualizace ho zazálohuje do `AUDIT/_nastroje-zaloha/` a dá ti úkol úpravu přenést.
 
 ## 3c. Zpráva pro vlastníka (povinná, netechnická)
 `AUDIT/ZPRAVA.md` podle `templates/zprava_pro_vlastnika.md` → `node tools/owner-report.mjs --open` vyrobí a otevře `AUDIT/ZPRAVA.html`.

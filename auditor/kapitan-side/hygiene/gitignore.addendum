@@ -1,4 +1,5 @@
 # --- hygiena (auditor) ---
+.claude/settings.local.json
 .tmp/
 *.log
 *.bak

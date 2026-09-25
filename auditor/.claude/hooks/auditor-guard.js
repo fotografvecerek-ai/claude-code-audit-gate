@@ -13,6 +13,7 @@ const WORKSPACE = process.env.AUDITOR_WORKSPACE || '';
 const REPO = process.env.AUDITOR_TARGET_REPO || '';
 
 function norm(p) { if (!p) return ''; p = String(p).replace(/\\/g, '/'); p = p.replace(/(^|[\s"'=(])([A-Za-z]):\//g, (_, pre, d) => `${pre}/${d.toLowerCase()}/`); return p.toLowerCase().replace(/\/+$/, ''); }
+const collapse = p => { const s = String(p || '').replace(/^\\\\[?.]\\/, '').replace(/\\/g, '/'); const lead = s.startsWith('/') ? '/' : ''; const o = []; for (const g of s.split('/')) { if (!g || g === '.') continue; if (g === '..') o.pop(); else o.push(g); } return lead + o.join('/'); };   // „a/../b", \\?\ → pojistku nejde obejít cestou
 const ws = norm(WORKSPACE), repo = norm(REPO);
 const WRITE_ALLOW_DIRS = ['AUDIT/', 'tools/', '.claude/', 'build/', 'test-results/'].map(s => `${ws}/${s.toLowerCase()}`);
 const WRITE_ALLOW_FILES = ['.gitignore', 'README.md', 'CLAUDE.md', 'BRIDGE.md'].map(s => `${ws}/${s.toLowerCase()}`);
@@ -44,12 +45,13 @@ process.stdin.on('end', () => {
   if (!ws || /\[dopl/i.test(ws)) { process.stderr.write('AUDITOR-GUARD: AUDITOR_WORKSPACE není nastaven / obsahuje placeholder — spusť setup průvodce (fail-closed).\n'); process.exit(2); }
 
   if (['Edit', 'Write', 'NotebookEdit', 'MultiEdit'].includes(tool)) {
-    const fp = norm(ti.file_path || ti.notebook_path || ''); if (!fp) process.exit(0);
+    const fp = norm(collapse(ti.file_path || ti.notebook_path || '')); if (!fp) process.exit(0);
     if (WRITE_DENY.some(d => fp.startsWith(d))) block(`Zápis do ${fp} zakázán — 03_dukazy/ patří Kapitánovi.`);
     if (repo && (fp === repo || fp.startsWith(repo + '/'))) block(`Zápis do repa aplikace zakázán (${fp}). Auditor nekóduje — sepiš nález/návrh do AUDIT/.`);
     if (!WRITE_ALLOW_DIRS.some(a => fp.startsWith(a)) && !WRITE_ALLOW_FILES.includes(fp)) block(`Zápis mimo povolené složky (${fp}). Povoleno: AUDIT/, tools/, .claude/, build/ (lokální klon pro testy) ve workspace auditora.`);
     if (/\/audit\/bus\/[^/]*_(kapitan|owner)_[^/]*\.json$/.test(fp)) block('Zprávy na busu za Kapitána/vlastníka nesmí psát auditor (vlastnictví zpráv).');
     if (/\/audit\/bus\/ledger\.md$/.test(fp)) block('LEDGER.md generuje bus.mjs — needitovat ručně.');
+    if (/\/tools\/(preflight\.mjs|verze|\.balik-otisky\.json)$/.test(fp)) block('Kontrolu před startem (tools/preflight.mjs), VERZE a otisky nástrojů mění jen aktualizace balíku — spouštěč je volá před startem agenta.');
     process.exit(0);
   }
 
@@ -76,6 +78,8 @@ process.stdin.on('end', () => {
     if (/\bgit\s+(-C\s+\S+\s+)?push\b.*--force|\bgit\s+push\s+-f\b/i.test(cmd)) block('force push zakázán i ve workspace.');
     if (repo && lc.includes(repo) && /(>>?|\btee\b|\bcp\b|\bmv\b|\bsed\s+-i|\bcopy\b|\bmove\b|set-content|out-file|\bmkdir\b|\btouch\b)/i.test(cmd)) block('Shellový zápis/kopie do repa aplikace zakázán. Výstupy patří do AUDIT/.');
     if (/bus\.mjs\s+post\b/.test(cmd) && !/--from\s+auditor\b/.test(cmd)) block('bus post: auditor smí posílat jen --from auditor.');
+    // spouštěče a nastavení agentů (Codex, Telegram, samostatnost) mění jen instalátor — i ne shellem
+    if (/(\.codex[\\/]|start-(auditor|kapitan)\.(cmd|sh)|preflight\.mjs|[\\/]\.bin[\\/]|\.preflight\.json|\.balik-otisky\.json|\.agents\.json|\.opravneni\.json|\.telegram\.json|codex-hooks|\.codex-hooks)/i.test(cmd) && /(>>?|\btee\b|\bcp\b|\bmv\b|\brm\b|\bdel\b|\bsed\s+-i|remove-item|set-content|out-file|copy-item|move-item|writefile|appendfile|\bchmod\b)/i.test(cmd)) block('Spouštěče a nastavení agentů (start-*, .agents.json, .codex/, Telegram, samostatnost) mění jen instalátor, ne auditor.');
     process.exit(0);
   }
   process.exit(0);

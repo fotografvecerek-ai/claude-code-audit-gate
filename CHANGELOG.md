@@ -118,3 +118,51 @@ Historie změn je v `README.md` (sekce „Změny v…"). Od zveřejnění (v1.0.
 - Samotest „nezávislost na počítači" kontroluje jen soubory balíku (ve workspace ležely kopie projektu a samotest po aktualizaci falešně selhal).
 - Samotest 126.
 
+## 1.5.0
+- **Codex — všechny kombinace**: auditor a/nebo Kapitán v OpenAI Codex CLI (`START → [8]`, `tools/codex-setup.mjs`, volba v `.agents.json`).
+  Pravidla v `AGENTS.md`; pojistky přes `.codex/hooks.json` → `tools/codex-hook.mjs` (adaptér: `apply_patch` → kontrola po souborech, env
+  pro pojistky, kontext jako JSON) → tytéž `auditor-guard` a `kapitan-audit-guard`. Auditor v sandboxu Codexu (zapisovat smí jen do workspace).
+  Samostatnost Kapitána → sandbox/schvalování Codexu. Most: `bus-notify --once` (Codex nemá `stop_hook_active`), start `tools/codex-start.mjs`.
+  Skripty pojistek a jejich otisky v chráněné složce `~/.codex/auditor/…` (mimo zápis agentů v sandboxu); Kapitán zapisuje jen do repa,
+  `AUDIT/03_dukazy` a `AUDIT/bus`. Spouštěč ověří otisky i důvěru projektu (`tools/codex-hooks-check.mjs`) a jen pak obejde ruční schválení
+  hooků; jinak agenta nespustí. Důvěra v `~/.codex/config.toml` se nastaví/opraví bez zdvojení klíče. Nečitelný cizí hooks.json se nepřepíše.
+  Adaptér: cesty vždy normalizované („..", `\\?\`), odsazené hlavičky patche, patch přes shell, prázdný patch a pád pojistky = blok.
+  Pojistky auditora i Kapitána nově normalizují „.." v cestách i v Claude Code. Aktualizace volbu zachová a pojistky obnoví.
+- Počítač jen s Codexem (bez Claude Code): instalace nastaví oba agenty do Codexu.
+- Telegram-setup role v Codexu přeskočí (kanál je jen v Claude Code).
+- Pojistky pro Codex se kopírují vždy z balíku (ne z kopií ve workspace/repu, které mohou agenti upravit); hlídá se i projektový
+  `.codex/config.toml` (sandbox, MCP servery); pomocné skripty spouštěče (wait-idle) z chráněné složky; auditor nesmí shellem měnit spouštěče
+  a nastavení agentů; Windows aliasy cest (8.3, `\\.\`, tečky na konci) se převádějí na skutečnou cestu.
+- Samotest 154.
+
+## 1.6.0
+- **Úsporný režim (výchozí)** — auditor sám nesmí plýtvat tokeny, které radí šetřit:
+  - spouštěče nastaví `CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000` (oba agenti; modely s 1M oknem jinak kompaktují až u ~967 tis. a každý krok
+    čte celý kontext znovu) a pro auditora `CLAUDE_CODE_SUBAGENT_MODEL=sonnet`; nastavení auditora `autoCompactWindow: 200000`,
+  - subagenti auditora `pruzkumnik` (haiku), `mechanik` (sonnet), `overovatel-lehky` (sonnet), `overovatel` (hlavní model, jen P0/P1),
+  - pojistka `tools/usporny-guard.mjs`: obecný subagent bez levného modelu a celé velké soubory (> 60 kB, Read i cat) v hlavním vlákně = blok,
+  - ústava §0b (hlavní vlákno jen řídí, čtení cíleně, stav v `_prubeh.md`, jeden klon, max 5 subagentů, měření každé vlny),
+  - `tools/uklid-workspace.mjs` (kopie repa v `build/` kromě aktivního klonu, výstupy testů), `audit-stats`: **Ø kontext na krok**, podíl subagentů, modely,
+  - rozjetý audit: nový cíl `C-160-USPORNY-REZIM` (změřit před, uklidit, pokračovat úsporně, změřit po),
+  - `.rezim.json` → `"dukladny"` vypne omezení (jen vlastník).
+- Instalace: `.claude/settings.local.json` (místní nastavení počítače) je v `.gitignore` projektu — dřív zůstával jako nesledovaný soubor,
+  který by auditor sám nahlásil jako nepořádek; aktualizace ho už nehlásí jako „rozdělanou práci" uživatele.
+- CI: e2e na Windows padal, protože kontrola čekala instalační commit jako poslední (na Windows po něm přijde commit aktualizace pojistek —
+  chování instalátoru bylo správné). Kontrola hledá instalační commit podle zprávy; negace `! …` pod `set -e` nic nehlídaly → nahrazeny
+  explicitními testy; nově hlídá, že žádný commit auditora neobsahuje soubory uživatele.
+- Samotest 165.
+
+## 1.7.0
+- **Kontrola před každým startem** (`tools/preflight.mjs`, volají ji spouštěče auditora i Kapitána): agent nikdy nepoběží na staré verzi Claude Code.
+  - `claude update` (nejvýš jednou za 30 min), pak najde **všechny** instalace (PATH, nativní, stažené verze, npm, starší lokální npm) a ověří jejich verzi;
+    když výchozí `claude` z PATH není nejnovější, spouštěč pustí přímo tu nejnovější (typicky: aktualizace se stáhla do jiné instalace, než se spouští).
+  - Víc instalací → upozornění s odkazem na návod; novější Claude Code v aplikaci Claude → upozornění; běžící okna zůstávají na své verzi → připomínka.
+  - Role v Codexu: verze proti npm, instalace přes npm se sama aktualizuje.
+  - Pevně zadané ID modelu → upozornění (alias se posouvá sám); novější vydání Auditoru na GitHubu → jedna věta, jak aktualizovat.
+  - Nikdy neblokuje start (bez sítě jen upozorní); stav v `<workspace>/.preflight.json`. Auditor kontrolu ani otisky nesmí měnit (pojistka).
+- **Výchozí model auditora = alias `best`** (nejlepší dostupný model — Fable, jinak Opus — posouvá se sám). Aktualizace převede dřívější výchozí
+  `claude-fable-5-1` na `best`; jinak zvolený model nechá.
+- **Aktualizace nepřepíše úpravy nástrojů auditora**: otisky nástrojů z instalace (`tools/.balik-otisky.json`) — co auditor upravil a balík ne, zůstane;
+  co změnili oba (a pojistky vždy) → záloha do `AUDIT/_nastroje-zaloha/<čas>/`, nová verze a úkol „přenést úpravy" v `NOVE_CILE.md`.
+  Ústava: úpravy pro projekt patří do `tools/mistni/`, kam aktualizace nesahá.
+- Obsahuje vše z 1.6.0 (nevydáno samostatně). Samotest 171.

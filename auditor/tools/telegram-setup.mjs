@@ -145,7 +145,10 @@ async function createBot(role) {
 // ---------- hlavní průběh
 say('\n== Telegram: vlastní bot pro auditora a pro Kapitána');
 for (const role of roles) {
-  const st = state(role, { fix: true }); const who = role === 'auditor' ? 'Auditor' : 'Kapitán';
+  const who = role === 'auditor' ? 'Auditor' : 'Kapitán';
+  { let ag = {}; try { ag = JSON.parse(fs.readFileSync(path.join(ws, '.agents.json'), 'utf8')); } catch { }
+    if (ag[role] === 'codex') { warn(`${who} běží v Codexu — Telegram kanál je jen v Claude Code, bota mu nezakládám`); continue; } }
+  const st = state(role, { fix: true });
   if (st.mode === 'channel') { ok(`${who}: bot @${st.bot || '?'} už existuje — nové okno na něj naváže (převezme ho od starého okna)`); cfg[role] = st; continue; }
   if (st.mode === 'vlastni') {
     const vl = `projekt má vlastní Telegram most (${st.soubory.slice(0, 3).join(', ') || 'dřívější volba'})`;

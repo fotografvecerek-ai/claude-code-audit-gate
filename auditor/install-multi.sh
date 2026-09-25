@@ -43,7 +43,7 @@ for p in "${PLAN[@]}"; do IFS='|' read -r repo name prof gh port dirty ng <<< "$
   WS="$(dirname "$repo")/$name-audit"
   if [ -f "$WS/.claude/settings.json" ]; then node "$PKG/tools/update-install.mjs" "$repo" "$WS" && SUM+=("$name: AKTUALIZOVÁNO (rozjetý audit zůstává)") || SUM+=("$name: CHYBA aktualizace"); continue; fi
   echo; echo "================ $name → $prof ================"
-  case "$prof" in PLNY) K=ano; H=ano; C=$([ "$gh" = 1 ] && echo ano || echo ne); M=claude-fable-5-1;; LEHKY) K=ano; H=ano; C=ne; M=opus;; JEN_AUDIT) K=ne; H=ne; C=ne; M=sonnet;; esac
+  case "$prof" in PLNY) K=ano; H=ano; C=$([ "$gh" = 1 ] && echo ano || echo ne); M=best;; LEHKY) K=ano; H=ano; C=ne; M=opus;; JEN_AUDIT) K=ne; H=ne; C=ne; M=sonnet;; esac
   AUDITOR_YES=1 AUDITOR_REPO="$repo" AUDITOR_WS="$WS" AUDITOR_REMOTE="" AUDITOR_MODEL=$M AUDITOR_KAPITAN=$K AUDITOR_HYGIENA=$H AUDITOR_CI=$C bash "$PKG/setup-auditor.sh" || { SUM+=("$name: CHYBA průvodce"); continue; }
   node "$WS/tools/gen-config.mjs" "$repo" --port "$port"
   [ -f "$WS/AUDIT/.auth/.env.audit" ] || sed "s/localhost:3100/localhost:$port/" "$WS/templates/env.audit.example" > "$WS/AUDIT/.auth/.env.audit"

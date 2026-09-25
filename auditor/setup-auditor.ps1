@@ -2,7 +2,7 @@
 # Co udělá: 1) zeptá se na cesty, 2) vytvoří workspace auditora + AUDIT/ + git, 3) zapíše settings.json s env a deny pravidly pro TVOJE cesty,
 #           4) nainstaluje nástroje (Playwright, axe), 5) nainstaluje stranu Kapitána do repa (skill audit-rezim + hook + gate-check) - jen se souhlasem,
 #           6) otestuje brány, 7) vytvoří start-auditor.cmd a start-kapitan.cmd. Nic z toho neběží jako agent - je to jednorázová instalace, kterou spouští vlastník.
-param([string]$Repo, [string]$Workspace, [string]$Remote, [string]$Model = 'claude-fable-5-1', [switch]$Yes, [string]$Kapitan = 'ano', [string]$Hygiena = 'ano', [string]$CI = 'ano')
+param([string]$Repo, [string]$Workspace, [string]$Remote, [string]$Model = 'best', [switch]$Yes, [string]$Kapitan = 'ano', [string]$Hygiena = 'ano', [string]$CI = 'ano')
 $ErrorActionPreference = 'Stop'
 function Ask($q, $default) { if ($Yes) { Write-Host "$q -> $default"; return $default }; $a = Read-Host "$q [$default]"; if ([string]::IsNullOrWhiteSpace($a)) { $default } else { $a } }
 function AskYN($q, $default) { if ($Yes) { Write-Host "$q -> $default"; return $default }; $a = (Read-Host "$q  [1] ano   [2] ne   (Enter = $default)").Trim().ToLower(); if ($a -eq '') { return $default }; if ($a -eq '1' -or $a.StartsWith('a')) { 'ano' } else { 'ne' } }
@@ -17,7 +17,7 @@ if (-not (Test-Path $repo)) { Write-Host "Repo neexistuje: $repo" -ForegroundCol
 $name = Split-Path $repo -Leaf
 $ws = if ($Workspace) { $Workspace } else { Ask "Workspace auditora (vytvoří se)" (Join-Path (Split-Path $repo -Parent) "$name-audit") }
 $remote = if ($Remote) { $Remote } elseif ($Yes) { '' } else { Ask "Git remote pro AUDIT workspace (prázdné = jen lokální git; doporučeno soukromý GitHub repo pro práci přes více strojů)" '' }
-$model = if ($Yes) { $Model } else { Ask "Model hlavního vlákna auditora (claude-fable-5-1 = nejlepší úsudek; opus; sonnet = levnější)" $Model }
+$model = if ($Yes) { $Model } else { Ask "Model hlavního vlákna auditora (best = nejlepší dostupný model, posouvá se sám; opus; sonnet = levnější)" $Model }
 
 # 1) workspace
 New-Item -ItemType Directory -Force -Path $ws | Out-Null

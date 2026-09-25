@@ -294,6 +294,35 @@ goals are remembered (`AUDIT/.balik.json`). A full re-audit only on the owner's 
 `START` detects what is missing (Git, Node.js, Claude Code) and offers to install it (`tools/bootstrap.ps1` — winget and the official
 Claude Code installer; `tools/bootstrap.sh` — Homebrew/apt). Useful for a client who has no Claude at all. Only signing in to Claude remains.
 
+## 10h. Codex — auditor or Captain in OpenAI Codex
+
+Either agent can run in **OpenAI Codex CLI** instead of Claude Code (`START → [8]`; every combination: Captain in Codex, auditor in Codex,
+both). A machine with Codex but no Claude Code is set up for Codex right away. Rules live in `AGENTS.md`; guards are the **same scripts** as
+in Claude Code, reached through `.codex/hooks.json` → `tools/codex-hook.mjs` (Codex `apply_patch` edits are split into per-file checks). The
+auditor additionally runs in Codex's sandbox with its workspace as the only writable root, so it cannot write to the app repo even without
+hooks. Captain autonomy maps to Codex sandbox/approval flags. The bus works through hooks after every step and at the end of a turn (each
+message stops the end of a turn only once). Not available in Codex: the Telegram channel and the project's own Claude Code hooks. Codex runs
+project hooks only after manual review (`/hooks`), so the guard scripts live in a protected folder `~/.codex/auditor/<project>-<hash>/` that
+neither sandboxed agent can write (the Captain may write only the repo, `AUDIT/03_dukazy` and `AUDIT/bus`). Before every start the launcher
+verifies the guards' fingerprints and the project's trust entry (`codex-hooks-check.mjs`) and only then passes `--dangerously-bypass-hook-trust`;
+if anything is off it refuses to start the agent and points the owner to `START → [8]`. FULL autonomy means no Codex sandbox — guards still
+run, but the Captain could technically overwrite their folder (AUTONOMOUS is recommended).
+
+## 10i. Economy mode (default)
+
+An auditor that tells others to save tokens must not waste them itself. The main leak: models with a 1M window compact only at ~967K tokens
+and **every step re-reads the whole context**. Economy mode: launchers set `CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000` for both agents; the
+auditor delegates to cheap subagents (`pruzkumnik` = haiku for finding/counting/classifying, `mechanik` = sonnet for scans, tests, UI batches,
+`overovatel-lehky` = sonnet for P2/P3 verification, `overovatel` = main model only for P0/P1); the `usporny-guard` hook blocks a generic
+subagent without a cheap model and reading a > 60 kB file whole in the main thread; one repo clone in `build/` plus `tools/uklid-workspace.mjs`;
+at most 5 parallel subagents; `tools/audit-stats.mjs` reports tokens and **average context per step** before/after each wave. A running audit
+gets goal `C-160` (measure, clean up, continue economically, measure again). Thorough mode only by the owner (`.rezim.json`).
+
+## 10j. Pre-start check
+Every launcher (auditor and Captain) first runs `tools/preflight.mjs`: it updates Claude Code, finds every installation (PATH, native, downloaded versions, npm) and starts the newest one even if `claude` points to an old one. Multiple installations are reported with a fix. Codex roles update via npm. It warns about a pinned model (default is the self-updating alias `best`) and about a newer Auditor release. It never blocks a start.
+
+Package updates keep tool tweaks the auditor made for the project: files the package did not change stay; otherwise they are backed up to `AUDIT/_nastroje-zaloha/` with a task to re-apply. Local tweaks belong in `tools/mistni/`.
+
 ## 11. FAQ
 
 **Do I have to shut anything down before the audit?** No. Only a Captain started before the installation should finish and be restarted —

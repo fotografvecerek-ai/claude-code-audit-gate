@@ -1,4 +1,4 @@
-AUDITOR 1.4.1 — NÁVOD (čti tohle jako první)
+AUDITOR 1.6.0 — NÁVOD (čti tohle jako první)
 =====================================================
 
 CO TO JE
@@ -136,6 +136,37 @@ POČÍTAČ BEZ CLAUDE (např. u klienta)
 START sám zjistí, co chybí (Git, Node.js, Claude Code), a nabídne to nainstalovat ([1] Enter). Na
 Windows přes winget + oficiální instalátor Claude Code, na macu přes Homebrew. Pak se jen přihlásíš do
 Claude (otevře se prohlížeč) — potřebuješ předplatné Claude Pro/Max nebo účet Console.
+
+ÚSPORNÝ REŽIM (výchozí)
+----------------------
+Auditor, který radí šetřit, nesmí sám plýtvat. Proto: kontext se kompaktuje u ~200 tis. tokenů (ne až u ~1 mil.
+— každý krok totiž celý kontext čte znovu), hlavní vlákno jen řídí a rozhoduje, práci dělají levní subagenti
+(průzkumník = nejlevnější model, mechanik = střední; drahý model jen na ověření vážných nálezů), velké soubory
+se nečtou celé, kopie repa ve workspace se uklízejí. Hlídá to pojistka, ne jen text. Kolik audit stojí, ukáže
+node tools/audit-stats.mjs (tokeny a „Ø kontext na krok" — čím menší, tím hospodárnější).
+Důkladný režim (bez těchto omezení): do <projekt>-audit\.rezim.json napiš {"rezim":"dukladny"}.
+
+KONTROLA PŘED STARTEM (každý start auditora i Kapitána)
+------------------------------------------------------
+Než se agent spustí, spouštěč ověří Claude Code: stáhne aktualizaci, najde všechny instalace na počítači a pustí
+tu nejnovější — i když příkaz „claude" ukazuje na starou (typicky: aktualizace šla do jiné instalace). Víc instalací
+nahlásí s návodem, jak nechat jen jednu. Běžící okna zůstávají na verzi, se kterou byla spuštěna — nová verze platí
+až po jejich zavření a novém spuštění. U Codexu totéž přes npm. Model auditora je alias „best" (nejlepší dostupný,
+posouvá se sám). Když je venku nová verze Auditoru, napíše jednu větu, jak aktualizovat. Bez internetu jen upozorní.
+
+CODEX ([8]) — AUDITOR NEBO KAPITÁN V OPENAI CODEX
+-------------------------------------------------
+Místo Claude Code může kterýkoliv agent běžet v OpenAI Codex CLI: START → [8] → cesta k projektu → vybereš
+[1] oba v Claude Code, [2] Kapitán v Codexu, [3] auditor v Codexu, [4] oba v Codexu. Když Codex chybí, nabídne
+instalaci (npm i -g @openai/codex); při prvním spuštění se přihlásíš účtem ChatGPT. Počítač bez Claude Code, ale
+s Codexem: instalace [2] rovnou nastaví oba agenty do Codexu.
+Co platí v Codexu: stejné pojistky (Kapitán nesmí měnit nálezy/verdikty/hooky, destruktivní SQL je blokované,
+auditor nesmí psát do repa — navíc ho hlídá sandbox Codexu), stejný most mezi agenty (zprávy doručí hook po každém
+kroku a na konci tahu), pravidla v AGENTS.md. Samostatnost Kapitána ([7]) určuje sandbox a schvalování Codexu.
+Co v Codexu NENÍ: Telegram kanál (ten je jen v Claude Code) a hooky projektu psané pro Claude Code (.claude/settings.json)
+— v Codexu platí jen pojistky Auditoru. Skripty pojistek leží ve složce Codexu (~/.codex/auditor/…), kam agenti
+nezapíšou; spouštěč před každým startem ověří jejich otisky, a když nesedí, agenta nespustí a řekne ti, ať
+spustíš START → [8] (to je obnoví). Kapitán v Codexu smí zapisovat jen do projektu, AUDIT/03_dukazy a AUDIT/bus.
 
 NEVÍM, KDE MÁM PROJEKTY / NEVÍM, JESTLI JE TO GIT
 -------------------------------------------------

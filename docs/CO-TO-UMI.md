@@ -290,6 +290,52 @@ verdikty, handoff zůstávají). Nové cíle auditu, které přinesla novější
 `START` sám zjistí, co chybí (Git, Node.js, Claude Code), a nabídne automatickou instalaci (`tools/bootstrap.ps1` — winget a oficiální
 instalátor Claude Code; `tools/bootstrap.sh` — Homebrew/apt). Hodí se u klienta, který Claude vůbec nemá. Zbývá jen přihlášení do Claude.
 
+## 10h. Codex — auditor nebo Kapitán v OpenAI Codex
+
+Kterýkoliv agent může místo Claude Code běžet v **OpenAI Codex CLI** (`START → [8]`; všechny kombinace: Kapitán v Codexu, auditor v Codexu,
+oba). Počítač jen s Codexem nastaví instalace rovnou pro Codex.
+
+| | Claude Code | Codex |
+|---|---|---|
+| Pravidla | `CLAUDE.md` | `AGENTS.md` (auditor: ústava + překlad nástrojů; Kapitán: blok role v `AGENTS.md` projektu) |
+| Pojistky | hooky v `.claude/settings.json` | `.codex/hooks.json` → `tools/codex-hook.mjs` → **tytéž pojistky** (úpravy přes `apply_patch` se rozloží na soubory) |
+| Zápis auditora do repa | blokuje hook | blokuje hook **a** sandbox Codexu (auditor běží s `-C <workspace>`, repo jen čte) |
+| Samostatnost Kapitána | povolení v `settings.local.json` | OPATRNÝ `-s workspace-write -a on-request` · SAMOSTATNÝ `-a never` + síť · PLNÝ `danger-full-access` |
+| Most (zprávy) | hook po kroku + na konci tahu, hlídač na pozadí | hook po kroku + na konci tahu (každá zpráva zastaví konec tahu jen jednou) |
+| Telegram | vlastní bot, zprávy do okna | není |
+
+Codex spouští projektové hooky až po ručním schválení (`/hooks`). Skripty pojistek proto leží v **chráněné složce** `~/.codex/auditor/<projekt>-<otisk>/`,
+kam agenti v sandboxu nezapíšou (Kapitán má zápis jen do repa, `AUDIT/03_dukazy` a `AUDIT/bus`; auditor jen do svého workspace). Spouštěč před
+každým startem ověří otisky pojistek i důvěryhodnost projektu (`codex-hooks-check.mjs`) a teprve pak použije `--dangerously-bypass-hook-trust`;
+když něco nesedí, agenta **nespustí** (bez pojistek se nepracuje) a pošle vlastníka na `START → [8]`. Úroveň PLNÝ = Codex bez sandboxu —
+pojistky platí, ale jejich složku by Kapitán technicky přepsat mohl (proto doporučeno SAMOSTATNÝ). Hooky projektu psané pro Claude Code
+Codex nespouští — v Codexu platí jen pojistky Auditoru.
+
+## 10i. Úsporný režim (výchozí)
+
+Auditor, který radí šetřit tokeny, sám nesmí plýtvat. Hlavní zdroj plýtvání: modely s 1M oknem (Fable, Sonnet 5) kompaktují až u ~967 tis.
+tokenů ([docs](https://code.claude.com/docs/en/model-config)) a **každý krok celý kontext čte znovu** — dlouhé okno auditora tak nese a opakovaně
+čte stovky tisíc tokenů. Co dělá úsporný režim:
+
+| Opatření | Jak je vynucené |
+|---|---|
+| Kompakce u ~200 tis. tokenů | spouštěč: `CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000` (oba agenti), `autoCompactWindow` v nastavení auditora |
+| Práce na levných modelech | subagenti `pruzkumnik` (haiku), `mechanik` (sonnet), `overovatel-lehky` (sonnet); `overovatel` (hlavní model) jen P0/P1; výchozí model ostatních subagentů auditora sonnet |
+| Žádný drahý subagent „naslepo" | pojistka `usporny-guard`: obecný subagent bez `model: haiku/sonnet` = blok |
+| Žádné celé velké soubory v hlavním vlákně | pojistka: Read/cat souboru > 60 kB bez omezení = blok (Grep, offset/limit, průzkumník) |
+| Nečíst znovu hotové | stav v `AUDIT/_prubeh.md`, z intake/handoffu jen potřebné části |
+| Úklid | jeden klon repa v `build/`, `tools/uklid-workspace.mjs --smazat` maže kopie navíc |
+| Souběh | max 5 subagentů najednou |
+| Měření | `tools/audit-stats.mjs`: tokeny, **Ø kontext na krok**, podíl subagentů, modely — před a po každé vlně |
+
+Rozjetý audit dostane po aktualizaci cíl `C-160`: změřit „před", uklidit, pokračovat úsporně a změřit „po". Důkladný režim zapne jen vlastník
+(`<workspace>/.rezim.json` → `{"rezim":"dukladny"}`).
+
+## 10j. Kontrola před startem
+Každý spouštěč (auditor i Kapitán) nejdřív spustí `tools/preflight.mjs`: aktualizuje Claude Code, najde všechny jeho instalace (PATH, nativní, stažené verze, npm) a pustí tu nejnovější, i když příkaz `claude` ukazuje na starou. Víc instalací nahlásí s návodem. Role v Codexu: aktualizace přes npm. Upozorní na pevně zadaný model (výchozí je alias `best`, posouvá se sám) a na novou verzi Auditoru. Start nikdy neblokuje.
+
+Aktualizace balíku nepřepíše úpravy nástrojů, které si auditor udělal pro projekt: co balík nezměnil, zůstává; jinak záloha do `AUDIT/_nastroje-zaloha/` a úkol úpravu přenést. Úpravy patří do `tools/mistni/`.
+
 ## 11. Nejčastější otázky
 
 **Musím před auditem něco vypnout?** Ne. Jen Kapitána spuštěného před instalací nechte dokončit a spusťte znovu — pojistky se načítají při startu.

@@ -43,4 +43,6 @@ fs.writeFileSync(sp, JSON.stringify(s, null, 2) + '\n');
 fs.writeFileSync(path.join(ws, '.opravneni.json'), JSON.stringify({ kapitan: +level, nazev: NAMES[level], zmeneno: new Date().toISOString(), _: MARK }, null, 2) + '\n');
 console.log(`  ✅ Kapitán: ${NAMES[level]} (${sp}) — platí od příštího startu jeho okna`);
 // role Kapitána v CLAUDE.md projektu podle nové úrovně (jen když je nainstalovaná strana Kapitána)
+// spouštěče: Kapitán v Codexu má sandbox a schvalování podle úrovně přímo v příkazu codex
+try { const wl = [path.join(ws, 'tools', 'write-launchers.mjs'), path.join(path.dirname(fileURLToPath(import.meta.url)), 'write-launchers.mjs')].find(f => fs.existsSync(f)); if (wl && fs.existsSync(path.join(ws, '.agents.json'))) spawnSync(process.execPath, [wl, ws, repo], { stdio: 'ignore' }); } catch { }
 if (fs.existsSync(path.join(repo, '.claude', 'hooks', 'kapitan-audit-guard.js'))) spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'kapitan-role.mjs'), ws, '--claude-md', repo], { stdio: 'ignore' });

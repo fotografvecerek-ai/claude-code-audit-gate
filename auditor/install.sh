@@ -8,7 +8,7 @@ REPO="$(cd "$REPO" && pwd)" || { echo "složka neexistuje"; exit 1; }
 [ -d "$REPO/.git" ] || { echo "$REPO není git repo."; echo "Zakládám git repo (jen .gitignore + první uložení, nic se nemaže)."; node "$PKG/tools/git-init-project.mjs" "$REPO" || exit 1; }
 WS="$(dirname "$REPO")/$(basename "$REPO")-audit"
 [ -f "$WS/.claude/settings.json" ] && { echo "Auditor je u tohoto projektu už nainstalovaný — jen aktualizuji nastavení, rozjetý audit zůstává."; exec node "$PKG/tools/update-install.mjs" "$REPO" "$WS"; }
-AUDITOR_YES=1 AUDITOR_REPO="$REPO" AUDITOR_WS="$WS" AUDITOR_REMOTE="" AUDITOR_MODEL=claude-fable-5-1 bash "$PKG/setup-auditor.sh" || { echo "průvodce selhal"; exit 1; }
+AUDITOR_YES=1 AUDITOR_REPO="$REPO" AUDITOR_WS="$WS" AUDITOR_REMOTE="" AUDITOR_MODEL=best bash "$PKG/setup-auditor.sh" || { echo "průvodce selhal"; exit 1; }
 node "$WS/tools/gen-config.mjs" "$REPO"
 [ -f "$WS/AUDIT/.auth/.env.audit" ] || cp "$WS/templates/env.audit.example" "$WS/AUDIT/.auth/.env.audit"
 printf '#!/usr/bin/env bash\nnode "%s/kapitan-side/gate-check.mjs" "%s" || exit 1\ncd "%s" && exec "$@"\n' "$WS" "$REPO" "$REPO" > "$WS/deploy-with-gate.sh"; chmod +x "$WS/deploy-with-gate.sh"
@@ -24,4 +24,5 @@ if command -v gh >/dev/null && gh auth status >/dev/null 2>&1; then
   else echo "repo aplikace nemá GitHub remote — GitHub kroky přeskočeny"; fi
 else echo "gh CLI nepřihlášené — GitHub kroky (secrets, chráněná main) udělej ručně nebo spusť znovu po 'gh auth login'"; fi
 ( cd "$REPO" && git ls-files --error-unmatch .claude/hooks/kapitan-audit-guard.js >/dev/null 2>&1 ) || { echo "  ❌ POJISTKY NEJSOU ULOŽENÉ V GITU (commit selhal - chybí git identita? nastav: git config --global user.name/user.email). Instalace NENÍ hotová."; exit 1; }
+command -v claude >/dev/null || { echo "Claude Code tu není — auditor i Kapitán poběží v Codexu."; node "$PKG/tools/codex-setup.mjs" --ws "$WS" --repo "$REPO" --auditor codex --kapitan codex --yes; }
 bash "$WS/tools/post-install.sh" "$REPO" "$WS"

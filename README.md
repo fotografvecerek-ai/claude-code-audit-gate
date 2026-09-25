@@ -9,6 +9,12 @@
 > proposed fixes to the project agent, enforces *stop-the-line*, independently re-verifies every fix through six gates, and gates the
 > release with **technical barriers** (Claude Code hooks, git pre-commit, GitHub Actions) — not just words in a prompt.
 >
+> **New in 1.7:** a pre-start check in every launcher — updates Claude Code, finds every installation on the machine and starts the newest one (no more agents on an old harness or an old model list); default model alias `best`; updates keep the auditor's own tool tweaks.
+>
+> **New in 1.6:** economy mode by default — compaction at ~200K tokens, cheap subagents (haiku/sonnet) enforced by a hook, no whole large files in the main thread, workspace cleanup, cost per step measured.
+>
+> **New in 1.5:** the auditor and/or the Captain can run in **OpenAI Codex CLI** (every combination) with the same guards.
+>
 > **New in 1.4:** a separate Telegram bot for the auditor and for the Captain (messages land directly in the agent's window); updates
 > never re-run a running audit (only new goals); START installs Git, Node.js and Claude Code on a bare machine.
 >
