@@ -91,7 +91,7 @@ Symptom projektů psaných agenty: malý projekt vyroste, ale zůstane v jednom 
 5. **Verdikt**: 🟢 úspora ≥ 20 % tokenů/issue bez poklesu FPY; 🟡 úspora < 20 % nebo FPY klesl; 🔴 spotřeba vzrostla → vrátit Kapitánovi.
 6. Pomůcky: `/cost` v Claude Code (aktuální session), komunitní `ccusage` nad session logy (ověř aktuálnost balíčku před doporučením).
 7. **Měř v ČERSTVÉ session** stejnou úlohou (instrukce a hooky se načítají při startu) — velikost instrukcí, počet tahů, usage. Hash shoda upraveného CLAUDE.md na disku ≠ aktivace ≠ úspora.
-8. **Latence hooků** měř zvlášť a označ „latence, ne tokeny" (KinoXT3: 326 ms na každý Bash příkaz) — `time echo '{}' | node hook.js` pro každý hook; > 200 ms na PreToolUse = 🟡.
+8. **Latence hooků** měř zvlášť a označ „latence, ne tokeny" (z praxe: 326 ms na každý Bash příkaz) — `time echo '{}' | node hook.js` pro každý hook; > 200 ms na PreToolUse = 🟡.
 9. **Katalog vs. opakované načítání**: skill/agent, který za 14 dní nikdo nevyvolal, je kandidát na vypnutí (silný signál, ne důkaz) — `efficiency-audit.mjs usage` počítá volání Skill/Agent z transkriptů.
 10. Bezpečnostní nálezy v konfiguraci (skill tiskne tajemství, hook loguje env) řeš **bez ohledu na tokeny** — nemíchat do „diety".
 11. Dieta = kroky seřazené podle poměru úspora/riziko, každý s odhadem KB/tokenů a přiznaným rizikem (mrtvý soubor = nulové riziko; změna zdroje pluginu = vyšší).

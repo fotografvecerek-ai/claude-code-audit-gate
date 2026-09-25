@@ -18,7 +18,7 @@ mkdir -p "$WS"; for d in CLAUDE.md README.md BRIDGE.md .claude checklists templa
 mkdir -p "$WS"/AUDIT/{01_nalezy/momentky,03_dukazy,04_verdikty,bus,.auth}
 [ -d "$REPO/.git" ] && git -C "$REPO" status --porcelain > "$WS/AUDIT/.pre-install-status.txt" 2>/dev/null || true
 [ -f "$WS/tools/audit.config.json" ] || cp "$WS/tools/audit.config.example.json" "$WS/tools/audit.config.json"
-printf 'node_modules/\ntest-results/\nplaywright-report/\nAUDIT/.auth/\nAUDIT/_archiv/\nbuild/\ntools/node_modules/\n' > "$WS/.gitignore"
+printf 'node_modules/\ntest-results/\nplaywright-report/\nAUDIT/.auth/\nAUDIT/_archiv/\nAUDIT/bus/.notified-*\nbuild/\ntools/node_modules/\n' > "$WS/.gitignore"
 
 node "$WS/tools/write-auditor-settings.mjs" "$WS" "$REPO" "$MODEL" || { echo "Zápis settings auditora selhal"; exit 1; }
 
@@ -30,9 +30,9 @@ K=${AUDITOR_KAPITAN:-$(askyn "Nainstalovat do repa stranu Kapitána (skill + hoo
 if [ "$K" = "ano" ]; then
   SK="$REPO/.claude/skills/audit-rezim"; mkdir -p "$SK" "$REPO/.claude/hooks"
   { printf -- '---\nname: audit-rezim\ndescription: Závazný audit režim — stop-the-line při otevřených P0/P1 v AUDIT/02_HANDOFF.md, důkazy do AUDIT/03_dukazy, bus komunikace s auditorem, deploy jen po gate-check. Použij při startu každé dávky.\n---\n'; cat "$PKG/kapitan-side/AUDIT_REZIM.md"; } > "$SK/SKILL.md"
-  cp "$PKG/kapitan-side/gate-check.mjs" "$REPO/.claude/hooks/" && cp "$PKG/kapitan-side/kapitan-audit-guard.js" "$PKG/kapitan-side/hygiene/hygiene-rules.js" "$PKG/kapitan-side/hygiene/hygiene-rules.json" "$REPO/.claude/hooks/" && cp "$PKG/kapitan-side/hygiene/hooks-package.json" "$REPO/.claude/hooks/package.json" && cp "$PKG/kapitan-side/hygiene/pre-commit-check.mjs" "$REPO/.claude/hooks/"
+  cp "$PKG/kapitan-side/gate-check.mjs" "$PKG/kapitan-side/auditor-bus.mjs" "$REPO/.claude/hooks/" && cp "$PKG/kapitan-side/kapitan-audit-guard.js" "$PKG/kapitan-side/hygiene/hygiene-rules.js" "$PKG/kapitan-side/hygiene/hygiene-rules.json" "$REPO/.claude/hooks/" && cp "$PKG/kapitan-side/hygiene/hooks-package.json" "$REPO/.claude/hooks/package.json" && cp "$PKG/kapitan-side/hygiene/pre-commit-check.mjs" "$REPO/.claude/hooks/"
   node "$WS/tools/merge-repo-settings.mjs" "$REPO" "$WS" || echo "Sloučení settings Kapitána selhalo"
-  grep -q 'Audit režim' "$REPO/CLAUDE.md" 2>/dev/null || printf '\n## Audit režim (závazné)\nExistuje-li `%s/AUDIT/02_HANDOFF.md` s otevřenými P0/P1 → STOP-THE-LINE: pracuj jen na položkách handoffu v jejich pořadí; deploy zakázán, dokud gate-check neprojde (`node %s/kapitan-side/gate-check.mjs`). Detaily: skill `audit-rezim`. Auditor = jediná brána vydání.\n' "$WS" "$WS" >> "$REPO/CLAUDE.md"
+  node "$WS/tools/kapitan-role.mjs" "$WS" --claude-md "$REPO" || echo "Zápis role Kapitána do CLAUDE.md selhal"
   H=${AUDITOR_HYGIENA:-$(askyn "Nainstalovat hygienu do repa (pre-commit guard, .gitattributes, .gitignore doplněk)?" "ano")}
   if [ "$H" = "ano" ]; then
     mkdir -p "$REPO/.git/hooks" && cp "$PKG/kapitan-side/hygiene/"{pre-commit-check.mjs,hygiene-rules.js,hygiene-rules.json} "$REPO/.claude/hooks/" && cp "$PKG/kapitan-side/hygiene/pre-commit-guard.sh" "$REPO/.git/hooks/pre-commit" && chmod +x "$REPO/.git/hooks/pre-commit"
@@ -49,8 +49,7 @@ export AUDITOR_WORKSPACE="$WS" AUDITOR_TARGET_REPO="$REPO"
 r1=0; echo "{\"cwd\":\"$WS\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$REPO/test.txt\"}}" | node "$WS/.claude/hooks/auditor-guard.js" 2>/dev/null || r1=$?
 r2=0; echo "{\"cwd\":\"$WS\",\"tool_name\":\"Write\",\"tool_input\":{\"file_path\":\"$WS/AUDIT/01_nalezy/A-000.md\"}}" | node "$WS/.claude/hooks/auditor-guard.js" 2>/dev/null || r2=$?
 echo "Brána: zápis do repa $([ $r1 -eq 2 ] && echo 'BLOKOVÁN ✅' || echo 'PROŠEL ❌'); zápis do AUDIT/ $([ $r2 -eq 0 ] && echo 'povolen ✅' || echo 'blokován ❌')"
-printf '#!/usr/bin/env bash\ncd "%s"; echo; echo "  AUDITOR - %s. Uvodni zprava se posle sama. Kdyby zustal radek > prazdny, napis: Zacni intake"; echo\nif [ $# -eq 0 ]; then exec claude --add-dir "%s" "Zacni intake"; else exec claude --add-dir "%s" "$@"; fi\n' "$WS" "$NAME" "$REPO" "$REPO" > "$WS/start-auditor.sh"; chmod +x "$WS/start-auditor.sh"
-printf '#!/usr/bin/env bash\ncd "%s" && node "%s/tools/wait-idle.mjs" "%s" 3 || exit 1\necho; echo "  KAPITAN - %s. Sam si nacte zpravy od auditora. Kdyby zustal radek > prazdny, napis: Nacti zpravy od auditora a pokracuj v praci"; echo\nif [ $# -eq 0 ]; then exec claude --add-dir "%s" "Nacti zpravy od auditora (bus inbox) a AUDIT/02_HANDOFF.md, pokud existuje; ridi se audit rezimem. Pak pokracuj v bezne praci."; else exec claude --add-dir "%s" "$@"; fi\n' "$REPO" "$WS" "$REPO" "$NAME" "$WS" "$WS" > "$WS/start-kapitan.sh"; chmod +x "$WS/start-kapitan.sh"
+node "$WS/tools/write-launchers.mjs" "$WS" "$REPO" >/dev/null
 command -v gitleaks >/dev/null || echo "DOPORUČENO: nainstaluj gitleaks (sken tajemství v historii) — bez něj static-checks tento krok přeskočí."
 command -v semgrep >/dev/null || echo "DOPORUČENO: pip install semgrep (pravidla OWASP/Next.js) — bez něj static-checks tento krok přeskočí."
 echo "VERCEL/GIT DEPLOY: pokud hosting nasazuje automaticky z push do main, hook Kapitána spouští gate-check už při 'git push' do main/master/production (PROD_BRANCHES env)."

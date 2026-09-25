@@ -25,5 +25,7 @@ echo "  - Kapitán už auditora vidí automaticky, ať ho spustíš jakkoliv (na
 echo "  - Vydání hlídá hook Kapitána (vercel, git push do main); gate-check do deploy skriptů navrhne auditor v handoffu. Ruční deploy: $WS/deploy-with-gate.sh <příkaz>"
 echo "  MUSÍŠ NĚCO VYPNOUT? Ne. Jen Kapitána spuštěného před instalací nech dokončit a spusť znovu (nové pojistky se načítají při startu)."
 fi
+[ "$NOLAUNCH" != "--no-launch" ] && [ -f "$REPO/.claude/hooks/kapitan-audit-guard.js" ] && node "$WS/tools/opravneni.mjs" "$WS" "$REPO" --ask
+[ "$NOLAUNCH" != "--no-launch" ] && node "$WS/tools/telegram-setup.mjs" --ws "$WS" --repo "$REPO" --role obe
 if [ "$NOLAUNCH" != "--no-launch" ] && [ "$(uname)" = "Darwin" ]; then open -a Terminal "$WS/start-auditor.sh"; open -a Terminal "$WS/start-kapitan.sh"; echo "  Otevírám auditora a Kapitána v Terminálu."; 
 elif [ "$NOLAUNCH" != "--no-launch" ]; then echo "  Spusť: $WS/start-auditor.sh  a  $WS/start-kapitan.sh (každý ve vlastním terminálu)."; fi

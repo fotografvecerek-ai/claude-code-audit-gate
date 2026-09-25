@@ -7,6 +7,7 @@ PKG="$(cd "$(dirname "$0")" && pwd)"; REPO="${1:-}"
 REPO="$(cd "$REPO" && pwd)" || { echo "složka neexistuje"; exit 1; }
 [ -d "$REPO/.git" ] || { echo "$REPO není git repo."; echo "Zakládám git repo (jen .gitignore + první uložení, nic se nemaže)."; node "$PKG/tools/git-init-project.mjs" "$REPO" || exit 1; }
 WS="$(dirname "$REPO")/$(basename "$REPO")-audit"
+[ -f "$WS/.claude/settings.json" ] && { echo "Auditor je u tohoto projektu už nainstalovaný — jen aktualizuji nastavení, rozjetý audit zůstává."; exec node "$PKG/tools/update-install.mjs" "$REPO" "$WS"; }
 AUDITOR_YES=1 AUDITOR_REPO="$REPO" AUDITOR_WS="$WS" AUDITOR_REMOTE="" AUDITOR_MODEL=claude-fable-5-1 bash "$PKG/setup-auditor.sh" || { echo "průvodce selhal"; exit 1; }
 node "$WS/tools/gen-config.mjs" "$REPO"
 [ -f "$WS/AUDIT/.auth/.env.audit" ] || cp "$WS/templates/env.audit.example" "$WS/AUDIT/.auth/.env.audit"

@@ -90,7 +90,7 @@ async function interact(page: Page, l: Locator, fp: string, errs: string[]): Pro
 
 test('vyčerpávající průchod stromem UI', async ({ page }) => {
   test.setTimeout(0);
-  // SÍŤOVÝ GUARD (KinoXT3 poučení): průchod „proklikej vše" smí běžet jen v izolovaném prostředí. Pokud config neříká isolatedEnv:true,
+  // SÍŤOVÝ GUARD (poučení z praxe): průchod „proklikej vše" smí běžet jen v izolovaném prostředí. Pokud config neříká isolatedEnv:true,
   // blokujeme všechny mutační požadavky a externí hosty — GET není automaticky bez vedlejších účinků (seed/migrace/refresh endpointy).
   const blocked: string[] = [];
   if (!cfg.isolatedEnv) {

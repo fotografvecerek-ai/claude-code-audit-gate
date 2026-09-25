@@ -1,4 +1,4 @@
-AUDITOR 1.3.0 — NÁVOD (čti tohle jako první)
+AUDITOR 1.4.1 — NÁVOD (čti tohle jako první)
 =====================================================
 
 CO TO JE
@@ -58,7 +58,8 @@ INSTALACE (3 kroky)
                                   (gh auth login). Výstup pro klienta: ZPRAVA.html, 02_HANDOFF.md
                                   (zadání pro jeho vývojáře/agenta), STATISTIKA.html. Nová verze kódu:
                                   <projekt>-audit\aktualizovat-repo.cmd.
-     [4] Nápověda (tento soubor)   [5] Samotest bran   [0] Konec
+     [4] Nápověda (tento soubor)   [5] Samotest bran   [6] Telegram bot
+     [7] Samostatnost Kapitána (smí sám spouštět skripty a databázi?)   [0] Konec
 
 Instalátor se neptá na nic technického - rozhoduje sám podle posouzení projektu (profil, model, git,
 síťové disky, deploy skripty, spuštění oken). Na tobě je jen: cesta k projektu nebo výběr
@@ -95,6 +96,46 @@ i samostatný auditor (složka <název>-audit, zástupce „Auditor - <název>")
 auditora spustíš před větším vydáním a jednou za měsíc (agent ti to připomene). Když auditor vydání
 zastaví (🔴), agent projektu to uvidí na začátku každé session a vydání se zablokuje, dokud auditor opravy
 neověří. Jen zdravý start (volba [2]) stačí pro malý osobní projekt; auditora jde připojit kdykoliv.
+
+TELEGRAM ([6])
+--------------
+Auditor i Kapitán můžou mít každý svého Telegram bota: napíšeš mu z mobilu a zpráva přijde přímo do jeho
+okna (i když zrovna nic nedělá); odpoví ti do Telegramu. Auditor ti sám pošle jen důležité věci (první
+dojem, vážný nález, verdikt, zastavení vydání, otázku s doporučenou odpovědí) — nejvýš pár zpráv denně.
+START → [6] → cesta k projektu: otevře se okno průvodce (Claude) a provede tě vším krok za krokem —
+i instalací Telegramu, když ho nemáš. Bota založíš u @BotFather (to musí udělat člověk), token vložíš do
+okénka (nikam jinam), pak botovi napíšeš „ahoj" a průvodce ho spáruje jen s tebou.
+Kapitán: když projekt UŽ MÁ vlastní Telegram most, ten zůstává beze změny — ale jestli doručuje, záleží na
+nastavení projektu. Proto se nabídne i standardní bot (doporučeno): je to jiný bot, s mostem se nehádá a
+zprávy chodí přímo do okna na každém počítači. Když má bota od tohoto nástroje, nové okno ho převezme samo.
+Nic se neřídí názvem počítače ani osobním nastavením. Při každém startu okna ti bot napíše „🟢 … se spouští"
+— když nepřijde, spusť [6] znovu. Že okno zprávy opravdu přijímá, ověříš tak, že botovi napíšeš a okno odpoví.
+Potřebuje: Claude Code přihlášený přes claude.ai (Pro/Max) nebo Console; u Team/Enterprise musí kanály
+povolit správce. Bun si nástroj nainstaluje sám.
+
+SAMOSTATNOST KAPITÁNA ([7])
+---------------------------
+Jak moc tě má Kapitán otravovat. Volíš při instalaci (a jednou při aktualizaci), změníš kdykoliv přes [7]:
+  [1] OPATRNÝ    — skripty projektu a databázi ti dává ke schválení (musíš být u počítače)
+  [2] SAMOSTATNÝ — skripty projektu i databázi spouští sám a neotravuje tě. Pojistky zůstávají: mazání
+                   tabulek a hromadné mazání v databázi blokuje pojistka, před zápisem do ostré databáze
+                   udělá zálohu a auditor ji kontroluje, vydání dál jen přes auditora.
+  [3] PLNÝ       — navíc bez jakýchkoliv dotazů Claude Code (nedoporučeno)
+Platí od příštího otevření okna Kapitána.
+
+AKTUALIZACE ROZJETÉHO AUDITU
+----------------------------
+Nová verze audit NIKDY neopakuje. START → [2] → stejný projekt = jen aktualizace (nástroje, pravidla,
+nastavení; model a nálezy zůstávají). Když nová verze přidala nové cíle auditu, které tvůj audit ještě
+nemá, vznikne AUDIT\NOVE_CILE.md jen s nimi — auditor udělá jen je a v nejmenším rozsahu (např. shrnutí
+toho, co už ví, nebo jen nové commity). Celý audit znovu jen když mu výslovně napíšeš „udělej audit
+znovu celý".
+
+POČÍTAČ BEZ CLAUDE (např. u klienta)
+-----------------------------------
+START sám zjistí, co chybí (Git, Node.js, Claude Code), a nabídne to nainstalovat ([1] Enter). Na
+Windows přes winget + oficiální instalátor Claude Code, na macu přes Homebrew. Pak se jen přihlásíš do
+Claude (otevře se prohlížeč) — potřebuješ předplatné Claude Pro/Max nebo účet Console.
 
 NEVÍM, KDE MÁM PROJEKTY / NEVÍM, JESTLI JE TO GIT
 -------------------------------------------------
@@ -169,7 +210,7 @@ Auditor ti píše netechnicky, jednou větou + odkaz na soubor. Technické QA na
 KDYŽ NĚCO NEJDE
 ---------------
 - „SAMOTEST NEPROŠEL" nebo „BRÁNA NEFUNGUJE" → auditora nespouštěj, zkopíruj celý výpis okna a pošli
-  ho Claude. (Samotest = kontrola, že pojistky opravdu blokují; na Windows 93/93, jinde 94/94.)
+  ho Claude. (Samotest = kontrola, že pojistky opravdu blokují; na Windows 109/109, jinde 110/110.)
 - Agent hlásí „Blocked" → to je brána, ne chyba. Auditor nesmí psát do repa; Kapitán nesmí měnit
   hooky/settings/CI ani vydávat bez gate; nový soubor v rootu repa a provizoria mimo .tmp\tasks\<ID>\
   jsou zakázané. Pravidla se ladí zúžením, ne obcházením.
@@ -184,9 +225,11 @@ KDYŽ NĚCO NEJDE
 - „model not available“ / Fable není na účtu → v okně auditora napiš  /model opus  (nebo sonnet).
 - Chromium se nestáhl → cd <projekt>-audit\tools && npx playwright install chromium
 - První CI běh „auditor-gate" na GitHubu je červený, dokud auditor nevydá gate — to je záměr.
-- Aktualizace balíku → rozbal novou verzi přes starou složku a spusť START.cmd znovu se stejným projektem: vymění se
-  ústava, checklisty, nástroje a hooky; AUDIT\ (nálezy, verdikty, handoff, zprávy, retro) se NIKDY nepřepisuje. Běžící
-  auditor si novou ústavu načte při příštím startu. Rozjetý audit tím nepřijdeš o nic.
+- Aktualizace balíku → rozbal novou verzi přes starou složku, START.cmd → [2] → stejný projekt. Instalátor pozná, že
+  auditor už běží, a JEN AKTUALIZUJE: vymění ústavu, checklisty, nástroje, pojistky a nastavení (model zůstane), uloží
+  aktualizované pojistky do gitu a spustí samotest. Žádný intake, žádné otázky, žádná nová okna; AUDIT\ (nálezy, verdikty,
+  handoff, zprávy, retro) se NIKDY nepřepisuje. Běžící okna nech doběhnout, zavři je a otevři ze zástupců — auditor
+  naváže tam, kde skončil, Kapitán dostane zprávy od auditora. Více projektů najednou: [2] → Enter → vyber je.
 - Více projektů = více workspace; každý má vlastní bus, gate a port. Jeden balík, jedna instance
   na projekt. Na více strojích drž stejné cesty (C:\dev\...).
 

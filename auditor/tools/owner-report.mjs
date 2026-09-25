@@ -9,7 +9,7 @@ const src = argOf('--src') ? A(argOf('--src')) : ['ZPRAVA.md', '00_prvni_dojem.m
 if (!src || !fs.existsSync(src)) { console.error('Zatím není co zobrazit: AUDIT/ZPRAVA.md ani 00_prvni_dojem.md neexistuje (auditor je napíše po první vlně).'); process.exit(1); }
 const esc = s => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 // Text nálezu může pocházet z auditovaného (cizího) repa: odkaz jen http(s) nebo bez schématu (cesta, kotva); javascript:/data: zůstane textem.
-const safeHref = u => { const t = u.trim(); return /^[a-z][a-z0-9+.-]*:/i.test(t) && !/^https?:/i.test(t) ? null : t; };
+const safeHref = u => { const t = u.trim(); const k = t.replace(/[\x00-\x20\x7f]/g, ''); /* prohlížeč bílé a řídicí znaky ve schématu ignoruje (java<TAB>script:) */ return /^[a-z][a-z0-9+.-]*:/i.test(k) && !/^https?:/i.test(k) ? null : t; };
 const inline = s => esc(s).replace(/`([^`]+)`/g, '<code>$1</code>').replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>').replace(/\[([^\]]+)\]\(([^)]+)\)/g, (m, t, u) => { const h = safeHref(u); return h ? `<a href="${h}">${t}</a>` : t; }).replace(/&lt;sub&gt;(.*?)&lt;\/sub&gt;/g, '<small>$1</small>');
 const md = fs.readFileSync(src, 'utf8').replace(/<!--[\s\S]*?-->/g, '').split(/\r?\n/);
 let out = [], list = false, table = null, para = []; const qs = [];

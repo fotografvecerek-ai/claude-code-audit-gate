@@ -127,7 +127,7 @@ Gate platí pro merge --no-ff i squash auditovaného commitu, pokud je **hash st
 - Spuštění: `start-auditor.cmd` = `claude --add-dir <repo>` z workspace; první zpráva „Začni intake".
 
 ## Ověření po instalaci (vždy, i po každé změně hooků)
-`node tools/selftest.mjs` — 94 scénářů bran (auditor, Kapitán, pre-commit, bus, gate-check, nový projekt: projekt-guard, kontrolor, release-check) musí být 100 % PASS.
+`node tools/selftest.mjs` — 110 scénářů bran (auditor, Kapitán, pre-commit, bus, gate-check, nový projekt: projekt-guard, kontrolor, release-check) musí být 100 % PASS.
 Na Windows navíc jednou spusť `claude --verbose` a ověř, že shellové příkazy chodí jako `Bash` (Git Bash) — hooky mají větev i pro
 `PowerShell`, ale rozhodující je skutečný `tool_name`.
 
@@ -189,6 +189,18 @@ AUDIT/
 ```
 
 Auditor nikdy nezapisuje mimo `AUDIT/` a `tools/`; Kapitán zapisuje jen do `03_dukazy/`.
+
+## Změny v1.4.1
+- Telegram nezávislý na počítači a osobním nastavení: složka bota podle otisku cesty projektu, standardní bot i pro Kapitána s vlastním mostem
+  (volba se pamatuje), ohlášení „běží" při startu okna (`tools/telegram-ping.mjs`), `telegram-setup.mjs --test`. jeden bot = jedno okno (duplicitní token se odmítne). plugin hlídaný při startu, odpověď jen přes reply kanálu. úvodní zpráva před volbami (neztrácí se). rozjetý audit podle kteréhokoliv výsledku. Samotest 126.
+
+## Změny v1.4.0
+- Telegram: `tools/telegram-setup.mjs` (+ `--detect`, `--agent`), `templates/pruvodce_telegram.md`, spouštěče s kanálem (`write-launchers.mjs`
+  čte `.telegram.json`), ústava §4b, role Kapitána. START → [6] otevře průvodce v okně Claude.
+- Příprava počítače: `tools/bootstrap.ps1|sh`, START sám zjistí chybějící Git/Node/Claude Code.
+- Aktualizace bez opakování: `templates/cile_auditu.json` → `AUDIT/NOVE_CILE.md` jen s chybějícími cíli, `AUDIT/.balik.json`; ústava „Pokračování a aktualizace".
+- Samostatnost Kapitána: `tools/opravneni.mjs`, START → [7], blok destruktivního SQL v `kapitan-audit-guard.js`.
+- Samotest 110.
 
 ## Změny v1.3.0
 - Rozcestník `START.cmd`/`start.sh`: [1] nový projekt · [2] audit projektu na disku · [3] audit GitHub repa.
@@ -349,12 +361,12 @@ Auditor nikdy nezapisuje mimo `AUDIT/` a `tools/`; Kapitán zapisuje jen do `03_
 - **Provoz/zálohy/licence**: izolovaný restore test, readiness, alerty, runbook, licence závislostí a dat.
 - Průvodce instaluje hygienu do repa se souhlasem.
 
-## Změny v2 (přehodnocení v1 + poučení z auditu KinoXT3)
+## Změny v2 (přehodnocení v1 + poučení z reálného auditu)
 - **Chyba v1 opravena**: plošné deny `git commit/push` bránilo auditorovi commitovat vlastní AUDIT repo → hook je teď cestově citlivý (git jen ve workspace, nikdy v repu).
 - Placeholdery `[DOPLŇ]` nahrazuje průvodce; cesty jdou do `settings.json → env`, hooky je čtou.
 - Most (`bus.mjs`) místo „sdílená složka": funguje přes stroje, má vlastnictví zpráv, kola review, `replyTo`, stavový řetězec, metriky chování Kapitána (**false_done_rate**).
-- Strana Kapitána má vlastní hook a **gate-check** — vydání nelze obejít ani ručním kliknutím na .bat (KinoXT3: člověk obešel HOLD).
+- Strana Kapitána má vlastní hook a **gate-check** — vydání nelze obejít ani ručním kliknutím na .bat (z praxe: člověk obešel HOLD).
 - Nálezy mají **třídu důkazu** (reprodukovaná chyba / staticky doložené riziko / hypotéza / mezera v důkazu); handoff i verdikt mají povinné „co jsem neprokázal".
-- Ověření vyžaduje vlastní protipříklady a **kombinace stavů/přepínačů** (KinoXT3: 18/18 zelených testů, `--dry-run --rollback` mazal živý soubor).
+- Ověření vyžaduje vlastní protipříklady a **kombinace stavů/přepínačů** (z praxe: 18/18 zelených testů, `--dry-run --rollback` mazal živý soubor).
 - UI crawler má síťový guard (mutace, externí hosty, rizikové GET blokovány mimo izolované prostředí).
 - Efektivita: měření v čerstvé session, latence hooků zvlášť, počty volání Skill/Agent z transkriptů, dieta seřazená podle úspora/riziko.

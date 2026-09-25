@@ -40,7 +40,9 @@ for p in "${PLAN[@]}"; do IFS='|' read -r repo name prof gh port dirty ng <<< "$
   [ "$prof" = "PRESKOCIT" ] && { SUM+=("$name: přeskočeno"); continue; }
   if [ "$ng" = 1 ]; then node "$PKG/tools/git-init-project.mjs" "$repo" || { SUM+=("$name: git init selhal (velké soubory?)"); continue; }; dirty=0; fi
   [ "$dirty" != "0" ] && echo "$name: $dirty souborů není uložených v gitu — v pořádku, instaluji dál; tvoje soubory se nemění, auditor to zapíše jako první nález."
-  WS="$(dirname "$repo")/$name-audit"; echo; echo "================ $name → $prof ================"
+  WS="$(dirname "$repo")/$name-audit"
+  if [ -f "$WS/.claude/settings.json" ]; then node "$PKG/tools/update-install.mjs" "$repo" "$WS" && SUM+=("$name: AKTUALIZOVÁNO (rozjetý audit zůstává)") || SUM+=("$name: CHYBA aktualizace"); continue; fi
+  echo; echo "================ $name → $prof ================"
   case "$prof" in PLNY) K=ano; H=ano; C=$([ "$gh" = 1 ] && echo ano || echo ne); M=claude-fable-5-1;; LEHKY) K=ano; H=ano; C=ne; M=opus;; JEN_AUDIT) K=ne; H=ne; C=ne; M=sonnet;; esac
   AUDITOR_YES=1 AUDITOR_REPO="$repo" AUDITOR_WS="$WS" AUDITOR_REMOTE="" AUDITOR_MODEL=$M AUDITOR_KAPITAN=$K AUDITOR_HYGIENA=$H AUDITOR_CI=$C bash "$PKG/setup-auditor.sh" || { SUM+=("$name: CHYBA průvodce"); continue; }
   node "$WS/tools/gen-config.mjs" "$repo" --port "$port"
