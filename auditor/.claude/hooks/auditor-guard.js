@@ -60,6 +60,7 @@ function commands(cmd, depth = 0, out = []) {
       break; }
     const w = baseW(toks[i]); if (!w) continue; const a = toks.slice(i + 1); const lower = a.map(x => x.toLowerCase());
     if (['bash', 'sh', 'zsh', 'dash', 'cmd', 'powershell', 'pwsh'].includes(w)) { const k = lower.findIndex(x => /^(-c|\/c|\/k|-command|-encodedcommand)$/.test(x)); if (k >= 0) { commands(a.slice(k + 1).join(' '), depth + 1, out); continue; } }
+    if (w === 'eval') { commands(a.join(' '), depth + 1, out); continue; } // eval "git push …" — obsah se rekurzivně tokenizuje jako u shell -c (kolo 2)
     const inline = ['node', 'python', 'python3', 'py', 'deno', 'bun', 'ruby', 'perl'].includes(w) && lower.some(x => /^(-e|-c|--eval|-p|--print)$/.test(x)) ? a.join(' ') : null;
     out.push({ w, a, lower, all: toks.slice(i), inline });
   }
@@ -129,26 +130,27 @@ process.stdin.on('end', () => {
   }
 
   if (tool === 'Bash' || tool === 'PowerShell') {
-    const cmd = String(ti.command || ''); const lc = norm(cmd);
+    const cmd = String(ti.command || '');
     const dh = denyHit(cmd); if (dh) block(`Zakázáno (${dh.why} — „${dh.tok}"): auditor nevydává, nemigruje, nemaže, neukončuje procesy, nemutuje mimo localhost.`);
     if (mutatingRemoteHttp(cmd)) block('Zakázáno (mutační HTTP mimo localhost): sondy jen proti lokálnímu buildu; produkce jen se souhlasem vlastníka a mimo tento hook.');
     // git mutace: povoleno jen když cíl = workspace auditora (cwd ve workspace a žádné -C/cesta do repa)
+    // Detekce běží nad TOKENIZOVANÝMI příkazy (commands()), ne nad syrovým textem — echo/komentáře/„git push" v -m "…" nejsou git příkaz (A-004).
     const repoRe = repo ? new RegExp(repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![\\w.-])') : null;
-    const resolveTarget = (m) => {
-      if (m[1]) return norm(m[1]);
-      const before = lc.slice(0, m.index); const cds = [...before.matchAll(/(?:^|[;&|]\s*)cd\s+("[^"]+"|\S+)/g)];
-      if (!cds.length) return cwd; let t = cds[cds.length - 1][1].replace(/"/g, '');
-      return t.startsWith('/') ? t : norm(cwd + '/' + t).replace(/\/\.\//g, '/');
-    };
-    for (const m of cmd.matchAll(GIT_MUT)) {
-      const target = resolveTarget(m);
-      const inRepo = repo && (target === repo || target.startsWith(repo + '/') || (repoRe.test(m[1] ? norm(m[1]) : '')));
-      // build/ klon může být junction/symlink jinam (disk mimo produkci) → skutečné cesty položek build/ se berou jako build/
-      let buildReal = []; try { const fsg = require('node:fs'), pg = require('node:path'); const bd = pg.join(WORKSPACE, 'build'); buildReal = fsg.readdirSync(bd).map(n => { try { return norm(fsg.realpathSync.native(pg.join(bd, n))); } catch { return ''; } }).filter(Boolean); } catch { }
-      const inBuild = target.startsWith(ws + '/build/') || buildReal.some(r => target === r || target.startsWith(r + '/'));
-      const inWs = target === ws || target.startsWith(ws + '/') || inBuild;
-      if (inRepo || !inWs) block(`git ${m[2]} mimo workspace auditora zakázán (cíl: ${target}). Auditor commituje jen svůj AUDIT repozitář.`);
-      if (inBuild && !/^(checkout|switch|restore|stash)$/i.test(m[2])) block(`git ${m[2]} v build/ klonu zakázán — klon slouží jen ke čtení a spuštění testů (povoleno: clone, fetch, pull, checkout, switch).`);
+    let cur = cwd;
+    const absTarget = p => { p = String(p).replace(/\\/g, '/'); const n = norm(p); return /^\//.test(n) ? norm(collapse(n)) : norm(collapse(cur + '/' + p)); };
+    for (const c of commands(cmd)) {
+      if (['cd', 'pushd', 'set-location', 'sl', 'chdir'].includes(c.w)) { const t = c.a.find(x => !/^[-/]/.test(x) || /^\//.test(x) && x.length > 2); if (t) cur = absTarget(t); continue; }
+      if (c.w !== 'git') continue;
+      for (const m of c.all.join(' ').matchAll(GIT_MUT)) {
+        const target = m[1] ? norm(m[1]) : cur;
+        const inRepo = repo && (target === repo || target.startsWith(repo + '/') || (repoRe.test(m[1] ? norm(m[1]) : '')));
+        // build/ klon může být junction/symlink jinam (disk mimo produkci) → skutečné cesty položek build/ se berou jako build/
+        let buildReal = []; try { const fsg = require('node:fs'), pg = require('node:path'); const bd = pg.join(WORKSPACE, 'build'); buildReal = fsg.readdirSync(bd).map(n => { try { return norm(fsg.realpathSync.native(pg.join(bd, n))); } catch { return ''; } }).filter(Boolean); } catch { }
+        const inBuild = target.startsWith(ws + '/build/') || buildReal.some(r => target === r || target.startsWith(r + '/'));
+        const inWs = target === ws || target.startsWith(ws + '/') || inBuild;
+        if (inRepo || !inWs) block(`git ${m[2]} mimo workspace auditora zakázán (cíl: ${target}). Auditor commituje jen svůj AUDIT repozitář.`);
+        if (inBuild && !/^(checkout|switch|restore|stash)$/i.test(m[2])) block(`git ${m[2]} v build/ klonu zakázán — klon slouží jen ke čtení a spuštění testů (povoleno: clone, fetch, pull, checkout, switch).`);
+      }
     }
     if (/\bgit\s+(-C\s+\S+\s+)?push\b.*--force|\bgit\s+push\s+-f\b/i.test(cmd)) block('force push zakázán i ve workspace.');
     // zápis shellem: rozhoduje CÍL zápisu (přesměrování, cp/mv/copy/Set-Content…), ne slova v příkazu — `grep x <repo> 2>/dev/null` projde

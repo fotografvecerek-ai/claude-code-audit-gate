@@ -5,6 +5,7 @@ import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'
 const pkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-selftest-')); const ws = path.join(tmp, 'x-audit'); const repo = path.join(tmp, 'x'); const wt = path.join(tmp, 'wt-a');
 const isWin = process.platform === 'win32'; const norm = p => p.replace(/\\/g, '/');
+const gitBash = p => isWin ? '/' + p[0].toLowerCase() + p.slice(2).replace(/\\/g, '/') : p; // Windows cesta → git-bash styl /c/Users/... (A-005 regrese)
 fs.mkdirSync(path.join(ws, 'AUDIT', 'bus'), { recursive: true }); fs.mkdirSync(path.join(ws, 'build'), { recursive: true }); fs.mkdirSync(path.join(repo, '.claude', 'hooks'), { recursive: true });
 for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'hygiene/hygiene-rules.js', 'hygiene/hygiene-rules.json', 'hygiene/pre-commit-check.mjs', 'hygiene/hooks-package.json']) fs.copyFileSync(path.join(pkg, 'kapitan-side', f), path.join(repo, '.claude', 'hooks', f === 'hygiene/hooks-package.json' ? 'package.json' : path.basename(f)));
 const git = (c, cwd = repo) => execSync(`git ${c}`, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
@@ -63,6 +64,18 @@ T('A: bus post --from kapitan blokován', hook(AG, bash(ws, 'node tools/bus.mjs 
   T('A: blokace vypíše pravidlo i slovo', /deploy — „vercel deploy/.test(msg), true);
 }
 T('A: bez env fail-closed', spawnSync(process.execPath, [AG], { input: JSON.stringify(bash(ws, 'ls')), env: { ...env, AUDITOR_WORKSPACE: '' }, encoding: 'utf8' }).status, 2);
+// A-004: GIT_MUT běží nad TOKENIZOVANÝM příkazem (commands()), ne nad syrovým textem — echo/-m "…" s "git push" není git příkaz
+T('A: echo se slovy "git push" v textu není push (A-004)', hook(AG, bash(repo, 'echo "poznámka: pak udělám git push"')), 0);
+T('A: skutečný git push origin main mimo workspace blokován (A-004 regrese)', hook(AG, bash(repo, 'git push origin main')), 2);
+T('A: git commit -m se slovy "git reset" v poznámce ve workspace povolen (beze změny)', hook(AG, bash(ws, 'git commit -m "fix: git reset"')), 0);
+// A-004 kolo 2: vnořené spuštění (bash -c, sh -c, eval, backtick, $(...), powershell -c) nesmí obejít GIT_MUT/WORD_DENY
+T('A: bash -c "git push origin main" blokován (A-004 kolo 2)', hook(AG, bash(repo, 'bash -c "git push origin main"')), 2);
+T('A: sh -c \'git push origin main\' blokován (A-004 kolo 2)', hook(AG, bash(repo, "sh -c 'git push origin main'")), 2);
+T('A: echo x; $(git push origin main) blokován (A-004 kolo 2)', hook(AG, bash(repo, 'echo x; $(git push origin main)')), 2);
+T('A: `git push origin main` (backtick) blokován (A-004 kolo 2)', hook(AG, bash(repo, '`git push origin main`')), 2);
+T('A: eval "git push origin main" blokován (A-004 kolo 2)', hook(AG, bash(repo, 'eval "git push origin main"')), 2);
+T('A: powershell -c "git push origin main" blokován (A-004 kolo 2)', hook(AG, bash(repo, 'powershell -c "git push origin main"')), 2);
+T('A: eval "vercel --prod" blokován (A-004 kolo 2, WORD_DENY)', hook(AG, bash(ws, 'eval "vercel --prod"')), 2);
 
 // --- KAPITÁN GUARD
 T('K: zápis do verdiktů blokován', hook(KG, write(repo, path.join(ws, 'AUDIT', '04_verdikty', 'A-1.md'))), 2);
@@ -91,6 +104,24 @@ T('K: bus post --from auditor blokován', hook(KG, bash(repo, 'node tools/bus.mj
   T(`K: přesnost hooku (${projde.length} projde, ${blok.length} blok)`, zle.join(' | '), '');
 }
 T('K: bez env fail-closed', spawnSync(process.execPath, [KG], { input: JSON.stringify(bash(repo, 'ls')), env: { ...env, AUDITOR_WORKSPACE: '' }, encoding: 'utf8' }).status, 2);
+// A-005: detekce push/deploy (pushM/DEPLOY) běží nad TOKENIZOVANÝM příkazem (commands()), ne nad syrovým textem
+T('K: echo se slovy "git push" v textu není push (A-005 case1)', hook(KG, bash(repo, 'echo "poznámka: pak udělám git push"')), 0);
+T('K: git commit -m se "git push origin main" v poznámce není push (A-005 case2, deterministicky = case1)', hook(KG, bash(repo, 'git commit -m "fix: nepoužívat git push origin main"')), 0);
+T('K: skutečný git push origin main blokován (A-005 case3)', hook(KG, bash(repo, 'git push origin main')), 2);
+T('K: gh pr create se slovem "deploy" v textu není deploy (A-005 case4)', hook(KG, bash(repo, 'gh pr create --body "deploy later"')), 0);
+T('K: bus post s "git push" v --text není push', hook(KG, bash(repo, 'node tools/bus.mjs post --from kapitan --type NOTE --id A-1 --text "pak udělám git push origin main" --status DONE')), 0);
+T('K: cd do git-bash cesty + push HEAD z worktree povolen (win /c/... bug)', hook(KG, bash(repo, `cd ${gitBash(wt)} && git push -u origin HEAD`)), 0);
+T('K: git push s přesměrováním (2>&1 | tail) na feature větev povolen', hook(KG, bash(repo, 'git push origin feature-x 2>&1 | tail -3')), 0);
+// A-005 kolo 2: řetěz víc git push segmentů — kterýkoli prod → prod (foundPush dřív bral jen první segment)
+T('K: git push origin feature-x && git push origin main musí být prod (kolo 2)', hook(KG, bash(repo, 'git push origin feature-x && git push origin main')), 2);
+// A-005 kolo 2: vnořené spuštění (bash -c, sh -c, eval, backtick, $(...), powershell -c) nesmí obejít pushM/DEPLOY
+T('K: bash -c "git push origin main" blokován (A-005 kolo 2)', hook(KG, bash(repo, 'bash -c "git push origin main"')), 2);
+T('K: sh -c \'git push origin main\' blokován (A-005 kolo 2)', hook(KG, bash(repo, "sh -c 'git push origin main'")), 2);
+T('K: echo x; $(git push origin main) blokován (A-005 kolo 2)', hook(KG, bash(repo, 'echo x; $(git push origin main)')), 2);
+T('K: `git push origin main` (backtick) blokován (A-005 kolo 2)', hook(KG, bash(repo, '`git push origin main`')), 2);
+T('K: eval "git push origin main" blokován (A-005 kolo 2)', hook(KG, bash(repo, 'eval "git push origin main"')), 2);
+T('K: powershell -c "git push origin main" blokován (A-005 kolo 2)', hook(KG, bash(repo, 'powershell -c "git push origin main"')), 2);
+T('K: eval "vercel --prod" blokován (A-005 kolo 2, DEPLOY)', hook(KG, bash(repo, 'eval "vercel --prod"')), 2);
 // gate 🟢 → push main + deploy povolen; merge auditované větve bez dalších změn → platí; nový obsah → blokován
 const head = git('rev-parse --short HEAD'); fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES} — commit ${head}\nVerdikt: 🟢 SMÍ VYDAT\n`);
 fs.writeFileSync(path.join(repo, 'dirty.ts'), 'x'); T('K: gate 🟢, špinavý strom → blokován', hook(KG, bash(repo, 'vercel --prod')), 2); fs.unlinkSync(path.join(repo, 'dirty.ts'));

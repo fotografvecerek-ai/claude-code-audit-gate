@@ -43,6 +43,7 @@ function commands(cmd, depth = 0, out = []) {
       break; }
     const w = baseW(toks[i]); if (!w) continue; const a = toks.slice(i + 1); const lower = a.map(x => x.toLowerCase());
     if (['bash', 'sh', 'zsh', 'dash', 'cmd', 'powershell', 'pwsh'].includes(w)) { const k = lower.findIndex(x => /^(-c|\/c|\/k|-command|-encodedcommand)$/.test(x)); if (k >= 0) { commands(a.slice(k + 1).join(' '), depth + 1, out); continue; } }
+    if (w === 'eval') { commands(a.join(' '), depth + 1, out); continue; } // eval "git push …" — obsah se rekurzivně tokenizuje jako u shell -c (kolo 2)
     const inline = ['node', 'python', 'python3', 'py', 'deno', 'bun', 'ruby', 'perl'].includes(w) && lower.some(x => /^(-e|-c|--eval|-p|--print)$/.test(x)) ? a.join(' ') : null;
     out.push({ w, a, lower, all: toks.slice(i), inline });
   }
@@ -120,25 +121,37 @@ process.stdin.on('end', () => {
     // AUDIT/ auditora: Kapitán shellem zapisuje jen do 03_dukazy a svých zpráv na busu (bus.mjs zapisuje sám, ne shellem)
     for (const t of wt) if (t.path && t.path.startsWith(ws + '/audit/') && !t.path.startsWith(ws + '/audit/03_dukazy/') && !/\/audit\/bus\/[^/]*_kapitan_[^/]*\.json$/.test(t.path)) block(`Shellový zápis do AUDIT/ mimo 03_dukazy zakázán („${t.tok}").`);
     // git push do produkční větve = deploy (Vercel/GitHub integrace nasazuje automaticky) → gate-check
-    const pushM = cmd.match(/\bgit\b(?:\s+-C\s+\S+)?(?:\s+-c\s+\S+)*\s+push\b([^|;&]*)/i);
-    let pushProd = false;
-    if (pushM) { const rawArgs = pushM[1].trim().split(/\s+/).filter(Boolean); if (rawArgs.some(a => /^--(all|mirror|tags|branches)$/.test(a))) pushProd = true;
+    // Detekce běží nad TOKENIZOVANÝMI příkazy (commands()), ne nad syrovým textem — "git push" v --text/-m "…" není push (A-005);
+    // přesměrování (2>&1, >, | tail) se nepočítá do refspeců; git-bash cesta (/c/Users/…) se před resolve převede na C:\Users\… (win32).
+    const gitBashToWin = p => { if (process.platform !== 'win32' || !p) return p; const m = /^\/([A-Za-z])(\/.*)?$/.exec(p); return m ? `${m[1].toUpperCase()}:${(m[2] || '\\').replace(/\//g, '\\')}` : p; };
+    const resolveDir = (base, t) => { const c = gitBashToWin(t); return path.isAbsolute(c) ? c : path.resolve(base, c); };
+    let cur = cwdRaw, pushProd = false, pushDir = null, depMatch = null, depMatchDir = cwdRaw;
+    for (const c of commands(cmd)) {
+      if (['cd', 'pushd', 'set-location', 'sl', 'chdir'].includes(c.w)) { const t = c.a.find(x => !/^[-/]/.test(x) || /^\//.test(x) && x.length > 2); if (t) cur = resolveDir(cur, t); continue; }
+      if (!depMatch) { const text = c.inline || c.all.join(' '); const dm = DEPLOY.map(re => text.match(re)).find(Boolean); if (dm) { depMatch = dm; depMatchDir = cur; } }
+      if (c.w !== 'git') continue; // VŠECHNY git push segmenty v příkazu (ne jen první) — "git push a && git push origin main" musí vyhodnotit i druhý (kolo 2)
+      let i = 0, cDir = null;
+      while (c.a[i] === '-C' && c.a[i + 1] !== undefined) { cDir = c.a[i + 1]; i += 2; }
+      while (c.a[i] === '-c' && c.a[i + 1] !== undefined) i += 2;
+      if ((c.a[i] || '').toLowerCase() !== 'push') continue;
+      // přesměrování (2>&1, >, | tail se do samostatného segmentu už nedostane) se nepočítá do refspeců
+      const rest = c.a.slice(i + 1); const rawArgs = [];
+      for (let k = 0; k < rest.length; k++) { const m = /^(\d|&)?>>?(.*)$/.exec(rest[k]); if (m) { if (!m[2]) k++; continue; } rawArgs.push(rest[k]); }
+      let segProd = rawArgs.some(a => /^--(all|mirror|tags|branches)$/.test(a));
       const args = rawArgs.filter(a => !a.startsWith('-')); const refspecs = args.slice(1); const targets = refspecs.map(r => r.includes(':') ? r.split(':')[1] : r).map(t => t.replace(/^refs\/heads\//, ''));
-      if (targets.some(t => t && t !== 'HEAD' && PROD_BRANCH.test(t))) pushProd = true;
+      if (targets.some(t => t && t !== 'HEAD' && PROD_BRANCH.test(t))) segProd = true;
       const refspec = refspecs[0] || ''; const target = refspecs.length > 1 ? '' : (refspec.includes(':') ? refspec.split(':')[1] : refspec);
-      // skutečný adresář příkazu: -C <dir> > poslední `cd <dir>` před push > cwd hooku (worktree má vlastní HEAD!)
-      const cM = pushM[0].match(/\s-C\s+("[^"]+"|\S+)/); const cdM = [...cmd.slice(0, pushM.index).matchAll(/(?:^|[;&|(\n{]\s*)cd\s+("[^"]+"|\S+)/g)].pop();
-      let dir = cM ? cM[1] : cdM ? cdM[1] : cwdRaw; dir = dir.replace(/"/g, ''); if (!path.isAbsolute(dir)) dir = path.resolve(cwdRaw, dir);
+      // skutečný adresář příkazu: -C <dir> > sledovaný cwd (cd/pushd/Set-Location před příkazem) > cwd hooku (worktree má vlastní HEAD!)
+      const dir = cDir ? resolveDir(cwdRaw, cDir) : cur;
       let branch = (target && target !== 'HEAD') ? target : ''; if (!branch) { try { branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim(); } catch { branch = 'UNKNOWN'; } }
-      if (branch === 'UNKNOWN' || branch === 'HEAD') pushProd = true; // nelze určit → fail-closed (gate-check rozhodne)
-      pushProd = pushProd || PROD_BRANCH.test(branch.replace(/^refs\/heads\//, '')); }
-    const depM = DEPLOY.map(re => cmd.match(re)).find(Boolean);
-    if (pushProd || depM) {
-      // gate-check nad ADRESÁŘEM PŘÍKAZU (worktree má vlastní HEAD a vydává svůj obsah): -C > poslední cd před příkazem > cwd hooku.
+      if (branch === 'UNKNOWN' || branch === 'HEAD') segProd = true; // nelze určit → fail-closed (gate-check rozhodne)
+      segProd = segProd || PROD_BRANCH.test(branch.replace(/^refs\/heads\//, ''));
+      if (segProd && !pushProd) { pushProd = true; pushDir = dir; } // první PROD segment rozhoduje o gate adresáři; další (i non-prod) segmenty dir nepřepisují
+    }
+    if (pushProd || depMatch) {
+      // gate-check nad ADRESÁŘEM PŘÍKAZU (worktree má vlastní HEAD a vydává svůj obsah): adresář skutečného push/deploy segmentu.
       // Jen když jde o totéž repo (stejné .git) — jinak auditované repo (fail-closed jako dřív).
-      const at = pushM && pushProd ? pushM.index : (depM ? depM.index : 0);
-      const cM2 = pushM && pushProd ? pushM[0].match(/\s-C\s+("[^"]+"|\S+)/) : null; const cdM2 = [...cmd.slice(0, at).matchAll(/(?:^|[;&|(\n{]\s*)(?:cd|Set-Location|pushd)\s+(?:\/d\s+)?("[^"]+"|\S+)/gi)].pop();
-      let gdir = cM2 ? cM2[1] : cdM2 ? cdM2[1] : cwdRaw; gdir = gdir.replace(/"/g, ''); if (!path.isAbsolute(gdir)) gdir = path.resolve(cwdRaw, gdir);
+      const gdir = pushProd ? pushDir : depMatchDir;
       const common = d => { try { return norm(fsx.realpathSync.native(path.resolve(d, execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: d, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()))); } catch { return ''; } };   // realpath: krátké názvy 8.3 (RUNNER~1) a odkazy
       const target = process.env.AUDITOR_TARGET_REPO || process.cwd(); const cd0 = common(gdir);
       const gateDir = cd0 && cd0 === common(target) ? gdir : target;
