@@ -1,4 +1,4 @@
-AUDITOR 1.3.0 — NÁVOD (čti tohle jako první)
+AUDITOR 1.6.0 — NÁVOD (čti tohle jako první)
 =====================================================
 
 CO TO JE
@@ -58,7 +58,8 @@ INSTALACE (3 kroky)
                                   (gh auth login). Výstup pro klienta: ZPRAVA.html, 02_HANDOFF.md
                                   (zadání pro jeho vývojáře/agenta), STATISTIKA.html. Nová verze kódu:
                                   <projekt>-audit\aktualizovat-repo.cmd.
-     [4] Nápověda (tento soubor)   [5] Samotest bran   [0] Konec
+     [4] Nápověda (tento soubor)   [5] Samotest bran   [6] Telegram bot
+     [7] Samostatnost Kapitána (smí sám spouštět skripty a databázi?)   [0] Konec
 
 Instalátor se neptá na nic technického - rozhoduje sám podle posouzení projektu (profil, model, git,
 síťové disky, deploy skripty, spuštění oken). Na tobě je jen: cesta k projektu nebo výběr
@@ -70,7 +71,7 @@ a NA KONCI SÁM OTEVŘE OKNO AUDITORA (začne intake: ptá se lidsky - co aplika
 se bojíš; odpovídáš, on pracuje) a OKNO KAPITÁNA (počká, dokud v projektu běží starý; Enter = hned).
 Technické poznámky pro auditora (chybějící volitelné nástroje, deploy skripty) jdou do AUDIT\instalace.log.
 
-Profily: PLNÝ = vše (aplikace s uživateli/daty/platbami/deployem), model Fable 5.1 (nejlepší úsudek)
+Profily: PLNÝ = vše (aplikace s uživateli/daty/platbami/deployem), model Opus (alias „opus“ = vždy nejnovější Opus); Kapitán běží na Sonnetu (levnější, na programování)
          LEHKÝ = bez CI, model Opus (malé projekty bez uživatelských dat)
          JEN AUDIT = jen workspace auditora, do repa se nesahá (staré/neaktivní projekty)
 
@@ -95,6 +96,125 @@ i samostatný auditor (složka <název>-audit, zástupce „Auditor - <název>")
 auditora spustíš před větším vydáním a jednou za měsíc (agent ti to připomene). Když auditor vydání
 zastaví (🔴), agent projektu to uvidí na začátku každé session a vydání se zablokuje, dokud auditor opravy
 neověří. Jen zdravý start (volba [2]) stačí pro malý osobní projekt; auditora jde připojit kdykoliv.
+
+TELEGRAM ([6])
+--------------
+Auditor i Kapitán můžou mít každý svého Telegram bota: napíšeš mu z mobilu a zpráva přijde přímo do jeho
+okna (i když zrovna nic nedělá); odpoví ti do Telegramu. Auditor ti sám pošle jen důležité věci (první
+dojem, vážný nález, verdikt, zastavení vydání, otázku s doporučenou odpovědí) — nejvýš pár zpráv denně.
+START → [6] → cesta k projektu: otevře se okno průvodce (Claude) a provede tě vším krok za krokem —
+i instalací Telegramu, když ho nemáš. Bota založíš u @BotFather (to musí udělat člověk), token vložíš do
+okénka (nikam jinam), pak botovi napíšeš „ahoj" a průvodce ho spáruje jen s tebou.
+Kapitán: když projekt UŽ MÁ vlastní Telegram most, ten zůstává beze změny — ale jestli doručuje, záleží na
+nastavení projektu. Proto se nabídne i standardní bot (doporučeno): je to jiný bot, s mostem se nehádá a
+zprávy chodí přímo do okna na každém počítači. Když má bota od tohoto nástroje, nové okno ho převezme samo.
+Nic se neřídí názvem počítače ani osobním nastavením. Při každém startu okna ti bot napíše „🟢 … se spouští"
+— když nepřijde, spusť [6] znovu. Že okno zprávy opravdu přijímá, ověříš tak, že botovi napíšeš a okno odpoví.
+Potřebuje: Claude Code přihlášený přes claude.ai (Pro/Max) nebo Console; u Team/Enterprise musí kanály
+povolit správce. Bun si nástroj nainstaluje sám.
+
+SAMOSTATNOST KAPITÁNA ([7])
+---------------------------
+Jak moc tě má Kapitán otravovat. Volíš při instalaci (a jednou při aktualizaci), změníš kdykoliv přes [7]:
+  [1] OPATRNÝ    — skripty projektu a databázi ti dává ke schválení (musíš být u počítače)
+  [2] SAMOSTATNÝ — skripty projektu i databázi spouští sám a neotravuje tě. Pojistky zůstávají: mazání
+                   tabulek a hromadné mazání v databázi blokuje pojistka, před zápisem do ostré databáze
+                   udělá zálohu a auditor ji kontroluje, vydání dál jen přes auditora.
+  [3] PLNÝ       — navíc bez jakýchkoliv dotazů Claude Code (nedoporučeno)
+Platí od příštího otevření okna Kapitána.
+
+AKTUALIZACE ROZJETÉHO AUDITU
+----------------------------
+Nová verze audit NIKDY neopakuje. START → [2] → stejný projekt = jen aktualizace (nástroje, pravidla,
+nastavení; model a nálezy zůstávají). Když nová verze přidala nové cíle auditu, které tvůj audit ještě
+nemá, vznikne AUDIT\NOVE_CILE.md jen s nimi — auditor udělá jen je a v nejmenším rozsahu (např. shrnutí
+toho, co už ví, nebo jen nové commity). Celý audit znovu jen když mu výslovně napíšeš „udělej audit
+znovu celý".
+
+POČÍTAČ BEZ CLAUDE (např. u klienta)
+-----------------------------------
+START sám zjistí, co chybí (Git, Node.js, Claude Code), a nabídne to nainstalovat ([1] Enter). Na
+Windows přes winget + oficiální instalátor Claude Code, na macu přes Homebrew. Pak se jen přihlásíš do
+Claude (otevře se prohlížeč) — potřebuješ předplatné Claude Pro/Max nebo účet Console.
+
+ÚSPORNÝ REŽIM (výchozí)
+----------------------
+Auditor, který radí šetřit, nesmí sám plýtvat. Proto: kontext se kompaktuje u ~200 tis. tokenů (ne až u ~1 mil.
+— každý krok totiž celý kontext čte znovu), hlavní vlákno jen řídí a rozhoduje, práci dělají levní subagenti
+(průzkumník = nejlevnější model, mechanik = střední; drahý model jen na ověření vážných nálezů), velké soubory
+se nečtou celé, kopie repa ve workspace se uklízejí. Hlídá to pojistka, ne jen text. Kolik audit stojí, ukáže
+node tools/audit-stats.mjs (tokeny a „Ø kontext na krok" — čím menší, tím hospodárnější).
+Důkladný režim (bez těchto omezení): do <projekt>-audit\.rezim.json napiš {"rezim":"dukladny"}.
+
+KONTROLA PŘED STARTEM (každý start auditora i Kapitána)
+------------------------------------------------------
+Než se agent spustí, spouštěč ověří Claude Code: stáhne aktualizaci, najde všechny instalace na počítači a pustí
+tu nejnovější — i když příkaz „claude" ukazuje na starou (typicky: aktualizace šla do jiné instalace). Víc instalací
+nahlásí s návodem, jak nechat jen jednu. Běžící okna zůstávají na verzi, se kterou byla spuštěna — nová verze platí
+až po jejich zavření a novém spuštění. U Codexu totéž přes npm. Model se vybírá při každém startu podle toho,
+co je na tvém účtu PRÁVĚ dostupné (krátké ověření, pamatuje si ho 24 h): auditor zkouší opus → best → sonnet, Kapitán opus → sonnet
+(plánuje a mluví s tebou; kód píšou jeho subagenti na levnějším sonnetu). Nic není natvrdo na verzi — alias vždy ukazuje na nejnovější model své úrovně. Jiné pořadí:
+<projekt>-audit\.rezim.json → {"modely":{"auditor":["opus","best"],"kapitan":["sonnet"]}}.
+
+JEDNO OKNO NA PROJEKT
+--------------------
+start-projekt (a zástupce „Auditor a Kapitan - <projekt>" na ploše) otevře jedno okno Windows Terminalu se dvěma záložkami:
+Auditor (zelená) a Kapitán (modrá). Přepínáš myší nebo Ctrl+Tab. Bez Windows Terminalu otevře dvě okna jako dřív.
+Na macOS/Linuxu totéž přes tmux (Ctrl+b n = další záložka). Když je venku nová verze Auditoru, napíše jednu větu, jak aktualizovat. Bez internetu jen upozorní.
+
+S KÝM MLUVIT
+------------
+Ty rozhoduješ, Kapitán dělá, auditor ověřuje. Novou práci (funkce, oprava, změna) zadávej KAPITÁNOVI. Auditora se ptej: jak na tom jsme,
+je pravda, co Kapitán tvrdí, smí se to vydat, a „něco je špatně, najdi příčinu". Když auditorovi omylem zadáš práci, nezačne ji —
+upozorní tě a nabídne, že ji Kapitánovi předá doslova (jen na tvoje „ano"). Auditor Kapitánovi sám zadává jen nálezy auditu.
+
+PRAVIDLA, KTERÁ SE MÍCHAJÍ MEZI PROJEKTY
+---------------------------------------
+Pravidla ve tvém společném nastavení Claude (C:\Users\<ty>\.claude\CLAUDE.md a složka .claude\rules) a soubor CLAUDE.md v nadřazené
+složce nebo v kořeni disku (např. D:\CLAUDE.md) se načítají do KAŽDÉHO projektu. Kontrola při startu tě na ně upozorní a instalace
+i aktualizace (START → [2]) se u každého zeptá: [1] patří jen k tomuto projektu → přesunout, [2] platí všude → nechat. Agent je sám nepřesune.
+Stejně tak POJISTKY (hooky) a pluginy zapnuté pro celý počítač: pojistky jednoho projektu by jinak blokovaly práci v ostatních. Průvodce
+nabídne pojistku přesunout do projektu, kterému patří, nebo plugin vypnout pro celý počítač; předtím uloží zálohu nastavení.
+
+HODNĚ POŽADAVKŮ NAJEDNOU
+------------------------
+Auditor i Kapitán drží dohodnutý cíl a plán. Když chceš něco, co by ho narušilo, řeknou ti to hned a důrazně a doporučí
+„teď / později / nedělat" — rozhoduješ ty. Co není na řadě, si zapíšou na kanban (Kapitán .claude/KANBAN.md, auditor
+AUDIT/KANBAN.md) a udělají to, až to přijde na řadu. Kvalita je víc než kvantita.
+Mlčení není souhlas: když neodpovíš, nic nevratného (mazání, vydání, změna plánu) neudělají — připraví to a počkají.
+
+ŠETŘENÍ TOKENŮ (LIMITU)
+-----------------------
+Platíš za to, jak plný je „pracovní stůl" okna: každá zpráva znovu přečte celé okno. Balík proto sám od sebe kompaktuje dřív
+(u ~200 tis. tokenů), pomocníci agentů běží na levnějším modelu, najednou jich pracuje nejvýš 5 (auditor) a 3 (Kapitán) a stav práce
+se po kompakci vloží zpátky sám. Co můžeš udělat ty:
+- Víc věcí k jednomu tématu napiš v JEDNÉ zprávě (co, pro koho, co má umět a co ne) — ne deset krátkých zpráv za sebou.
+- Když je úloha hotová a chceš něco úplně jiného: napiš agentovi „předání", počkej na jeho větu a pak napiš /clear.
+  Nové téma začne s čistým stolem a agent si stav načte sám — nic nekopíruješ.
+- Nevkládej do okna celá PDF — ulož je do složky projektu a napiš agentovi cestu; převede si je na text.
+- Konektory (MCP) zapnuté pro celý počítač se načítají do každého projektu; kontrola při startu tě na ně upozorní.
+
+KATALOG ([9]) — ZKUŠENOSTI JINÝCH PROJEKTŮ, JEN CO PROJEKT POTŘEBUJE
+------------------------------------------------------------------
+V balíku je katalog osvědčených skillů, agentů, pravidel a hooků (QA smyčka, bezpečná hesla a klíče, nezávislé
+ověření, review kódu, kontrola syntaxe, ochrana před stash/reset --hard a zabíjením procesů podle jména…).
+Nic se neinstaluje samo — každá věc navíc stojí tokeny v každém kroku. Kapitán si katalog při dalším startu
+jednou projde a zapne jen to, co projekt potřebuje. Hooky (kontroly, které běží samy) zapínáš ty: START → [9]
+→ cesta k projektu → ukáže doporučení s cenou a zeptá se. Vypnutí nenechá žádné zbytky.
+
+CODEX ([8]) — AUDITOR NEBO KAPITÁN V OPENAI CODEX
+-------------------------------------------------
+Místo Claude Code může kterýkoliv agent běžet v OpenAI Codex CLI: START → [8] → cesta k projektu → vybereš
+[1] oba v Claude Code, [2] Kapitán v Codexu, [3] auditor v Codexu, [4] oba v Codexu. Když Codex chybí, nabídne
+instalaci (npm i -g @openai/codex); při prvním spuštění se přihlásíš účtem ChatGPT. Počítač bez Claude Code, ale
+s Codexem: instalace [2] rovnou nastaví oba agenty do Codexu.
+Co platí v Codexu: stejné pojistky (Kapitán nesmí měnit nálezy/verdikty/hooky, destruktivní SQL je blokované,
+auditor nesmí psát do repa — navíc ho hlídá sandbox Codexu), stejný most mezi agenty (zprávy doručí hook po každém
+kroku a na konci tahu), pravidla v AGENTS.md. Samostatnost Kapitána ([7]) určuje sandbox a schvalování Codexu.
+Co v Codexu NENÍ: Telegram kanál (ten je jen v Claude Code) a hooky projektu psané pro Claude Code (.claude/settings.json)
+— v Codexu platí jen pojistky Auditoru. Skripty pojistek leží ve složce Codexu (~/.codex/auditor/…), kam agenti
+nezapíšou; spouštěč před každým startem ověří jejich otisky, a když nesedí, agenta nespustí a řekne ti, ať
+spustíš START → [8] (to je obnoví). Kapitán v Codexu smí zapisovat jen do projektu, AUDIT/03_dukazy a AUDIT/bus.
 
 NEVÍM, KDE MÁM PROJEKTY / NEVÍM, JESTLI JE TO GIT
 -------------------------------------------------
@@ -169,7 +289,7 @@ Auditor ti píše netechnicky, jednou větou + odkaz na soubor. Technické QA na
 KDYŽ NĚCO NEJDE
 ---------------
 - „SAMOTEST NEPROŠEL" nebo „BRÁNA NEFUNGUJE" → auditora nespouštěj, zkopíruj celý výpis okna a pošli
-  ho Claude. (Samotest = kontrola, že pojistky opravdu blokují; na Windows 93/93, jinde 94/94.)
+  ho Claude. (Samotest = kontrola, že pojistky opravdu blokují; na Windows 109/109, jinde 110/110.)
 - Agent hlásí „Blocked" → to je brána, ne chyba. Auditor nesmí psát do repa; Kapitán nesmí měnit
   hooky/settings/CI ani vydávat bez gate; nový soubor v rootu repa a provizoria mimo .tmp\tasks\<ID>\
   jsou zakázané. Pravidla se ladí zúžením, ne obcházením.
@@ -184,9 +304,11 @@ KDYŽ NĚCO NEJDE
 - „model not available“ / Fable není na účtu → v okně auditora napiš  /model opus  (nebo sonnet).
 - Chromium se nestáhl → cd <projekt>-audit\tools && npx playwright install chromium
 - První CI běh „auditor-gate" na GitHubu je červený, dokud auditor nevydá gate — to je záměr.
-- Aktualizace balíku → rozbal novou verzi přes starou složku a spusť START.cmd znovu se stejným projektem: vymění se
-  ústava, checklisty, nástroje a hooky; AUDIT\ (nálezy, verdikty, handoff, zprávy, retro) se NIKDY nepřepisuje. Běžící
-  auditor si novou ústavu načte při příštím startu. Rozjetý audit tím nepřijdeš o nic.
+- Aktualizace balíku → rozbal novou verzi přes starou složku, START.cmd → [2] → stejný projekt. Instalátor pozná, že
+  auditor už běží, a JEN AKTUALIZUJE: vymění ústavu, checklisty, nástroje, pojistky a nastavení (model zůstane), uloží
+  aktualizované pojistky do gitu a spustí samotest. Žádný intake, žádné otázky, žádná nová okna; AUDIT\ (nálezy, verdikty,
+  handoff, zprávy, retro) se NIKDY nepřepisuje. Běžící okna nech doběhnout, zavři je a otevři ze zástupců — auditor
+  naváže tam, kde skončil, Kapitán dostane zprávy od auditora. Více projektů najednou: [2] → Enter → vyber je.
 - Více projektů = více workspace; každý má vlastní bus, gate a port. Jeden balík, jedna instance
   na projekt. Na více strojích drž stejné cesty (C:\dev\...).
 

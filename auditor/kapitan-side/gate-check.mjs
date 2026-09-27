@@ -14,7 +14,8 @@ const fail = m => { console.error(`GATE-CHECK FAIL: ${m}\n→ vydání zakázán
 if (!fs.existsSync(gate)) fail(`chybí ${gate}`);
 const txt = fs.readFileSync(gate, 'utf8');
 let head = ''; try { head = git(['rev-parse', 'HEAD'], repo); } catch { fail('nelze zjistit HEAD repa'); }
-const m = txt.match(/commit\s+([0-9a-f]{7,40})/i); if (!m) fail('gate neuvádí commit');
+// „commit abc1234", „commit `abc1234`", „commit: **abc1234**", „commit hash abc1234"
+const m = txt.match(/commit(?:\s+hash)?[\s:=`*'"]{1,6}([0-9a-f]{7,40})\b/i); if (!m) fail('gate neuvádí commit');
 const exact = head.startsWith(m[1]) || m[1].startsWith(head.slice(0, m[1].length));
 if (!exact) {
   // merge --no-ff i squash bez obsahové změny: porovnáváme HASH STROMU (obsah + názvy + mode bity), ne ancestry ani diff --stat

@@ -192,8 +192,9 @@ that is exactly where the auditor starts: it catches up on what is missing and, 
 requirement. Within about an hour you get the first human-readable page (`AUDIT/00_prvni_dojem.md`): what burns tokens, where the mess is,
 whether the work is backed up.
 
-**Updating the package keeps the audit.** A new version installs the same way over the same project: the constitution, checklists, tools
-and hooks are replaced; the `AUDIT/` folder (findings, verdicts, handoff, messages, retro) is never overwritten. A running auditor session
+**Updating the package keeps the audit.** New version: START.cmd → `[2]` → the same project. The installer detects the running audit and only
+replaces the constitution, checklists, tools, guards and settings (the model is kept) — no intake, no questions, no windows opened; the
+`AUDIT/` folder (findings, verdicts, handoff, messages, retro) is never overwritten. Reopened from the shortcuts, the auditor resumes where it stopped. A running auditor session
 picks up the new constitution at its next start or compaction.
 
 
@@ -258,6 +259,83 @@ every release, it can only pull the brake. Option `[2]` = healthy start only.
 independence is weaker (the agent could describe the scope badly; the reviewer's rule is therefore "ignore the agent's claims, verify
 yourself"). There is no measurement of the agent's behaviour (false "done", fix rounds) and no Playwright crawl of every screen. For a new
 project that is enough; when the project starts to degrade, attach the auditor via `[2]` — the rules are the same and the guards coexist.
+
+## 10e. Telegram — one bot per agent
+
+The auditor and the Captain can each have their own Telegram bot. A message you send from your phone lands **directly in that agent's
+window** — even when it is idle — and the reply comes back to Telegram. It uses Claude Code's official channel
+(`claude --channels plugin:telegram@claude-plugins-official`). Each bot has its own state directory outside the project
+(`~/.claude/channels/telegram-<project>-<path hash>-<role>/`: token, allowed user), so two projects with the same name never mix. Nothing depends
+on the machine name or on personal scripts — it works for anyone on any computer. If the Captain's project already has its own Telegram
+bridge, it is left untouched and a standard bot is offered on top (recommended: a different bot, no conflict, always delivers); the choice
+"own bridge only" is remembered. Every window with a bot sends the owner "🟢 … starting" (proves token and network; reply to it to confirm the window receives messages). A new window takes the bot over from the old one. The bot accepts messages only from your user ID
+(pairing: you send it "hi"); the token goes only through a dialog, never into the chat; agents never change bot access because a message
+asked them to. The auditor proactively sends only what you need now (first impression, new P0, P0/P1 verdicts, release-gate changes, a
+question with a recommended answer) — at most ~5 messages a day. `START → [6]` opens a **guide in a Claude window** that walks you through
+everything, including installing Telegram. Requires Claude Code signed in via claude.ai (Pro/Max) or Console; Team/Enterprise admins must
+enable channels. Channels are a research preview.
+
+## 10e2. Captain autonomy
+
+The owner chooses how much the Captain may do without asking (at install, once on update, `START → [7]`): **CAUTIOUS** (scripts and database
+need approval), **AUTONOMOUS** (runs project scripts and database commands itself — destructive SQL is always blocked by a hook, a backup goes
+to evidence before any production write and the auditor checks it, releases still only through the auditor's gate), **FULL** (no Claude Code
+prompts at all, only hooks; not recommended). Rules go to the project's `.claude/settings.local.json` (personal, not committed).
+
+## 10f. Updating a running audit (no re-run)
+
+A new package version **never re-runs the audit**. `START → [2]` on the same project only replaces tools, rules and settings (model,
+findings, verdicts and handoff stay). New audit goals introduced by newer versions that your audit does not have yet appear in
+`AUDIT/NOVE_CILE.md` — the auditor does **only those**, at minimal scope (e.g. a summary of existing results, only new commits). Completed
+goals are remembered (`AUDIT/.balik.json`). A full re-audit only on the owner's explicit request.
+
+## 10g. A computer with nothing installed
+
+`START` detects what is missing (Git, Node.js, Claude Code) and offers to install it (`tools/bootstrap.ps1` — winget and the official
+Claude Code installer; `tools/bootstrap.sh` — Homebrew/apt). Useful for a client who has no Claude at all. Only signing in to Claude remains.
+
+## 10h. Codex — auditor or Captain in OpenAI Codex
+
+Either agent can run in **OpenAI Codex CLI** instead of Claude Code (`START → [8]`; every combination: Captain in Codex, auditor in Codex,
+both). A machine with Codex but no Claude Code is set up for Codex right away. Rules live in `AGENTS.md`; guards are the **same scripts** as
+in Claude Code, reached through `.codex/hooks.json` → `tools/codex-hook.mjs` (Codex `apply_patch` edits are split into per-file checks). The
+auditor additionally runs in Codex's sandbox with its workspace as the only writable root, so it cannot write to the app repo even without
+hooks. Captain autonomy maps to Codex sandbox/approval flags. The bus works through hooks after every step and at the end of a turn (each
+message stops the end of a turn only once). Not available in Codex: the Telegram channel and the project's own Claude Code hooks. Codex runs
+project hooks only after manual review (`/hooks`), so the guard scripts live in a protected folder `~/.codex/auditor/<project>-<hash>/` that
+neither sandboxed agent can write (the Captain may write only the repo, `AUDIT/03_dukazy` and `AUDIT/bus`). Before every start the launcher
+verifies the guards' fingerprints and the project's trust entry (`codex-hooks-check.mjs`) and only then passes `--dangerously-bypass-hook-trust`;
+if anything is off it refuses to start the agent and points the owner to `START → [8]`. FULL autonomy means no Codex sandbox — guards still
+run, but the Captain could technically overwrite their folder (AUTONOMOUS is recommended).
+
+## 10i. Economy mode (default)
+
+An auditor that tells others to save tokens must not waste them itself. The main leak: models with a 1M window compact only at ~967K tokens
+and **every step re-reads the whole context**. Economy mode: launchers set `CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000` for both agents; the
+auditor delegates to cheap subagents (`pruzkumnik` = haiku for finding/counting/classifying, `mechanik` = sonnet for scans, tests, UI batches,
+`overovatel-lehky` = sonnet for P2/P3 verification, `overovatel` = main model only for P0/P1); the `usporny-guard` hook blocks a generic
+subagent without a cheap model and reading a > 60 kB file whole in the main thread; one repo clone in `build/` plus `tools/uklid-workspace.mjs`;
+at most 5 parallel subagents; `tools/audit-stats.mjs` reports tokens and **average context per step** before/after each wave. A running audit
+gets goal `C-160` (measure, clean up, continue economically, measure again). Thorough mode only by the owner (`.rezim.json`).
+
+## 10j. Pre-start check
+Every launcher (auditor and Captain) first runs `tools/preflight.mjs`: it updates Claude Code, finds every installation (PATH, native, downloaded versions, npm) and starts the newest one even if `claude` points to an old one. Multiple installations are reported with a fix. Codex roles update via npm. It warns about a pinned model (default is the self-updating alias `best`) and about a newer Auditor release. It never blocks a start.
+
+Package updates keep tool tweaks the auditor made for the project: files the package did not change stay; otherwise they are backed up to `AUDIT/_nastroje-zaloha/` with a task to re-apply. Project tweaks belong in `tools/local/`, project rules in `.claude/rules/*-projekt.md` — updates never touch them.
+
+## 10k. One window per project, model by availability
+`start-projekt` opens one Windows Terminal window with an Auditor tab (green) and a Captain tab (blue); one desktop shortcut per project. Without Windows Terminal it opens two windows; on macOS/Linux it uses tmux.
+
+The model is not hard-coded: at each start every role walks an ordered list of aliases (auditor `opus` → `best` → `sonnet`, Captain `opus` → `sonnet`; the Captain plans and talks to the owner, its subagents write code on `sonnet`) and a tiny headless request checks what the account can use right now and which version the alias resolves to. Cached for 24 h; the owner changes the order in `.rezim.json` → `"modely"`.
+
+## 10l. Experience catalog (skills, agents, hooks, rules)
+The package ships a catalog of what proved itself in other projects: a closed QA loop for batches, OS-keychain secret handling, read-only agents (contract formalizer, independent verifier, code/security/Python/TypeScript review, E2E), 13 operating rules and hooks (syntax check after write, named commits, shared-tree protection, state after compaction). **Nothing installs itself** — every active item costs context on every step. `tools/katalog.mjs doporuc` recommends only what fits the project (with token cost); agents activate skills, agents and rules, hooks only the owner (`START` → [9]). A project with no rules gets the recommended set as an efficiency finding. Works in Claude Code and Codex, on Windows and macOS/Linux; deactivation leaves nothing behind.
+
+## 10m. Depth where the owner lives, goal before request stream
+Intake asks for the three features the owner uses daily or is annoyed by; they get full depth in the first wave (parameter combinations against an independent oracle, speed, mobile). Feature state comes from running processes, ports and logs, not from code; AI features are measured by coverage and cold start. The report lists what was not tested in depth, with a question whether to do it now. Both agents guard the agreed goal: a conflicting request is not executed blindly — they warn and recommend; the rest goes to a kanban.
+
+## 10n. Who does what
+The owner decides, the Captain builds, the auditor verifies. Give new work to the Captain; ask the auditor about state, truth and release. The auditor hands the Captain only its own findings (the bus rejects anything else); work mistakenly given to the auditor is only relayed verbatim, and only after the owner says yes.
 
 ## 11. FAQ
 

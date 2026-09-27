@@ -6,6 +6,10 @@ neví, označ `[NEZNÁMO]` a audit pokračuje s označeným předpokladem.
 
 ## Kolo 1 — rozsah
 1. **Co aplikace dělá a pro koho** (1–3 věty)? Které 3 funkce jsou pro byznys nejdůležitější (kdyby selhaly, bolí to nejvíc)?
+1a. **Top-3 funkce vlastníka (povinné):** které 3 věci v aplikaci **používáš denně** a které tě **nejvíc štvou** (pomalé, nespolehlivé, divné výsledky)?
+    Tyhle tři dostanou plnou hloubku (kombinace nastavení proti nezávislému výpočtu, mobil, rychlost, data) už v 1. vlně, souběžně s bezpečností.
+1b. **Kde běží produkce** (tento počítač? server? cloud?) a **kam smí auditor zapisovat velké věci** (klon, testovací DB, logy) — jiný disk než
+    produkce? Těžké běhy pak jdou s nízkou prioritou mimo disk produkce a auditor během nich hlídá, že produkce odpovídá.
 2. **Kde běží audit**: lokální build (výchozí), staging, nebo i produkce? Produkce = jen čtení, žádné mutace — souhlas ano/ne?
 3. **Co je mimo rozsah** (moduly ve vývoji, známé dluhy, které se teď neřeší)?
 
@@ -38,9 +42,11 @@ neví, označ `[NEZNÁMO]` a audit pokračuje s označeným předpokladem.
 ## Záměr: stupeň OSOBNÍ|FIRMA|B2B-SÍŤ|PRODUKT|MASOVÝ, uživatelé dnes/12m/3r, dostupnost, rozpočet, provozovatel, stroje
 ## Profil: účel, uživatelé, stack, prostředí (URL lokál/staging/prod, souhlas s prod: ne/jen čtení)
 ## Priority vlastníka: 1. … 2. … 3. …   ## Mimo rozsah: …
+## top3_funkce: 1. <funkce> — používá denně / štve: <co> 2. … 3. …   ## Produkce: kde běží, disk; povolený disk pro těžké běhy: …
 ## Data a role: tenantů N, role [..], test. účty A/B: ano/ne (kdo dodá)
 ## Integrace: [..] + které jsou kritické
 ## Efektivita: dávek/týden, návratovost, trvale běžící procesy, podezření
-## Funkce (inventář): | ID | název | vstupní bod UI | role | data | záměr (vlastníkova slova / [NEZNÁMO]) | endpointy |
+## Běží v reálu (inventura z procesů, ne z kódu): | proces/služba/úloha | port | plánovač/restart | log | vlastník | účel | test |
+## Funkce (inventář): | ID | název | vstupní bod UI | role | data | záměr (vlastníkova slova / [NEZNÁMO]) | endpointy | stav z běhu (proces/port/log/odpověď) |
 ## Otevřené otázky: …
 ```

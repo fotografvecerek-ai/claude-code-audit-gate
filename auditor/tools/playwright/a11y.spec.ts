@@ -3,21 +3,30 @@ import { test, expect } from '@playwright/test';
 import { AxeBuilder } from '@axe-core/playwright';
 import fs from 'node:fs'; import path from 'node:path';
 const cfg = JSON.parse(fs.readFileSync(path.resolve('tools/audit.config.json'), 'utf8'));
+// nálezy per worker: po pádu testu Playwright spustí nový worker a jeho afterAll by přepsal nálezy předchozího → části per proces, sloučení za běh (stejný rodič)
+const saveFindings = (file: string, list: any[]) => {
+  const dir = path.join(path.dirname(file), '.casti'); fs.mkdirSync(dir, { recursive: true }); const key = path.basename(file);
+  fs.writeFileSync(path.join(dir, `${key}.${process.ppid}.${process.pid}.json`), JSON.stringify(list));
+  const merged = fs.readdirSync(dir).filter(f => f.startsWith(key + '.')).flatMap(f => { const pp = f.slice(key.length + 1).split('.')[0]; if (pp !== String(process.ppid)) { try { fs.unlinkSync(path.join(dir, f)); } catch { } return []; } try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return []; } });
+  fs.writeFileSync(file, JSON.stringify(merged, null, 2));
+};
+// UI může běžet jinde než API (např. statický web + serverless API): uiBaseUrl má přednost
+const UI_BASE: string = cfg.uiBaseUrl || cfg.baseUrl;
 const OUT = path.resolve('AUDIT/01_nalezy'); fs.mkdirSync(OUT, { recursive: true });
 const all: any[] = [];
-test.afterAll(() => fs.writeFileSync(path.join(OUT, 'a11y.findings.json'), JSON.stringify(all, null, 2)));
+test.afterAll(() => saveFindings(path.join(OUT, 'a11y.findings.json'), all));
 test.use({ storageState: cfg.auth?.storageStateFile && fs.existsSync(cfg.auth.storageStateFile) ? cfg.auth.storageStateFile : undefined });
 
 for (const s of cfg.screens) {
   test(`axe ${s.name}`, async ({ page }) => {
-    await page.goto(cfg.baseUrl + s.path, { waitUntil: 'networkidle' });
+    await page.goto(UI_BASE + s.path, { waitUntil: 'load' });
     const res = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21aa', 'wcag22aa', 'best-practice']).analyze();
     for (const v of res.violations) all.push({ screen: s.name, id: v.id, impact: v.impact, help: v.help, helpUrl: v.helpUrl, nodes: v.nodes.slice(0, 5).map(n => ({ target: n.target, html: n.html.slice(0, 160) })) });
     const serious = res.violations.filter(v => ['critical', 'serious'].includes(v.impact || ''));
     expect.soft(serious.map(v => `${v.id} (${v.nodes.length}×): ${v.help}`), `critical/serious na ${s.name}`).toEqual([]);
   });
   test(`klávesnice ${s.name}`, async ({ page }) => {
-    await page.goto(cfg.baseUrl + s.path, { waitUntil: 'networkidle' });
+    await page.goto(UI_BASE + s.path, { waitUntil: 'load' });
     const seq: string[] = []; let noFocusRing = 0;
     for (let i = 0; i < 40; i++) {
       await page.keyboard.press('Tab');

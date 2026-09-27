@@ -26,8 +26,13 @@ const tracked_secrets = tracked.filter(f => R.secret.test(f) && !R.secretOk.test
 const big_history = sh('git rev-list --objects --all | git cat-file --batch-check="%(objecttype) %(objectname) %(objectsize) %(rest)" | awk \'$1=="blob" && $3>1048576 {print $3" "$4}\' | sort -rn | head -20').split('\n').filter(Boolean).map(l => { const [s, ...p] = l.split(' '); return { mb: +(s / 1048576).toFixed(1), path: p.join(' ') }; });
 // dokumenty: stáří + odkazovanost
 const docs = allFiles.filter(f => /\.(md|txt)$/i.test(f) && !/^node_modules/.test(f));
-const corpus = allFiles.filter(f => /\.(ts|tsx|js|mjs|json|md|yml|yaml|py|html)$/i.test(f)).map(f => { try { return fs.readFileSync(path.join(repo, f), 'utf8'); } catch { return ''; } }).join('\n');
-const doc_inventory = docs.map(f => { const last = sh(`git log -1 --format=%cs -- "${f}"`) || null; const base = path.basename(f); const refs = (corpus.match(new RegExp(base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g')) || []).length - 1; const days = last ? Math.round((Date.now() - Date.parse(last)) / 864e5) : null; return { f, last_commit: last, days, referenced: refs > 0, kb: Math.round((fs.statSync(path.join(repo, f)).size) / 1024) }; });
+// odkazovanost dokumentů: JEDEN `git grep -F -o` přes sledované soubory (ne korpus v paměti — na 50k+ souborech OOM); shoda v samotném dokumentu se nepočítá
+const MAXDOC = 3000; const docsX = docs.slice(0, MAXDOC); const refCount = {};
+{ const bases = [...new Set(docsX.map(f => path.basename(f)))]; const pf = path.join(fs.mkdtempSync(path.join((process.env.TMPDIR || process.env.TEMP || '/tmp'), 'hyg-')), 'pats.txt'); fs.writeFileSync(pf, bases.join('\n') + '\n');
+  const out = sh(`git grep -F -o -I -f "${pf}" -- "*.ts" "*.tsx" "*.js" "*.mjs" "*.json" "*.md" "*.yml" "*.yaml" "*.py" "*.html" ":!node_modules" ":!*.lock"`);
+  for (const l of out.split('\n')) { const i = l.indexOf(':'); if (i < 0) continue; const file = l.slice(0, i), m = l.slice(i + 1); if (path.basename(file) === m) continue; refCount[m] = (refCount[m] || 0) + 1; }
+  try { fs.rmSync(path.dirname(pf), { recursive: true, force: true }); } catch { } }
+const doc_inventory = docsX.map(f => { const last = sh(`git log -1 --format=%cs -- "${f}"`) || null; const base = path.basename(f); const refs = refCount[base] || 0; const days = last ? Math.round((Date.now() - Date.parse(last)) / 864e5) : null; return { f, last_commit: last, days, referenced: refs > 0, kb: Math.round((fs.statSync(path.join(repo, f)).size) / 1024) }; });
 const unreferenced_stale_docs = doc_inventory.filter(d => !d.referenced && (d.days === null || d.days > 60) && !/^(README|CHANGELOG|LICENSE|CLAUDE)/i.test(path.basename(d.f)));
 const multi_docs = {}; for (const d of docs) { const k = path.basename(d).toLowerCase().replace(/\.(md|txt)$/, '').replace(/[-_ .]?(v?\d+|\(\d+\)|copy|kopie|final|old|new|stara|nova|backup|zaloha|draft)/g, '').replace(/[-_ .]+$/, ''); (multi_docs[k] ||= []).push(d); }
 const duplicate_doc_names = Object.fromEntries(Object.entries(multi_docs).filter(([, v]) => v.length > 1));

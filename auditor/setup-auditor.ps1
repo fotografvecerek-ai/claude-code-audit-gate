@@ -2,7 +2,7 @@
 # Co udělá: 1) zeptá se na cesty, 2) vytvoří workspace auditora + AUDIT/ + git, 3) zapíše settings.json s env a deny pravidly pro TVOJE cesty,
 #           4) nainstaluje nástroje (Playwright, axe), 5) nainstaluje stranu Kapitána do repa (skill audit-rezim + hook + gate-check) - jen se souhlasem,
 #           6) otestuje brány, 7) vytvoří start-auditor.cmd a start-kapitan.cmd. Nic z toho neběží jako agent - je to jednorázová instalace, kterou spouští vlastník.
-param([string]$Repo, [string]$Workspace, [string]$Remote, [string]$Model = 'claude-fable-5-1', [switch]$Yes, [string]$Kapitan = 'ano', [string]$Hygiena = 'ano', [string]$CI = 'ano')
+param([string]$Repo, [string]$Workspace, [string]$Remote, [string]$Model = 'opus', [switch]$Yes, [string]$Kapitan = 'ano', [string]$Hygiena = 'ano', [string]$CI = 'ano')
 $ErrorActionPreference = 'Stop'
 function Ask($q, $default) { if ($Yes) { Write-Host "$q -> $default"; return $default }; $a = Read-Host "$q [$default]"; if ([string]::IsNullOrWhiteSpace($a)) { $default } else { $a } }
 function AskYN($q, $default) { if ($Yes) { Write-Host "$q -> $default"; return $default }; $a = (Read-Host "$q  [1] ano   [2] ne   (Enter = $default)").Trim().ToLower(); if ($a -eq '') { return $default }; if ($a -eq '1' -or $a.StartsWith('a')) { 'ano' } else { 'ne' } }
@@ -17,11 +17,11 @@ if (-not (Test-Path $repo)) { Write-Host "Repo neexistuje: $repo" -ForegroundCol
 $name = Split-Path $repo -Leaf
 $ws = if ($Workspace) { $Workspace } else { Ask "Workspace auditora (vytvoří se)" (Join-Path (Split-Path $repo -Parent) "$name-audit") }
 $remote = if ($Remote) { $Remote } elseif ($Yes) { '' } else { Ask "Git remote pro AUDIT workspace (prázdné = jen lokální git; doporučeno soukromý GitHub repo pro práci přes více strojů)" '' }
-$model = if ($Yes) { $Model } else { Ask "Model hlavního vlákna auditora (claude-fable-5-1 = nejlepší úsudek; opus; sonnet = levnější)" $Model }
+$model = if ($Yes) { $Model } else { Ask "Model hlavního vlákna auditora (opus = nejnovější Opus, posouvá se sám; best = Fable/Opus; sonnet = levnější)" $Model }
 
 # 1) workspace
 New-Item -ItemType Directory -Force -Path $ws | Out-Null
-foreach ($d in 'CLAUDE.md','README.md','BRIDGE.md','.claude','checklists','templates','tools','kapitan-side','starter') { Copy-Item -Recurse -Force (Join-Path $pkg $d) $ws }
+foreach ($d in 'CLAUDE.md','README.md','BRIDGE.md','.claude','checklists','templates','tools','kapitan-side','starter','katalog') { Copy-Item -Recurse -Force (Join-Path $pkg $d) $ws }
 # AUDIT/ = data auditora (nalezy, verdikty, bus, retro) - pri aktualizaci se NIKDY neprepisuje; ze sablony jen chybejici soubory
 Get-ChildItem (Join-Path $pkg 'AUDIT') -Recurse -File | ForEach-Object { $rel = $_.FullName.Substring((Join-Path $pkg 'AUDIT').Length); $dst = Join-Path (Join-Path $ws 'AUDIT') $rel; if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null; Copy-Item $_.FullName $dst } }
 foreach ($d in 'AUDIT/01_nalezy/momentky','AUDIT/03_dukazy','AUDIT/04_verdikty','AUDIT/bus','AUDIT/.auth') { New-Item -ItemType Directory -Force -Path (Join-Path $ws $d) | Out-Null }
@@ -34,6 +34,7 @@ test-results/
 playwright-report/
 AUDIT/.auth/
 AUDIT/_archiv/
+AUDIT/bus/.notified-*
 build/
 tools/node_modules/
 "@ | Set-Content (Join-Path $ws '.gitignore') -Encoding UTF8
@@ -57,13 +58,10 @@ if ($k -eq 'ano') {
   $body = Get-Content (Join-Path $pkg 'kapitan-side/AUDIT_REZIM.md') -Raw
   "---`nname: audit-rezim`ndescription: Závazný audit režim - stop-the-line při otevřených P0/P1 v AUDIT/02_HANDOFF.md, důkazy do AUDIT/03_dukazy, bus komunikace s auditorem, deploy jen po gate-check. Použij při startu každé dávky.`n---`n$body" | Set-Content (Join-Path $sk 'SKILL.md') -Encoding UTF8
   $hk = Join-Path $repo '.claude/hooks'; New-Item -ItemType Directory -Force -Path $hk | Out-Null
-  Copy-Item (Join-Path $pkg 'kapitan-side/gate-check.mjs') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/kapitan-audit-guard.js') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/hooks-package.json') (Join-Path $hk 'package.json') -Force
+  Copy-Item (Join-Path $pkg 'kapitan-side/gate-check.mjs') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/auditor-bus.mjs') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/kapitan-audit-guard.js') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/hooks-package.json') (Join-Path $hk 'package.json') -Force
   Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/hygiene-rules.js') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/hygiene-rules.json') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/pre-commit-check.mjs') $hk -Force
   node (Join-Path $ws 'tools/merge-repo-settings.mjs') $repo $ws; if ($LASTEXITCODE -ne 0) { Write-Host 'Sloučení settings Kapitána selhalo' -ForegroundColor Red }
-  $cm = Join-Path $repo 'CLAUDE.md'
-  if ((Test-Path $cm) -and -not (Select-String -Path $cm -Pattern 'Audit režim' -Quiet)) {
-    "`n## Audit režim (závazné)`nExistuje-li ``$wsP/AUDIT/02_HANDOFF.md`` s otevřenými P0/P1 → STOP-THE-LINE: pracuj jen na položkách handoffu v jejich pořadí; deploy zakázán, dokud gate-check neprojde (``node $wsP/kapitan-side/gate-check.mjs``). Detaily: skill ``audit-rezim``. Auditor = jediná brána vydání.`n" | Add-Content $cm -Encoding UTF8
-  }
+  node (Join-Path $ws 'tools/kapitan-role.mjs') $ws --claude-md $repo; if ($LASTEXITCODE -ne 0) { Write-Host 'Zápis role Kapitána do CLAUDE.md selhal' -ForegroundColor Red }
   $h = if ($Yes) { $Hygiena } else { AskYN "Nainstalovat hygienu do repa (pre-commit guard, .gitattributes, .gitignore doplněk)?" "ano" }
   if ($h -eq 'ano') {
     New-Item -ItemType Directory -Force -Path (Join-Path $repo '.git/hooks') | Out-Null
@@ -82,8 +80,7 @@ $env:AUDITOR_WORKSPACE = $wsP; $env:AUDITOR_TARGET_REPO = $repoP
 node (Join-Path $ws 'tools/guard-check.mjs') $ws $repo; if ($LASTEXITCODE -ne 0) { Write-Host "BRÁNA NEFUNGUJE - auditora nespouštěj, pošli tento výpis Claude." -ForegroundColor Red }
 
 # 7) launchery
-"@echo off`ntitle AUDITOR - $name`ncd /d `"$ws`"`necho.`necho  AUDITOR - $name.  Uvodni zprava se posle sama. Kdyby zustal radek ^> prazdny, napis:  Zacni intake`necho.`nif `"%~1`"==`"`" (claude --add-dir `"$repo`" `"Zacni intake`") else (claude --add-dir `"$repo`" %*)" | Set-Content (Join-Path $ws 'start-auditor.cmd') -Encoding ASCII
-"@echo off`ntitle KAPITAN - $name`ncd /d `"$repo`"`nnode `"$ws\tools\wait-idle.mjs`" `"$repo`" 3 || exit /b 1`necho.`necho  KAPITAN - $name.  Sam si nacte zpravy od auditora. Kdyby zustal radek ^> prazdny, napis:  Nacti zpravy od auditora a pokracuj v praci`necho.`nif `"%~1`"==`"`" (claude --add-dir `"$ws`" `"Nacti zpravy od auditora (bus inbox) a AUDIT/02_HANDOFF.md, pokud existuje; ridi se audit rezimem. Pak pokracuj v bezne praci.`") else (claude --add-dir `"$ws`" %*)" | Set-Content (Join-Path $ws 'start-kapitan.cmd') -Encoding ASCII
+node (Join-Path $ws 'tools/write-launchers.mjs') $ws $repo | Out-Null
 $log = Join-Path $ws 'AUDIT\instalace.log'; $notes = @()
 if (-not (Get-Command gitleaks -ErrorAction SilentlyContinue)) { $notes += "gitleaks chybí (sken tajemství se přeskočí; instalace: winget install gitleaks)" }
 if (-not (Get-Command semgrep -ErrorAction SilentlyContinue)) { $notes += "semgrep chybí (bezpečnostní vzory se přeskočí; instalace: pip install semgrep)" }

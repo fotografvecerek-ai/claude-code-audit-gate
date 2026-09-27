@@ -24,8 +24,10 @@ const ls = d => { try { return fs.readdirSync(d); } catch { return []; } };
 const findings = ls(A('01_nalezy')).filter(f => /^A-\d+\.md$/.test(f)).map(f => fs.readFileSync(A('01_nalezy', f), 'utf8'));
 const prio = { P0: 0, P1: 0, P2: 0, P3: 0 }; for (const t of findings) { const m = t.match(/\bP([0-3])\b/); if (m) prio['P' + m[1]]++; }
 const verd = ls(A('04_verdikty')).filter(f => f.endsWith('.md')).map(f => fs.readFileSync(A('04_verdikty', f), 'utf8'));
-const vc = { PASS: 0, SCOPED_PASS: 0, FAIL: 0 }; for (const t of verd) { if (/SCOPED_PASS/.test(t)) vc.SCOPED_PASS++; else if (/\bFAIL\b/.test(t)) vc.FAIL++; else if (/\bPASS\b/.test(t)) vc.PASS++; }
-let crawl = null; try { crawl = JSON.parse(fs.readFileSync(A('01_nalezy', 'ui-crawl.ledger.json'), 'utf8')).summary; } catch { }
+// verdikt = POSLEDNÍ verdikt v souboru (další kola K2, K3 se připisují — první „FAIL" z K1 by jinak přebil pozdější PASS)
+const vc = { PASS: 0, SCOPED_PASS: 0, FAIL: 0 }; for (const t of verd) { const all = [...t.matchAll(/\b(SCOPED_PASS|PASS|FAIL)\b/g)]; const last = all.length ? all[all.length - 1][1] : null; if (last) vc[last]++; }
+// ledgery průchodu UI: všechny *ledger*.json (dávky per subagent) → součet číselných položek summary
+let crawl = null; for (const f of ls(A('01_nalezy')).filter(f => /ledger.*\.json$/i.test(f))) { try { const sm = JSON.parse(fs.readFileSync(A('01_nalezy', f), 'utf8')).summary || {}; crawl ||= {}; for (const [k, v] of Object.entries(sm)) if (typeof v === 'number') crawl[k] = (crawl[k] || 0) + v; else if (!(k in crawl)) crawl[k] = v; } catch { } }
 let probe = null; try { const j = JSON.parse(fs.readFileSync(A('01_nalezy', 'endpoint-probe.json'), 'utf8')); probe = { endpoints: j.endpoints?.length ?? j.summary?.endpoints ?? (Array.isArray(j) ? j.length : null), checks: j.results?.length ?? j.summary?.checks ?? null }; } catch { }
 const shots = (() => { let c = 0; const w = d => { for (const e of ls(d)) { const p = path.join(d, e); try { if (fs.statSync(p).isDirectory()) w(p); else if (/\.png$/i.test(e)) c++; } catch { } } }; w(A('01_nalezy')); return c; })();
 const bus = ls(A('bus')).filter(f => f.endsWith('.json')).length;
@@ -52,10 +54,11 @@ for (const f of jsonl) {
   }
 }
 const total = tok.input + tok.output + tok.cacheRead + tok.cacheWrite;
+const avgCtx = tok.calls ? Math.round((tok.input + tok.cacheRead + tok.cacheWrite) / tok.calls) : 0;   // Ø kontext na krok = hlavní ukazatel hospodárnosti (každý krok ho celý čte znovu)
 const dur = ms => { const h = Math.floor(ms / 36e5), m = Math.round((ms % 36e5) / 6e4); return h ? `${h} h ${m} min` : `${m} min`; };
 
 // 4) Výstup
-const S = { vytvoreno: new Date().toISOString(), workspace: ws, repo, commit, kod: code, commity: commits, nalezy: findings.length, priority: prio, verdikty: vc, crawl, probe, screenshoty: shots, zpravy_mostu: bus, metriky_kapitana: metrics,
+const S = { prumerny_kontext_na_krok: avgCtx, vytvoreno: new Date().toISOString(), workspace: ws, repo, commit, kod: code, commity: commits, nalezy: findings.length, priority: prio, verdikty: vc, crawl, probe, screenshoty: shots, zpravy_mostu: bus, metriky_kapitana: metrics,
   cas: { od: isFinite(tMin) ? new Date(tMin).toISOString() : null, do: tMax ? new Date(tMax).toISOString() : null, celkem_ms: isFinite(tMin) ? tMax - tMin : 0, aktivni_ms: activeMs, sessions }, tokeny: { ...tok, celkem: total } };
 fs.writeFileSync(A('statistika.json'), JSON.stringify(S, null, 2));
 const topExt = Object.entries(code.byExt).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${k} ${n(v)}`).join(', ');
@@ -102,6 +105,7 @@ ${metrics && metrics.first_pass_yield != null ? `| Kapitán: oprava napoprvé / 
 | Zápis do cache | ${n(tok.cacheWrite)} |
 | Výstup | ${n(tok.output)} |
 | Volání modelu / z toho subagenti | ${n(tok.calls)} / ${n(tok.subagentCalls)} |
+| **Ø kontext na jeden krok** (čím menší, tím hospodárnější) | **${n(avgCtx)}** |
 
 | Model | Volání | Vstup | Cache čtení | Výstup |
 |---|---|---|---|---|
@@ -113,4 +117,4 @@ Nejpoužívanější nástroje: ${Object.entries(tok.tools).sort((a, b) => b[1] 
 `;
 fs.writeFileSync(A('STATISTIKA.md'), md);
 spawnSync(process.execPath, [path.join(here, 'owner-report.mjs'), ws, '--src', 'STATISTIKA.md', '--out', 'STATISTIKA.html', ...(process.argv.includes('--open') ? ['--open'] : [])], { stdio: 'inherit' });
-console.log(`statistika: ${A('STATISTIKA.md')} · kód ${n(code.loc)} ř. · nálezy ${findings.length} · tokeny ${n(total)} · čas ${isFinite(tMin) ? dur(tMax - tMin) : '—'}`);
+console.log(`statistika: ${A('STATISTIKA.md')} · kód ${n(code.loc)} ř. · nálezy ${findings.length} · tokeny ${n(total)} · Ø kontext/krok ${n(avgCtx)} · subagenti ${tok.calls ? Math.round(100 * tok.subagentCalls / tok.calls) : 0} % kroků · modely ${Object.entries(tok.byModel).map(([k, v]) => `${k} ${v.calls}`).join(', ') || '—'} · čas ${isFinite(tMin) ? dur(tMax - tMin) : '—'}`);

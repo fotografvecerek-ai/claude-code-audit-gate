@@ -18,18 +18,22 @@
 //       SCOPED_PASS = prošel jen jmenovaný rozsah (--scope "…") a zároveň je otevřen nový blok — položka NENÍ uzavřená.
 //       APPLIED (kapitan: změna nasazena/aktivní, --ref commit/deploy id) · MEASURED (auditor: změřeno po vydání)
 //       QUESTION / ANSWER · STATUS (kapitan: DONE|DONE_WITH_CONCERNS|BLOCKED|NEEDS_CONTEXT|STARTED) · GATE (auditor: 🟢|🔴) · NOTE
+//       ZADANI (auditor|owner → kapitan): úloha vlastníka předaná DOSLOVA (--citace "…"); auditor k ní nesmí nic přidat (--text zakázán), ID K-### samo.
+// Role: vlastník rozhoduje, Kapitán dělá, auditor ověřuje. Auditor zadává Kapitánovi JEN nálezy auditu: HANDOFF od auditora musí mít ID
+//       nálezu (AUDIT/01_nalezy/<ID>.md nebo ID v AUDIT/02_HANDOFF.md) — novou práci auditor vymýšlet ani zadávat nemůže.
+//   node tools/bus.mjs nove-id [--prefix K]                                         # další volné ID úlohy vlastníka (K-001, K-002…)
 // Vlastnictví: zprávy s from=auditor smí psát jen auditor, from=kapitan jen Kapitán — hlídají hooky obou stran (auditor-guard.js, kapitan-audit-guard.js).
 import fs from 'node:fs'; import path from 'node:path'; import { execSync } from 'node:child_process';
 
 const ROOT = process.env.AUDITOR_WORKSPACE && fs.existsSync(process.env.AUDITOR_WORKSPACE) ? process.env.AUDITOR_WORKSPACE : findRoot(process.cwd());
 const BUS = path.join(ROOT, 'AUDIT', 'bus'); fs.mkdirSync(BUS, { recursive: true });
 const args = parse(process.argv.slice(2)); const cmd = args._[0];
-const ROLES = ['auditor', 'kapitan', 'owner']; const TYPES = ['HANDOFF', 'EVIDENCE', 'VERDICT', 'QUESTION', 'ANSWER', 'STATUS', 'GATE', 'NOTE', 'APPLIED', 'MEASURED'];
+const ROLES = ['auditor', 'kapitan', 'owner']; const TYPES = ['HANDOFF', 'EVIDENCE', 'VERDICT', 'QUESTION', 'ANSWER', 'STATUS', 'GATE', 'NOTE', 'APPLIED', 'MEASURED', 'ZADANI'];
 const STAGES = ['zapsano', 'doruceno', 'implementovano', 'nezavisle_overeno', 'schvaleno', 'aplikovano', 'aktivni', 'zmereno'];
 
 function findRoot(d) { for (let i = 0; i < 6; i++) { if (fs.existsSync(path.join(d, 'AUDIT'))) return d; const p = path.dirname(d); if (p === d) break; d = p; } return process.cwd(); }
 function parse(a) { const o = { _: [] }; for (let i = 0; i < a.length; i++) { if (a[i].startsWith('--')) { const k = a[i].slice(2); const v = a[i + 1] && !a[i + 1].startsWith('--') ? a[++i] : true; o[k] = v; } else o._.push(a[i]); } return o; }
-function all() { return fs.readdirSync(BUS).filter(f => f.endsWith('.json')).sort().map(f => { try { return { file: f, ...JSON.parse(fs.readFileSync(path.join(BUS, f), 'utf8')) }; } catch { return null; } }).filter(Boolean); }
+function all() { return fs.readdirSync(BUS).filter(f => f.endsWith('.json')).sort().map(f => { try { return { file: f, ...JSON.parse(fs.readFileSync(path.join(BUS, f), 'utf8')) }; } catch { return null; } }).filter(r => r && typeof r.ts === 'string' && r.ts); }   // záznam bez ts (ruční/poškozený) by shodil ack/ledger
 function sinceTs(s) { if (!s) return 0; const m = String(s).match(/^(\d+)d$/); return m ? Date.now() - m[1] * 864e5 : Date.parse(s); }
 function git(c) { try { return execSync(`git ${c}`, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); } catch (e) { return `ERR: ${String(e.stderr || e.message).trim().split('\n')[0]}`; } }
 function ledger() {
@@ -38,6 +42,8 @@ function ledger() {
   fs.writeFileSync(path.join(BUS, 'LEDGER.md'), lines.join('\n') + '\n');
 }
 const out = o => console.log(typeof o === 'string' ? o : JSON.stringify(o, null, 2));
+
+function nextId(pre) { const n = all().map(r => String(r.id || '')).map(i => (i.match(new RegExp(`^${pre}-(\\d+)$`)) || [])[1]).filter(Boolean).map(Number); return `${pre}-${String((n.length ? Math.max(...n) : 0) + 1).padStart(3, '0')}`; }
 
 switch (cmd) {
   case 'post': {
@@ -48,13 +54,23 @@ switch (cmd) {
     if (args['reply-to'] && !fs.existsSync(path.join(BUS, path.basename(args['reply-to'])))) die('--reply-to: zpráva nenalezena');
     const round = type === 'VERDICT' ? 'K' + (all().filter(r => r.id === id && r.type === 'VERDICT').length + 1) : undefined;
     if (type === 'STATUS' && !['STARTED', 'DONE', 'DONE_WITH_CONCERNS', 'BLOCKED', 'NEEDS_CONTEXT'].includes(status)) die('STATUS vyžaduje --status STARTED|DONE|DONE_WITH_CONCERNS|BLOCKED|NEEDS_CONTEXT');
+    if (type === 'HANDOFF' && from === 'auditor') { const A = path.join(ROOT, 'AUDIT'); let ho = ''; try { ho = fs.readFileSync(path.join(A, '02_HANDOFF.md'), 'utf8'); } catch { }
+      const esc = String(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (!id || id === '-' || !(fs.existsSync(path.join(A, '01_nalezy', `${id}.md`)) || new RegExp(`(^|[^\\w-])${esc}(?![\\w-])`).test(ho))) die(`HANDOFF od auditora jen pro nález auditu: ${id} není v AUDIT/01_nalezy/${id}.md ani v 02_HANDOFF.md. Novou práci zadává vlastník Kapitánovi — auditor ověřuje (úlohu vlastníka předej doslova: --type ZADANI --citace "…").`); }
+    if (type === 'ZADANI') {
+      if (from === 'kapitan') die('ZADANI posílá vlastník (nebo auditor jako doslovné předání vlastníkovy úlohy) — Kapitán úlohu přijímá: STATUS --id K-### --status STARTED');
+      if (!args.citace || !String(args.citace).trim()) die('ZADANI vyžaduje --citace "přesná slova vlastníka" (auditor úlohu jen předává, nenavrhuje)');
+      if (from === 'auditor' && String(text).trim()) die('ZADANI od auditora nesmí mít --text: auditor k úloze vlastníka nic nepřidává (návrh, postup, AK dělá Kapitán; auditor pak ověřuje)');
+    }
     if (type === 'EVIDENCE' && (!ref || !args.sha)) die('EVIDENCE vyžaduje --ref AUDIT/03_dukazy/<id>/ A --sha <commit repa> (bez nich auditor neověřuje)');
-    const ts = new Date().toISOString(); const to = from === 'auditor' ? 'kapitan' : from === 'kapitan' ? 'auditor' : 'both';
-    const file = `${ts.replace(/[:.]/g, '-')}_${from}_${type}_${id}.json`;
-    const msg = { msgId: file, ts, from, to, type, id, ref, text, ...(verdict ? { verdict } : {}), ...(args.scope ? { scope: args.scope } : {}), ...(round ? { round } : {}), ...(status ? { status } : {}), replyTo: args['reply-to'] ? path.basename(args['reply-to']) : null, sha: args.sha || null, commit: git('rev-parse --short HEAD'), ack: [] };
+    const ts = new Date().toISOString(); const to = type === 'ZADANI' ? 'kapitan' : from === 'auditor' ? 'kapitan' : from === 'kapitan' ? 'auditor' : 'both';
+    const idF = type === 'ZADANI' && !/^K-\d+$/.test(id) ? nextId('K') : id;
+    const file = `${ts.replace(/[:.]/g, '-')}_${from}_${type}_${idF}.json`;
+    const msg = { msgId: file, ts, from, to, type, id: idF, ref, text, ...(args.citace ? { citace: String(args.citace) } : {}), ...(verdict ? { verdict } : {}), ...(args.scope ? { scope: args.scope } : {}), ...(round ? { round } : {}), ...(status ? { status } : {}), replyTo: args['reply-to'] ? path.basename(args['reply-to']) : null, sha: args.sha || null, commit: git('rev-parse --short HEAD'), ack: [] };
     fs.writeFileSync(path.join(BUS, file), JSON.stringify(msg, null, 2) + '\n'); ledger();
     out({ posted: file, msg }); break;
   }
+  case 'nove-id': { out(nextId(args.prefix || 'K')); break; }
   case 'inbox': {
     const role = args.for; if (!ROLES.includes(role)) die('--for auditor|kapitan|owner');
     const since = sinceTs(args.since); const limit = +(args.limit || (args.brief ? 15 : 100));

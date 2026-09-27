@@ -1,0 +1,241 @@
+{
+  "_": "Katalog volitelných skillů, agentů, hooků a pravidel. NIC se neinstaluje samo: agent (auditor pro svůj workspace, Kapitán pro projekt) si podle projektu vybere přes `node tools/katalog.mjs doporuc` a aktivuje jen to, co projekt potřebuje. Každá aktivní položka stojí kontext v KAŽDÉM kroku (jméno + popis), proto co nejméně.",
+  "polozky": [
+    {
+      "id": "uzavrena-smycka",
+      "typ": "skill",
+      "zdroj": "skilly/uzavrena-smycka",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "uzavřená QA smyčka pro dávku ≥3 issues: formalizuj → oprav → nezávisle ověř → review → vydej → pouč se",
+      "doporucit": [
+        "kapitan"
+      ],
+      "souvisi": [
+        "kontrakt-formalizator",
+        "overovatel-nezavisly",
+        "code-reviewer"
+      ]
+    },
+    {
+      "id": "secret-management",
+      "typ": "skill",
+      "zdroj": "skilly/secret-management",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "tajemství jen v úložišti OS (Windows/macOS/Linux), nikdy .env/chat/argument",
+      "signaly": [
+        "tajemstvi"
+      ]
+    },
+    {
+      "id": "implementator",
+      "typ": "agent",
+      "zdroj": "agenti/implementator.md",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "píše kód podle plánu Kapitána na levnějším modelu (sonnet) — Kapitán na silném modelu plánuje, mluví s vlastníkem a kontroluje diff",
+      "doporucit": [
+        "kapitan"
+      ]
+    },
+    {
+      "id": "kontrakt-formalizator",
+      "typ": "agent",
+      "zdroj": "agenti/kontrakt-formalizator.md",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "zadání/bug → akceptační kritéria + červený test před opravou (read-only)",
+      "doporucit": [
+        "kapitan"
+      ]
+    },
+    {
+      "id": "overovatel-nezavisly",
+      "typ": "agent",
+      "zdroj": "agenti/overovatel-nezavisly.md",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "vnitřní nezávislé ověření „hotovo\" v čerstvém kontextu (read-only); nezávislý Auditor má přednost",
+      "doporucit": [
+        "kapitan"
+      ]
+    },
+    {
+      "id": "code-reviewer",
+      "typ": "agent",
+      "zdroj": "agenti/code-reviewer.md",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "review kvality a bezpečnosti diffu před commitem netriviální změny (read-only)",
+      "doporucit": [
+        "kapitan"
+      ]
+    },
+    {
+      "id": "security-reviewer",
+      "typ": "agent",
+      "zdroj": "agenti/security-reviewer.md",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "bezpečnostní review kódu se vstupy, přihlášením, API a citlivými daty",
+      "signaly": [
+        "web",
+        "api"
+      ]
+    },
+    {
+      "id": "python-reviewer",
+      "typ": "agent",
+      "zdroj": "agenti/python-reviewer.md",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "review změn v Pythonu (read-only)",
+      "signaly": [
+        "python"
+      ]
+    },
+    {
+      "id": "typescript-reviewer",
+      "typ": "agent",
+      "zdroj": "agenti/typescript-reviewer.md",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "review změn v TypeScriptu/JavaScriptu (read-only)",
+      "signaly": [
+        "typescript"
+      ]
+    },
+    {
+      "id": "e2e-runner",
+      "typ": "agent",
+      "zdroj": "agenti/e2e-runner.md",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "tvorba a údržba E2E testů (Playwright/Cypress) kritických uživatelských cest — jen projekt, který E2E testy má",
+      "signaly": [
+        "e2e"
+      ]
+    },
+    {
+      "id": "manazer-stavu",
+      "typ": "agent",
+      "zdroj": "agenti/manazer-stavu.md",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "rozhodovač bez nástrojů pro noční/dávkový běh smyčky (PROCEED/DONE/ESCALATE)",
+      "poznamka": "jen pro deterministický dávkový běh"
+    },
+    {
+      "id": "pravidla",
+      "typ": "pravidla",
+      "zdroj": "pravidla/PROVOZ_AGENTU.md",
+      "pro": [
+        "kapitan",
+        "auditor"
+      ],
+      "k_cemu": "provozní pravidla agentů (subagenti, modely, git, provoz, Windows pasti) — do kontextu jen 1 řádek, sekce se čtou podle potřeby",
+      "doporucit": [
+        "kapitan"
+      ]
+    },
+    {
+      "id": "kontrola-skriptu",
+      "typ": "hook",
+      "zdroj": "hooky/kontrola-skriptu.mjs",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "po zápisu skriptu hned kontrola syntaxe (JS, Python, PowerShell 5.1 vč. diakritiky bez BOM, shell, JSON)",
+      "hooky": [
+        {
+          "udalost": "PostToolUse",
+          "matcher": "Write|Edit|MultiEdit"
+        }
+      ],
+      "signaly": [
+        "skripty"
+      ],
+      "harness": [
+        "claude"
+      ]
+    },
+    {
+      "id": "commit-syntaxe",
+      "typ": "hook",
+      "zdroj": "hooky/commit-syntaxe.mjs",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "před commitem: jen jmenovitý git add/commit (ne -A/-a) a kontrola syntaxe commitovaných souborů",
+      "hooky": [
+        {
+          "udalost": "PreToolUse",
+          "matcher": "Bash|PowerShell"
+        }
+      ],
+      "signaly": [
+        "typescript",
+        "python"
+      ],
+      "harness": [
+        "claude"
+      ]
+    },
+    {
+      "id": "sdileny-strom",
+      "typ": "hook",
+      "zdroj": "hooky/sdileny-strom.mjs",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "blok hromadného ukončování procesů podle jména a destruktivních git operací (stash, reset --hard, checkout --, clean -f)",
+      "hooky": [
+        {
+          "udalost": "PreToolUse",
+          "matcher": "Bash|PowerShell"
+        }
+      ],
+      "doporucit": [
+        "kapitan"
+      ],
+      "harness": [
+        "claude"
+      ]
+    },
+    {
+      "id": "stav-kompakce",
+      "typ": "hook",
+      "zdroj": "hooky/stav-kompakce.mjs",
+      "pro": [
+        "kapitan"
+      ],
+      "k_cemu": "od 1.8.8 součást výchozího nastavení Kapitána (tools/stav-session.mjs, i po /clear) — aktivuj jen u projektu bez strany Kapitána",
+      "hooky": [
+        {
+          "udalost": "SessionStart",
+          "matcher": "compact"
+        }
+      ],
+      "doporucit": [],
+      "harness": [
+        "claude"
+      ],
+      "sablona": {
+        "z": "pravidla/STATE.md.sablona",
+        "do": ".claude/STATE.md"
+      }
+    }
+  ]
+}

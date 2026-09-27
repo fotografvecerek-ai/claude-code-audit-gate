@@ -26,7 +26,7 @@ jobs:
         shell: bash
         run: |
           set -e
-          for f in auditor/tools/*.mjs auditor/kapitan-side/*.mjs auditor/kapitan-side/hygiene/*.mjs; do node --check "$f"; done
+          for f in auditor/tools/*.mjs auditor/kapitan-side/*.mjs auditor/kapitan-side/hygiene/*.mjs auditor/katalog/hooky/*.mjs; do node --check "$f"; done
           for f in auditor/.claude/hooks/*.js auditor/kapitan-side/*.js auditor/kapitan-side/hygiene/*.js auditor/starter/claude/hooks/*; do node --check "$f"; done
       - name: syntax – bash (bash 3.2 kompatibilita se ověřuje během macOS e2e)
         if: runner.os != 'Windows'
@@ -46,7 +46,7 @@ jobs:
             if ($errs) { $errs | ForEach-Object { Write-Error $_.Message }; throw "$($f.Name): parse error" }
           }
           Write-Host "ok: ps1 parse + BOM"
-      - name: selftest bran (94 scénářů; Windows 93)
+      - name: selftest bran (233 scénářů)
         run: node auditor/tools/selftest.mjs
 
   e2e-install:
@@ -111,6 +111,19 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "setup failed" }
           powershell -NoProfile -ExecutionPolicy Bypass -File auditor/post-install.ps1 -Repo $repo -Workspace $ws -NoGitHub -NoLaunch
           if ($LASTEXITCODE -ne 0) { throw "post-install failed" }
+      - name: aktualizace rozjetého auditu – bez intake, AUDIT/ beze změny
+        shell: bash
+        run: |
+          WS="$RUNNER_TEMP/app-audit"; echo "# intake" > "$WS/AUDIT/00_intake.md"; before=$(cat "$WS/AUDIT/00_intake.md")
+          # auditor si upravil nástroje: běžný nástroj musí úpravu přežít, pojistka (bus.mjs) se vrátí na verzi balíku a úprava se zazálohuje
+          echo '// mistni uprava auditora' >> "$WS/tools/endpoint-probe.mjs"; echo '// zmena pojistky' >> "$WS/tools/bus.mjs"
+          node auditor/tools/update-install.mjs "$RUNNER_TEMP/app" "$WS" | tee "$RUNNER_TEMP/upd.log"
+          grep -q "AKTUALIZOVÁNO" "$RUNNER_TEMP/upd.log" && [ "$(cat "$WS/AUDIT/00_intake.md")" = "$before" ]
+          grep -q 'mistni uprava auditora' "$WS/tools/endpoint-probe.mjs"
+          if grep -q 'zmena pojistky' "$WS/tools/bus.mjs"; then echo "pojistka zůstala upravená"; exit 1; fi
+          ls "$WS"/AUDIT/_nastroje-zaloha/*/bus.mjs && grep -q 'NASTROJE-' "$WS/AUDIT/NOVE_CILE.md"
+          grep -q 'preflight.mjs' "$WS"/start-auditor.* && grep -q 'preflight.mjs' "$WS"/start-kapitan.*
+          grep -q "Tvoje role: Kapitán" "$RUNNER_TEMP/app/CLAUDE.md"
       - name: nový projekt (zdravý start) – založení + vlastní kontrola
         shell: bash
         run: |
@@ -118,6 +131,45 @@ jobs:
           cd "$RUNNER_TEMP/novy-projekt"
           test -f CLAUDE.md && test -f .claude/agents/kontrolor.md && test -f .git/hooks/pre-commit
           node .claude/hooks/release-check.mjs && node .claude/hooks/hygiene-all.mjs
+      - name: Codex (bez Codex CLI) – pojistky, AGENTS.md, spouštěče
+        shell: bash
+        run: |
+          WS="$RUNNER_TEMP/app-audit"; REPO="$RUNNER_TEMP/app"
+          CODEX_HOME="$RUNNER_TEMP/codexhome" node auditor/tools/codex-setup.mjs --ws "$WS" --repo "$REPO" --auditor codex --kapitan codex --yes
+          test -f "$WS/.codex/hooks.json" && test -f "$REPO/.codex/hooks.json" && test -f "$REPO/AGENTS.md" && test -f "$WS/AGENTS.md"
+          HD=$(node -e "console.log(require(process.argv[1]).hooky)" "$WS/.agents.json"); node "$HD/codex-hooks-check.mjs" "$HD"
+          grep -q "codex" "$WS"/start-kapitan.* && grep -q "codex-hooks-check" "$WS"/start-auditor.*
+          CODEX_HOME="$RUNNER_TEMP/codexhome" node auditor/tools/codex-setup.mjs --ws "$WS" --repo "$REPO" --auditor claude --kapitan claude --yes
+          grep -q -- "--bin" "$WS"/start-kapitan.* && ! grep -q "codex --" "$WS"/start-kapitan.*
+      - name: spouštěče v cestě s diakritikou, mezerou a závorkami (Windows, skutečné cmd)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          AUDITOR_PREFLIGHT_OFFLINE: "1"
+        run: |
+          $base = Join-Path $env:RUNNER_TEMP 'Projekty (x86) hlavní složka'
+          $repo = Join-Path $base 'aplikace-ěščř'; $ws = Join-Path $base 'aplikace-ěščř-audit'
+          # celá AKTUALIZACE rozjetého auditu v cestě s diakritikou (Node 22+ fs.cpSync tu dřív padal: „The operation completed successfully")
+          New-Item -ItemType Directory -Force $base | Out-Null
+          Copy-Item -Recurse (Join-Path $env:RUNNER_TEMP 'app') $repo; Copy-Item -Recurse (Join-Path $env:RUNNER_TEMP 'app-audit') $ws
+          Remove-Item -Force -ErrorAction SilentlyContinue (Join-Path $ws 'AUDIT\00_intake.md'), (Join-Path $ws 'AUDIT\NOVE_CILE.md')
+          New-Item -ItemType Directory -Force (Join-Path $ws 'AUDIT\01_nalezy') | Out-Null; Set-Content (Join-Path $ws 'AUDIT\01_nalezy\A-001.md') 'nalez' -Encoding UTF8
+          $upd = node auditor/tools/update-install.mjs $repo $ws 2>&1 | Out-String; Write-Host $upd
+          if ($LASTEXITCODE -ne 0 -or $upd -notmatch 'AKTUALIZOV') { throw "aktualizace v cestě s diakritikou selhala" }
+          Remove-Item -Force (Join-Path $ws 'AUDIT\01_nalezy\A-001.md')   # spouštěč auditora má jít cestou „nový audit" (Zacni intake)
+          $log = Join-Path $env:RUNNER_TEMP 'claude-cwd.txt'
+          $stub = "@echo off`r`nif `"%~1`"==`"update`" exit /b 0`r`nif `"%~1`"==`"--version`" (echo 2.1.999 ^(Claude Code^)& exit /b 0)`r`n>>`"$log`" echo %CD%^|%*`r`n"
+          [IO.File]::WriteAllText((Join-Path $env:RUNNER_TEMP 'bin\claude.cmd'), $stub, (New-Object System.Text.UTF8Encoding $false))
+          foreach ($f in 'start-auditor.cmd', 'start-kapitan.cmd') { cmd /c "`"$(Join-Path $ws $f)`" < NUL"; if ($LASTEXITCODE -ne 0) { throw "$f skončil chybou $LASTEXITCODE" } }
+          $lines = [IO.File]::ReadAllLines($log, [Text.Encoding]::UTF8); $lines | ForEach-Object { Write-Host "  claude spuštěn v: $_" }
+          if (-not ($lines | Where-Object { $_ -like "$ws|*Zacni intake*" })) { throw "auditor se nespustil ve workspace s diakritikou" }
+          if (-not ($lines | Where-Object { $_ -like "$repo|*" -and $_ -like "*--model sonnet*" -and $_ -like "*Jsi Kapitan*" })) { throw "Kapitán se nespustil v projektu s diakritikou (na modelu sonnet)" }
+          if (-not (Test-Path (Join-Path $ws 'start-projekt.cmd'))) { throw "chybí společný spouštěč start-projekt.cmd" }
+          # nedostupná složka projektu → spouštěč agenta NESPUSTÍ (dřív pustil agenta v aktuální složce)
+          Remove-Item -Recurse -Force $repo; Remove-Item $log
+          cmd /c "`"$(Join-Path $ws 'start-kapitan.cmd')`" < NUL"; if ($LASTEXITCODE -eq 0) { throw "Kapitán bez složky projektu neskončil chybou" }
+          if (Test-Path $log) { throw "Kapitán se spustil, přestože složka projektu neexistuje" }
+          Write-Host "ok: diakritika + mezera + závorky, špatná složka = žádný start"
       - name: assert – workspace, brána, commit jen instalace, cizí soubory netknuté
         shell: bash
         run: |
@@ -129,9 +181,16 @@ jobs:
           node "$WS/tools/guard-check.mjs" "$WS" "$REPO"
           cd "$REPO"
           git log --oneline | head -3
-          git show --stat --oneline HEAD | grep -q '.claude/hooks/kapitan-audit-guard.js'
-          ! git show --stat --oneline HEAD | grep -q 'pozadavky.md'
+          # instalační commit hledáme podle zprávy (na Windows po něm může přijít ještě commit aktualizace pojistek)
+          INST=$(git log --format=%H --grep='instalace auditora' -1); test -n "$INST"
+          git show --stat --oneline "$INST" | grep -q '.claude/hooks/kapitan-audit-guard.js'
+          # žádný commit auditora (instalace ani aktualizace) nesmí obsahovat rozdělané soubory uživatele
+          for c in $(git log --format=%H --grep='chore(audit)'); do if git show --name-only --format= "$c" | grep -qxE 'pozadavky.md|CLAUDE.md'; then echo "commit auditora $c obsahuje soubor uživatele"; exit 1; fi; done
           git status --porcelain | grep -q '^A  pozadavky.md'
           git status --porcelain | grep -q '^ M CLAUDE.md'
-          ! grep -q 'auditor-gate' deploy.bat
+          if grep -q 'auditor-gate' deploy.bat; then echo "instalátor sáhl do deploy.bat"; exit 1; fi
+          if git status --porcelain | grep -q 'settings.local.json'; then echo "místní nastavení počítače není v .gitignore"; exit 1; fi
+          grep -q 'Tvoje role: Kapitán' CLAUDE.md && grep -q 'kapitan-role.mjs' .claude/settings.json
+          test -f .claude/hooks/auditor-bus.mjs && grep -q 'auditor-bus.mjs' .claude/settings.json
+          grep -q 'bus-notify.mjs' .claude/settings.json && grep -q 'bus-notify.mjs' "$WS/.claude/settings.json"
           echo "e2e ok"

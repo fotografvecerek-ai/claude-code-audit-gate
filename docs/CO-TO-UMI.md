@@ -182,8 +182,9 @@ nezávislou smyčku s agentem. Když to řešíš po třech měsících kódová
 dopředu vynutí, aby testy vznikaly se zadáním. Do hodiny dostaneš první lidskou stránku (`AUDIT/00_prvni_dojem.md`): co žere tokeny, kde
 je nepořádek, jestli je práce zálohovaná.
 
-**Aktualizace balíku audit zachová.** Nová verze se instaluje stejně (START.cmd přes stejný projekt): vymění se ústava, checklisty, nástroje a
-hooky; složka `AUDIT/` (nálezy, verdikty, handoff, zprávy, retro) se nikdy nepřepisuje. Běžící session auditora si novou ústavu načte při
+**Aktualizace balíku audit zachová.** Nová verze: START.cmd → `[2]` → stejný projekt. Instalátor pozná, že auditor už běží, a jen vymění ústavu,
+checklisty, nástroje, pojistky a nastavení (model zůstane) — žádný intake, otázky ani otevírání oken; složka `AUDIT/` (nálezy, verdikty,
+handoff, zprávy, retro) se nikdy nepřepisuje. Po zavření a otevření oken ze zástupců auditor naváže, kde skončil. Běžící session auditora si novou ústavu načte při
 příštím startu nebo kompakci.
 
 
@@ -245,6 +246,109 @@ neověří. Bez strany Kapitána a mostu — auditor se nemusí účastnit každ
 (může mu špatně popsat rozsah; kontrolor má proto pravidlo „tvrzení agenta ignoruj, ověř sám"). Chybí měření chování agenta (falešná „hotovo",
 kola oprav) a průchod všech obrazovek Playwrightem. Pro nový projekt to stačí; když se projekt začne kazit, připoj auditora přes `[2]` —
 pravidla jsou stejná, pojistky si nepřekážejí.
+
+## 10e. Telegram — každý agent svého bota
+
+Auditor i Kapitán můžou mít vlastního Telegram bota. Zpráva, kterou mu napíšeš z mobilu, přijde **přímo do jeho okna** — i když zrovna nic
+nedělá — a odpověď ti přijde do Telegramu. Využívá oficiální kanál Claude Code (`claude --channels plugin:telegram@claude-plugins-official`).
+
+| | Jak to funguje |
+|---|---|
+| Oddělení | každý bot má vlastní složku stavu mimo projekt (`~/.claude/channels/telegram-<projekt>-<otisk>-<role>/`: token, povolený uživatel) — dva projekty stejného jména se nepletou |
+| Nezávislost | nic se neřídí názvem počítače ani osobními skripty — funguje u kohokoliv; bot je nastavený na počítači, kde okno běží (na jiném počítači se nastaví znovu přes [6]) |
+| Kapitán s vlastním mostem | nástroj ho pozná (skripty/hooky s „telegram"); most zůstává beze změny a nabídne se navíc standardní bot (doporučeno — jiný bot, nehádají se, doručuje vždy). Volba „jen vlastní most" se pamatuje |
+| Kontrola | při každém startu okna ti bot napíše „🟢 … se spouští" (token a síť fungují); že okno zprávy přijímá, ověříš tak, že botovi napíšeš a okno odpoví |
+| Nové okno | spouštěč nastaví bota a kanál; nové okno převezme bota od starého |
+| Bezpečnost | bot přijímá jen od tvého ID (spárování: napíšeš mu „ahoj"); token jen přes okénko, nikdy do chatu; přístupy agent na žádost zprávy nemění |
+| Co ti auditor posílá sám | první dojem, nový P0, verdikt u P0/P1, změnu brány vydání, otázku s doporučenou odpovědí — max ~5 zpráv denně |
+| Nastavení | `START → [6]` otevře **průvodce v okně Claude**: zjistí stav, případně nainstaluje Telegram a Bun, provede tě @BotFather a spáruje bota |
+
+Předpoklady: Claude Code přihlášený přes claude.ai (Pro/Max) nebo Console; u Team/Enterprise musí kanály povolit správce. Kanály jsou
+zatím research preview Claude Code — syntaxe se může změnit.
+
+## 10e2. Samostatnost Kapitána
+
+Vlastník volí, jak moc ho má Kapitán otravovat (při instalaci, jednou při aktualizaci, `START → [7]`):
+
+| Úroveň | Co Kapitán smí sám | Co zůstává |
+|---|---|---|
+| OPATRNÝ | běžnou práci; skripty a databázi dává ke schválení | vše |
+| SAMOSTATNÝ (doporučeno, když nejsi u PC) | spouští skripty projektu a databázové příkazy (psql, Supabase, Prisma) bez tvého zásahu | destruktivní SQL blokuje pojistka, před zápisem do ostré DB záloha do důkazů (auditor ji kontroluje), vydání jen přes bránu auditora |
+| PLNÝ (nedoporučeno) | navíc bez jakýchkoliv dotazů Claude Code | jen pojistky (hooky) |
+
+Pravidla se zapisují do `.claude/settings.local.json` projektu (osobní nastavení počítače, necommituje se).
+
+## 10f. Aktualizace rozjetého auditu (bez opakování)
+
+Nová verze balíku **audit nikdy neopakuje**. `START → [2]` nad stejným projektem jen vymění nástroje, pravidla a nastavení (model, nálezy,
+verdikty, handoff zůstávají). Nové cíle auditu, které přinesla novější verze a které tvůj audit ještě nemá, se objeví v `AUDIT/NOVE_CILE.md`
+— auditor udělá **jen je**, v nejmenším rozsahu (např. shrnutí existujících výsledků, jen nové commity). Hotové cíle si pamatuje
+(`AUDIT/.balik.json`), takže je příště nenabídne. Celý audit znovu jen na výslovný pokyn vlastníka.
+
+## 10g. Počítač, kde ještě nic není
+
+`START` sám zjistí, co chybí (Git, Node.js, Claude Code), a nabídne automatickou instalaci (`tools/bootstrap.ps1` — winget a oficiální
+instalátor Claude Code; `tools/bootstrap.sh` — Homebrew/apt). Hodí se u klienta, který Claude vůbec nemá. Zbývá jen přihlášení do Claude.
+
+## 10h. Codex — auditor nebo Kapitán v OpenAI Codex
+
+Kterýkoliv agent může místo Claude Code běžet v **OpenAI Codex CLI** (`START → [8]`; všechny kombinace: Kapitán v Codexu, auditor v Codexu,
+oba). Počítač jen s Codexem nastaví instalace rovnou pro Codex.
+
+| | Claude Code | Codex |
+|---|---|---|
+| Pravidla | `CLAUDE.md` | `AGENTS.md` (auditor: ústava + překlad nástrojů; Kapitán: blok role v `AGENTS.md` projektu) |
+| Pojistky | hooky v `.claude/settings.json` | `.codex/hooks.json` → `tools/codex-hook.mjs` → **tytéž pojistky** (úpravy přes `apply_patch` se rozloží na soubory) |
+| Zápis auditora do repa | blokuje hook | blokuje hook **a** sandbox Codexu (auditor běží s `-C <workspace>`, repo jen čte) |
+| Samostatnost Kapitána | povolení v `settings.local.json` | OPATRNÝ `-s workspace-write -a on-request` · SAMOSTATNÝ `-a never` + síť · PLNÝ `danger-full-access` |
+| Most (zprávy) | hook po kroku + na konci tahu, hlídač na pozadí | hook po kroku + na konci tahu (každá zpráva zastaví konec tahu jen jednou) |
+| Telegram | vlastní bot, zprávy do okna | není |
+
+Codex spouští projektové hooky až po ručním schválení (`/hooks`). Skripty pojistek proto leží v **chráněné složce** `~/.codex/auditor/<projekt>-<otisk>/`,
+kam agenti v sandboxu nezapíšou (Kapitán má zápis jen do repa, `AUDIT/03_dukazy` a `AUDIT/bus`; auditor jen do svého workspace). Spouštěč před
+každým startem ověří otisky pojistek i důvěryhodnost projektu (`codex-hooks-check.mjs`) a teprve pak použije `--dangerously-bypass-hook-trust`;
+když něco nesedí, agenta **nespustí** (bez pojistek se nepracuje) a pošle vlastníka na `START → [8]`. Úroveň PLNÝ = Codex bez sandboxu —
+pojistky platí, ale jejich složku by Kapitán technicky přepsat mohl (proto doporučeno SAMOSTATNÝ). Hooky projektu psané pro Claude Code
+Codex nespouští — v Codexu platí jen pojistky Auditoru.
+
+## 10i. Úsporný režim (výchozí)
+
+Auditor, který radí šetřit tokeny, sám nesmí plýtvat. Hlavní zdroj plýtvání: modely s 1M oknem (Fable, Sonnet 5) kompaktují až u ~967 tis.
+tokenů ([docs](https://code.claude.com/docs/en/model-config)) a **každý krok celý kontext čte znovu** — dlouhé okno auditora tak nese a opakovaně
+čte stovky tisíc tokenů. Co dělá úsporný režim:
+
+| Opatření | Jak je vynucené |
+|---|---|
+| Kompakce u ~200 tis. tokenů | spouštěč: `CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000` (oba agenti), `autoCompactWindow` v nastavení auditora |
+| Práce na levných modelech | subagenti `pruzkumnik` (haiku), `mechanik` (sonnet), `overovatel-lehky` (sonnet); `overovatel` (hlavní model) jen P0/P1; výchozí model ostatních subagentů auditora sonnet |
+| Žádný drahý subagent „naslepo" | pojistka `usporny-guard`: obecný subagent bez `model: haiku/sonnet` = blok |
+| Žádné celé velké soubory v hlavním vlákně | pojistka: Read/cat souboru > 60 kB bez omezení = blok (Grep, offset/limit, průzkumník) |
+| Nečíst znovu hotové | stav v `AUDIT/_prubeh.md`, z intake/handoffu jen potřebné části |
+| Úklid | jeden klon repa v `build/`, `tools/uklid-workspace.mjs --smazat` maže kopie navíc |
+| Souběh | max 5 subagentů najednou |
+| Měření | `tools/audit-stats.mjs`: tokeny, **Ø kontext na krok**, podíl subagentů, modely — před a po každé vlně |
+
+Rozjetý audit dostane po aktualizaci cíl `C-160`: změřit „před", uklidit, pokračovat úsporně a změřit „po". Důkladný režim zapne jen vlastník
+(`<workspace>/.rezim.json` → `{"rezim":"dukladny"}`).
+
+## 10j. Kontrola před startem
+Každý spouštěč (auditor i Kapitán) nejdřív spustí `tools/preflight.mjs`: aktualizuje Claude Code, najde všechny jeho instalace (PATH, nativní, stažené verze, npm) a pustí tu nejnovější, i když příkaz `claude` ukazuje na starou. Víc instalací nahlásí s návodem. Role v Codexu: aktualizace přes npm. Upozorní na pevně zadaný model (výchozí je alias `best`, posouvá se sám) a na novou verzi Auditoru. Start nikdy neblokuje.
+
+Aktualizace balíku nepřepíše úpravy nástrojů, které si auditor udělal pro projekt: co balík nezměnil, zůstává; jinak záloha do `AUDIT/_nastroje-zaloha/` a úkol úpravu přenést. Úpravy pro projekt patří do `tools/local/`, pravidla projektu do `.claude/rules/*-projekt.md` — tam aktualizace nesahá.
+
+## 10k. Jedno okno na projekt a model podle dostupnosti
+`start-projekt` otevře jedno okno Windows Terminalu se záložkami Auditor (zelená) a Kapitán (modrá); na ploše je jeden zástupce na projekt. Bez Windows Terminalu dvě okna, na macOS/Linuxu tmux.
+
+Model se nevolí natvrdo: při startu se pro každou roli projde pořadí aliasů (auditor `opus` → `best` → `sonnet`, Kapitán `opus` → `sonnet`; Kapitán plánuje a mluví s vlastníkem, kód píšou jeho subagenti na `sonnet`) a krátkým dotazem se ověří, co je na účtu právě dostupné a na jakou verzi se alias přeloží. Výsledek platí 24 h; pořadí mění vlastník v `.rezim.json` → `"modely"`.
+
+## 10l. Katalog zkušeností (skilly, agenti, hooky, pravidla)
+Balík nese katalog toho, co se osvědčilo v provozu jiných projektů: QA smyčku pro dávku úkolů, bezpečné ukládání tajemství, read-only agenty (formalizace zadání, nezávislé ověření, code/security/Python/TypeScript review, E2E), 13 provozních pravidel a hooky (kontrola syntaxe po zápisu, jmenovitý commit, ochrana sdíleného stromu, stav po kompakci). **Nic se neinstaluje samo** — každá aktivní položka stojí kontext v každém kroku. `tools/katalog.mjs doporuc` podle projektu navrhne jen to, co dává smysl (s cenou v tokenech); agent aktivuje skilly, agenty a pravidla, hooky jen vlastník (`START` → [9]). Projekt bez pravidel dostane doporučenou sadu jako nález efektivity. Funguje v Claude Code i Codexu, na Windows i macOS/Linuxu; deaktivace nenechá zbytky.
+
+## 10m. Hloubka podle vlastníka a cíl před proudem požadavků
+Auditor se v intake zeptá na tři funkce, které používáš denně nebo tě štvou, a ty otestuje do hloubky hned v první vlně (kombinace nastavení proti nezávislému výpočtu, rychlost, mobil). Stav funkcí zjišťuje z běžících procesů, portů a logů, ne z kódu; AI funkce měří pokrytím a studeným startem. Ve zprávě vidíš i to, co do hloubky netestoval, s otázkou, jestli to chceš. Auditor i Kapitán hlídají dohodnutý cíl: požadavek, který by ho narušil, neprovedou slepě, ale upozorní a doporučí; ostatní si zapíšou na kanban.
+
+## 10n. Kdo co dělá
+Vlastník rozhoduje, Kapitán dělá, auditor ověřuje. Novou práci zadávej Kapitánovi; auditora se ptej, jak na tom projekt je, co je pravda a jestli se smí vydat. Auditor Kapitánovi zadává jen své nálezy (most jiné zadání odmítne); úlohu, kterou mu omylem zadáš, jen doslova předá — a jen když řekneš „ano“.
 
 ## 11. Nejčastější otázky
 

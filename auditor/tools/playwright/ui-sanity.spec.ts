@@ -6,13 +6,22 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const cfg = JSON.parse(fs.readFileSync(path.resolve('tools/audit.config.json'), 'utf8'));
+// nálezy per worker: po pádu testu Playwright spustí nový worker a jeho afterAll by přepsal nálezy předchozího → části per proces, sloučení za běh (stejný rodič)
+const saveFindings = (file: string, list: any[]) => {
+  const dir = path.join(path.dirname(file), '.casti'); fs.mkdirSync(dir, { recursive: true }); const key = path.basename(file);
+  fs.writeFileSync(path.join(dir, `${key}.${process.ppid}.${process.pid}.json`), JSON.stringify(list));
+  const merged = fs.readdirSync(dir).filter(f => f.startsWith(key + '.')).flatMap(f => { const pp = f.slice(key.length + 1).split('.')[0]; if (pp !== String(process.ppid)) { try { fs.unlinkSync(path.join(dir, f)); } catch { } return []; } try { return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')); } catch { return []; } });
+  fs.writeFileSync(file, JSON.stringify(merged, null, 2));
+};
+// UI může běžet jinde než API (např. statický web + serverless API): uiBaseUrl má přednost
+const UI_BASE: string = cfg.uiBaseUrl || cfg.baseUrl;
 const OUT = path.resolve('AUDIT/01_nalezy/momentky');
 fs.mkdirSync(OUT, { recursive: true });
 const INTERACTIVE = 'a[href], button, input:not([type=hidden]), select, textarea, [role=button], [role=menuitem], [role=tab], [role=link], [tabindex]:not([tabindex="-1"])';
 
 type Finding = { screen: string; viewport: string; kategorie: string; selektor?: string; pozorovani: string; screenshot_path?: string };
 const findings: Finding[] = [];
-test.afterAll(() => fs.writeFileSync(path.join(OUT, '..', 'ui-sanity.findings.json'), JSON.stringify(findings, null, 2)));
+test.afterAll(() => saveFindings(path.join(OUT, '..', 'ui-sanity.findings.json'), findings));
 
 async function collectErrors(page: Page) {
   const errs: string[] = [];
@@ -61,7 +70,7 @@ for (const [vpName, vp] of Object.entries<any>(cfg.viewports)) {
     for (const screen of cfg.screens) {
       test(`${screen.name} (${screen.path})`, async ({ page }) => {
         const errs = await collectErrors(page);
-        const resp = await page.goto(cfg.baseUrl + screen.path, { waitUntil: 'networkidle' });
+        const resp = await page.goto(UI_BASE + screen.path, { waitUntil: 'load' });
         expect(resp?.status(), 'HTTP status').toBeLessThan(400);
         await page.waitForTimeout(500);
         const a = await analyze(page);
@@ -82,7 +91,7 @@ for (const [vpName, vp] of Object.entries<any>(cfg.viewports)) {
     }
 
     test('dropdown logika', async ({ page }) => {
-      await page.goto(cfg.baseUrl + (cfg.screens.find((s: any) => s.auth)?.path ?? '/'), { waitUntil: 'networkidle' });
+      await page.goto(UI_BASE + (cfg.screens.find((s: any) => s.auth)?.path ?? '/'), { waitUntil: 'load' });
       const triggers = page.locator(cfg.menuSelectors.dropdownTrigger);
       const n = await triggers.count();
       test.skip(n === 0, 'žádný dropdown trigger dle selektoru');
@@ -103,14 +112,14 @@ for (const [vpName, vp] of Object.entries<any>(cfg.viewports)) {
     test('konzistence navigace napříč obrazovkami', async ({ page }) => {
       const sets: Record<string, string[]> = {};
       for (const s of cfg.screens.filter((s: any) => s.auth)) {
-        await page.goto(cfg.baseUrl + s.path, { waitUntil: 'networkidle' });
+        await page.goto(UI_BASE + s.path, { waitUntil: 'load' });
         sets[s.name] = (await page.locator(cfg.menuSelectors.navItems).allInnerTexts()).map(t => t.trim()).filter(Boolean);
       }
       const names = Object.keys(sets); test.skip(names.length < 2, 'méně než 2 obrazovky');
       for (const k of names.slice(1)) expect.soft(sets[k], `menu na ${k} = menu na ${names[0]} (pořadí i názvy)`).toEqual(sets[names[0]]);
       // každá položka menu → ne 404
       for (const href of await page.locator(cfg.menuSelectors.navItems).evaluateAll(els => els.map(e => (e as HTMLAnchorElement).href))) {
-        if (!href.startsWith(cfg.baseUrl)) continue;
+        if (!href.startsWith(UI_BASE)) continue;
         const r = await page.request.get(href); expect.soft(r.status(), `menu odkaz ${href}`).toBeLessThan(400);
       }
     });

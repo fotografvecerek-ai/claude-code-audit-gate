@@ -13,12 +13,13 @@ if ($LASTEXITCODE -ne 0 -or -not $json) { Write-Host "Repo se nepodařilo stáhn
 $r = $json | ConvertFrom-Json
 Write-Host "  kopie repa: $($r.repo)  (větev $($r.branch), commit $($r.commit))" -ForegroundColor Green
 $ws = Join-Path (Split-Path $r.repo -Parent) "$($r.name)-audit"
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkg 'setup-auditor.ps1') -Repo $r.repo -Workspace $ws -Yes -Model 'claude-fable-5-1' -Kapitan ne -Hygiena ne -CI ne
+if (Test-Path (Join-Path $ws '.claude\settings.json')) { node (Join-Path $pkg 'tools\update-install.mjs') $r.repo $ws; Write-Host "  Kód klienta stažen znovu (commit $($r.commit)). Napiš auditorovi: Repo aktualizováno, zkontroluj změny." -ForegroundColor Green; Start-Process cmd.exe -ArgumentList '/k', "`"$ws\start-auditor.cmd`""; exit 0 }
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkg 'setup-auditor.ps1') -Repo $r.repo -Workspace $ws -Yes -Model 'opus' -Kapitan ne -Hygiena ne -CI ne
 if ($LASTEXITCODE -ne 0) { Write-Host "Instalace auditora selhala." -ForegroundColor Red; exit 1 }
 # režim vzdáleného auditu: auditor ví, že Kapitán není a výstup je pro klienta
 $remote = [ordered]@{ url = $r.url; branch = $r.branch; commit = $r.commit; stazeno = (Get-Date).ToString('s'); klon = $r.repo }
 node -e "require('fs').writeFileSync(process.argv[1], JSON.stringify(JSON.parse(process.argv[2]), null, 2))" (Join-Path $ws 'AUDIT\.remote.json') ($remote | ConvertTo-Json -Compress)
-"@echo off`r`nnode `"$pkg\tools\remote-clone.mjs`" `"$($r.url)`" --base `"$Base`" --branch $($r.branch) && echo Kopie repa aktualizovana. Napis auditorovi: Repo aktualizovano, zkontroluj zmeny.`r`npause" | Set-Content (Join-Path $ws 'aktualizovat-repo.cmd') -Encoding ASCII
+[IO.File]::WriteAllText((Join-Path $ws 'aktualizovat-repo.cmd'), "@echo off`r`nchcp 65001 >nul`r`nnode `"$pkg\tools\remote-clone.mjs`" `"$($r.url)`" --base `"$Base`" --branch $($r.branch) && echo Kopie repa aktualizovana. Napis auditorovi: Repo aktualizovano, zkontroluj zmeny.`r`npause`r`n", (New-Object System.Text.UTF8Encoding $false))   # UTF-8 bez BOM + chcp 65001 (cesty s diakritikou)
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkg 'post-install.ps1') -Repo $r.repo -Workspace $ws -NoGitHub -NoRepoTouch -NoLaunch
 Write-Host "`n================ HOTOVO: audit $($r.url) ================" -ForegroundColor Green
 Write-Host "  Auditor pracuje nad kopií repa v $($r.repo) - klientovi se nic neinstaluje ani nemění."

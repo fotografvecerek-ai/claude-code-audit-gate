@@ -7,6 +7,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 
 const cfg = JSON.parse(fs.readFileSync(path.resolve('tools/audit.config.json'), 'utf8'));
+// UI může běžet jinde než API (např. statický web + serverless API): uiBaseUrl má přednost
+const UI_BASE: string = cfg.uiBaseUrl || cfg.baseUrl;
 const OUT = path.resolve('AUDIT/01_nalezy/momentky/crawl'); fs.mkdirSync(OUT, { recursive: true });
 const MAX_PAGES = Number(process.env.CRAWL_MAX_PAGES || 60);
 const DESTRUCTIVE = /(smazat|odstranit|vymazat|delete|remove|zaplatit|pay|odeslat e-?mail|send|publish|zrušit účet|deaktivovat|reset)/i;
@@ -16,7 +18,7 @@ type Row = { page: string; fp: string; type: string; status: 'tested' | 'skipped
 const ledger: Row[] = [];
 const seen = new Set<string>(); const queue: string[] = [];
 
-const same = (u: string) => u.startsWith(cfg.baseUrl) && !/\.(png|jpg|svg|pdf|zip|csv)(\?|$)/i.test(u) && !/logout|odhl/i.test(u);
+const same = (u: string) => u.startsWith(UI_BASE) && !/\.(png|jpg|svg|pdf|zip|csv)(\?|$)/i.test(u) && !/logout|odhl/i.test(u);
 async function fingerprint(l: Locator) {
   return l.evaluate(el => {
     const e = el as HTMLElement; const t = (e.innerText || (e as HTMLInputElement).value || e.getAttribute('aria-label') || e.getAttribute('placeholder') || '').trim().slice(0, 40);
@@ -45,12 +47,12 @@ async function closeOverlays(page: Page) {
 }
 
 async function interact(page: Page, l: Locator, fp: string, errs: string[]): Promise<Row> {
-  const base = { page: page.url().replace(cfg.baseUrl, ''), fp };
+  const base = { page: page.url().replace(UI_BASE, ''), fp };
   const [tag, role, type, , text] = fp.split('|');
   const shot = async (n: string) => { const p = path.join(OUT, `${ledger.length}_${n}.png`); await page.screenshot({ path: p }).catch(() => {}); return p; };
   try {
     if (DESTRUCTIVE.test(text) || DESTRUCTIVE.test(fp)) return { ...base, type: tag, status: 'skipped', reason: 'destruktivní akce — testovat ručně/s fixture DB' };
-    if (tag === 'a') { const href = await l.getAttribute('href'); const abs = href ? new URL(href, cfg.baseUrl).toString() : ''; if (same(abs) && !seen.has(abs)) queue.push(abs); return { ...base, type: 'link', status: 'tested', pozorovani: `→ ${abs || href}` }; }
+    if (tag === 'a') { const href = await l.getAttribute('href'); const abs = href ? new URL(href, UI_BASE).toString() : ''; if (same(abs) && !seen.has(abs)) queue.push(abs); return { ...base, type: 'link', status: 'tested', pozorovani: `→ ${abs || href}` }; }
     if (tag === 'input' && ['text', '', 'email', 'search', 'tel', 'url', 'password', 'number'].includes(type) || tag === 'textarea' || role === 'textbox' || fp.includes('contenteditable')) {
       const samples = type === 'number' ? ['0', '-1', '99999999'] : type === 'email' ? ['a@b.cz', 'špatně'] : ['Příliš žluťoučký kůň úpěl ďábelské ódy', 'x'.repeat(300), '<b>x</b> "\'`'];
       for (const s of samples) { await l.fill(s, { timeout: 3000 }); await page.waitForTimeout(150); }
@@ -79,7 +81,7 @@ async function interact(page: Page, l: Locator, fp: string, errs: string[]): Pro
         return { ...base, type: 'dropdown', status: 'tested', pozorovani: note };
       }
       const dlg = page.locator('[role=dialog]:visible'); if (await dlg.count()) { note = 'otevřel dialog'; const focusIn = await page.evaluate(() => !!document.activeElement?.closest('[role=dialog]')); note += `, focus v dialogu=${focusIn}`; await closeOverlays(page); if (await dlg.count()) { note += ', Escape/Zavřít NEZAVŘEL'; return { ...base, type: 'button', status: 'fail', pozorovani: note, screenshot: await shot('dialog') }; } }
-      if (!page.url().startsWith(cfg.baseUrl)) { await page.goBack(); note = 'navigace mimo app'; }
+      if (!page.url().startsWith(UI_BASE)) { await page.goBack(); note = 'navigace mimo app'; }
       return { ...base, type: role === 'tab' ? 'tab' : 'button', status: 'tested', pozorovani: note };
     }
     return { ...base, type: tag, status: 'skipped', reason: `neznámý typ prvku (${tag}/${role}/${type}) — doplnit do crawleru` };
@@ -90,30 +92,30 @@ async function interact(page: Page, l: Locator, fp: string, errs: string[]): Pro
 
 test('vyčerpávající průchod stromem UI', async ({ page }) => {
   test.setTimeout(0);
-  // SÍŤOVÝ GUARD (KinoXT3 poučení): průchod „proklikej vše" smí běžet jen v izolovaném prostředí. Pokud config neříká isolatedEnv:true,
+  // SÍŤOVÝ GUARD (poučení z praxe): průchod „proklikej vše" smí běžet jen v izolovaném prostředí. Pokud config neříká isolatedEnv:true,
   // blokujeme všechny mutační požadavky a externí hosty — GET není automaticky bez vedlejších účinků (seed/migrace/refresh endpointy).
   const blocked: string[] = [];
   if (!cfg.isolatedEnv) {
     await page.route('**/*', route => {
       const req = route.request(); const u = new URL(req.url());
-      const external = !u.href.startsWith(cfg.baseUrl); const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(req.method());
+      const external = !u.href.startsWith(UI_BASE); const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(req.method());
       const riskyGet = /(seed|migrate|reset|refresh|sync|logout|delete|remove|send|export|purge)/i.test(u.pathname);
       if (external || mutating || riskyGet) { blocked.push(`${req.method()} ${u.pathname}`); return route.abort(); }
       return route.continue();
     });
   }
   const errs: string[] = []; page.on('pageerror', e => errs.push('pageerror: ' + e.message)); page.on('console', m => { if (m.type() === 'error') errs.push('console.error: ' + m.text().slice(0, 200)); });
-  for (const s of cfg.screens) queue.push(cfg.baseUrl + s.path);
+  for (const s of cfg.screens) queue.push(UI_BASE + s.path);
   let pages = 0;
   while (queue.length && pages < MAX_PAGES) {
     const url = queue.shift()!; if (seen.has(url)) continue; seen.add(url); pages++;
-    const r = await page.goto(url, { waitUntil: 'networkidle' }).catch(() => null);
+    const r = await page.goto(url, { waitUntil: 'load' }).catch(() => null);
     if (!r || r.status() >= 400) { ledger.push({ page: url, fp: '-', type: 'page', status: 'fail', pozorovani: `HTTP ${r?.status() ?? 'timeout'}` }); continue; }
     const initial = await health(page, errs); initial.forEach(p => ledger.push({ page: url, fp: '-', type: 'page', status: 'fail', pozorovani: p }));
     const total = await page.locator(INTERACTIVE).count();
     const done = new Set<string>();
     for (let i = 0; i < total; i++) {
-      if (page.url() !== url) await page.goto(url, { waitUntil: 'networkidle' }).catch(() => {});
+      if (page.url() !== url) await page.goto(url, { waitUntil: 'load' }).catch(() => {});
       const all = page.locator(INTERACTIVE); if (i >= await all.count()) break;
       const l = all.nth(i); if (!(await l.isVisible().catch(() => false))) { continue; }
       const fp = await fingerprint(l).catch(() => `?${i}`); if (done.has(fp)) continue; done.add(fp);

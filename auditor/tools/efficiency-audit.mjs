@@ -23,7 +23,7 @@ const walk = (dir, filter, out = [], depth = 0) => {
   if (depth > 8) return out;
   let ents = []; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
   for (const e of ents) {
-    if (['node_modules', '.git', '.next', 'dist', 'build', 'coverage', 'playwright-report', 'test-results', 'vendor'].includes(e.name)) continue;
+    if (['node_modules', '.git', '.next', 'dist', 'build', 'coverage', 'playwright-report', 'test-results', 'vendor', '.venv', 'venv', 'www', '__pycache__'].includes(e.name)) continue;
     const p = path.join(dir, e.name);
     if (e.isDirectory()) walk(p, filter, out, depth + 1); else if (filter(p)) out.push(p);
   }
@@ -34,7 +34,15 @@ function context() {
   const items = [];
   const add = (kind, file, text, note = '') => text != null && items.push({ kind, file: path.relative(repo, file) || file, lines: text.split('\n').length, tokens_est: tok(text), note });
   for (const f of ['CLAUDE.md', 'CLAUDE.local.md', '.claude/CLAUDE.md']) add('claude_md', path.join(repo, f), read(path.join(repo, f)));
-  add('claude_md_user', path.join(os.homedir(), '.claude/CLAUDE.md'), read(path.join(os.homedir(), '.claude/CLAUDE.md')));
+  add('claude_md_user', path.join(os.homedir(), '.claude/CLAUDE.md'), read(path.join(os.homedir(), '.claude/CLAUDE.md')), 'SDÍLENÉ — načítá se v KAŽDÉM projektu na počítači');
+  // pravidla mimo projekt, která se přesto načítají (míchají se mezi projekty): uživatelská ~/.claude/rules a CLAUDE.md v nadřazených složkách (např. D:\CLAUDE.md)
+  for (const f of walk(path.join(os.homedir(), '.claude/rules'), p => p.endsWith('.md'))) { const t = read(f); add('rule_user', f, t, `SDÍLENÉ — uživatelské pravidlo, načítá se v KAŽDÉM projektu${/^---[\s\S]*?paths:/m.test(t || '') ? ' (jen pro soubory podle paths:)' : ''}; patří-li jednomu projektu, přesuň do jeho .claude/rules`); }
+  for (let d = path.dirname(repo); d && d !== path.dirname(d); d = path.dirname(d)) {
+    if (path.resolve(d) === path.resolve(os.homedir())) continue;   // ~/CLAUDE.md = uživatelská úroveň, výše
+    for (const f of ['CLAUDE.md', 'CLAUDE.local.md']) { const pf = path.join(d, f); add('claude_md_parent', pf, read(pf), `SDÍLENÉ — nadřazená složka ${d}: načítá se ve VŠECH projektech pod ní; obsah pro jeden projekt přesuň do jeho CLAUDE.md`); }
+    if (path.dirname(d) === d) break;
+  }
+  { const root = path.parse(repo).root; for (const f of ['CLAUDE.md', 'CLAUDE.local.md']) { const pf = path.join(root, f); if (!items.some(i => i.file === path.relative(repo, pf))) add('claude_md_parent', pf, read(pf), `SDÍLENÉ — kořen disku ${root}: načítá se ve VŠECH projektech na disku`); } }
   for (const f of walk(path.join(repo, '.claude/rules'), p => p.endsWith('.md'))) {
     const t = read(f); const hasPaths = /^---[\s\S]*?paths:/m.test(t || '');
     add('rule', f, t, hasPaths ? 'scoped (paths:)' : 'ALWAYS LOADED — bez paths:');
@@ -57,7 +65,16 @@ function context() {
       if (o.hooks) items.push({ kind: 'hooks', file: path.relative(repo, f) || f, lines: 0, tokens_est: 0, note: Object.entries(o.hooks).map(([ev, arr]) => `${ev}:${arr.flatMap(g => g.hooks || []).map(h => h.type).join('/')}`).join(' ') });
     } catch { }
   }
-  const total = items.filter(i => ['claude_md', 'claude_md_user', 'rule'].includes(i.kind)).reduce((a, b) => a + b.tokens_est, 0);
+  // pluginy a hooky podle rozsahu: USER (~/.claude/settings.json) běží v KAŽDÉM projektu na počítači — kontext navíc všude a jejich logy v home
+  // míchají data všech projektů (měření jen po přiřazení session → projekt přes adresář transkriptu)
+  let others = 0; try { others = fs.readdirSync(path.join(os.homedir(), '.claude', 'projects')).length; } catch { }
+  for (const [scope, f] of [['USER', path.join(os.homedir(), '.claude/settings.json')], ['projekt', path.join(repo, '.claude/settings.json')], ['local', path.join(repo, '.claude/settings.local.json')]]) {
+    let o = null; try { o = JSON.parse((read(f) || '').replace(/^\uFEFF/, '')); } catch { } if (!o) continue;
+    for (const [pl, on] of Object.entries(o.enabledPlugins || {})) if (on) items.push({ kind: 'plugin', file: path.relative(repo, f) || f, lines: 0, tokens_est: 0,
+      note: scope === 'USER' ? `${pl} — USER rozsah: načítá se ve všech projektech (${others} složek transkriptů); zvaž --scope project/local` : `${pl} (${scope})` });
+    if (scope === 'USER' && o.hooks) items.push({ kind: 'hooks_user', file: f, lines: 0, tokens_est: 0, note: `USER hooky běží v každém projektu: ${Object.keys(o.hooks).join(', ')} — jejich logy v home jsou společné pro všechny projekty` });
+  }
+  const total = items.filter(i => ['claude_md', 'claude_md_user', 'claude_md_parent', 'rule', 'rule_user'].includes(i.kind) && !/jen pro soubory podle paths/.test(i.note)).reduce((a, b) => a + b.tokens_est, 0);
   const verdict = total > 12000 ? '🔴' : total > 6000 ? '🟡' : '🟢';
   return { repo, always_loaded_tokens_est: total, verdict, mcp_servers: mcp, items, note: 'MCP schémata nástrojů se posílají v každém requestu — počet nástrojů ověř přes /mcp v Claude Code.' };
 }
@@ -66,23 +83,31 @@ function usage() {
   // Claude Code ukládá session logy do ~/.claude/projects/<slug>/*.jsonl; slug = cesta repa s nahrazenými oddělovači.
   const base = path.join(os.homedir(), '.claude/projects');
   let dirs = []; try { dirs = fs.readdirSync(base); } catch { return { error: `nenalezeno ${base}` }; }
-  const slugHint = repo.replace(/[:\\/]/g, '-').toLowerCase();
-  const cand = dirs.filter(d => slugHint.includes(d.toLowerCase().replace(/^-/, '')) || d.toLowerCase().includes(path.basename(repo).toLowerCase()));
+  // přesně tento projekt: složka transkriptů = cesta repa (každý znak mimo A-Z0-9 → „-"), případně jeho podsložky (worktree).
+  // Dřív se bral každý adresář obsahující název repa → „app" zahrnul i „app-audit" (spotřebu auditora) a sousední projekty „app-old" apod.
+  const enc = p => p.replace(/[^A-Za-z0-9]/g, '-').toLowerCase(); const me = enc(repo);
+  let sibs = []; try { sibs = fs.readdirSync(path.dirname(repo), { withFileTypes: true }).filter(e => e.isDirectory()).map(e => enc(path.join(path.dirname(repo), e.name))).filter(x => x !== me && x.startsWith(me)); } catch { }
+  const cand = dirs.filter(d => { const x = d.toLowerCase(); return (x === me || x.startsWith(me + '-')) && !x.startsWith(me + '-audit') && !sibs.some(sb => x === sb || x.startsWith(sb + '-')); });
   const since = Date.now() - days * 864e5;
-  const perModel = {}, perSession = {}, toolCalls = {}, skills = {}, agents = {};
+  const perModel = {}, perSession = {}, toolCalls = {}, skills = {}, agents = {}; const seenUsage = new Set();
+  // delegace: kolik editací kódu a výstupních tokenů dělá hlavní vlákno (silný model) vs. subagenti (levnější modely)
+  const del = { editace_hlavni: 0, editace_subagenti: 0, output_hlavni: 0, output_subagenti: 0, model_hlavni: {}, model_subagenti: {} };
+  const isSub = (o, f) => o.isSidechain === true || /[\\/]subagents[\\/]/.test(f);
   for (const d of cand) for (const f of walk(path.join(base, d), p => p.endsWith('.jsonl'))) {
     if (fs.statSync(f).mtimeMs < since) continue;
     for (const line of (read(f) || '').split('\n')) {
-      if (line.includes('"tool_use"')) { try { const o = JSON.parse(line); for (const c of (o.message?.content || [])) if (c.type === 'tool_use') { toolCalls[c.name] = (toolCalls[c.name] || 0) + 1; if (c.name === 'Skill' && c.input?.skill) skills[c.input.skill] = (skills[c.input.skill] || 0) + 1; if (c.name === 'Agent' || c.name === 'Task') { const t = c.input?.subagent_type || 'general-purpose'; agents[t] = (agents[t] || 0) + 1; } } } catch { } }
+      if (line.includes('"tool_use"')) { try { const o = JSON.parse(line); for (const c of (o.message?.content || [])) if (c.type === 'tool_use') { toolCalls[c.name] = (toolCalls[c.name] || 0) + 1; if (/^(Edit|Write|MultiEdit|NotebookEdit|apply_patch)$/.test(c.name)) del[isSub(o, f) ? 'editace_subagenti' : 'editace_hlavni']++; if (c.name === 'Skill' && c.input?.skill) skills[c.input.skill] = (skills[c.input.skill] || 0) + 1; if (c.name === 'Agent' || c.name === 'Task') { const t = c.input?.subagent_type || 'general-purpose'; agents[t] = (agents[t] || 0) + 1; } } } catch { } }
       if (!line.includes('"usage"')) continue;
       try { const o = JSON.parse(line); const m = o.message || {}; const u = m.usage; if (!u) continue;
+        const mk = m.id || o.requestId; if (mk) { if (seenUsage.has(mk)) continue; seenUsage.add(mk); }   // jedna odpověď = víc řádků transkriptu se stejným usage → bez deduplikace ~2,3× nadsazení
         const model = m.model || 'unknown'; const ts = o.timestamp ? Date.parse(o.timestamp) : Infinity; if (ts < since) continue;
         const bump = (o2) => { o2.input = (o2.input || 0) + (u.input_tokens || 0); o2.cache_create = (o2.cache_create || 0) + (u.cache_creation_input_tokens || 0); o2.cache_read = (o2.cache_read || 0) + (u.cache_read_input_tokens || 0); o2.output = (o2.output || 0) + (u.output_tokens || 0); o2.calls = (o2.calls || 0) + 1; };
+        const sb = isSub(o, f); del[sb ? 'output_subagenti' : 'output_hlavni'] += u.output_tokens || 0; const dm = del[sb ? 'model_subagenti' : 'model_hlavni']; dm[model] = (dm[model] || 0) + (u.output_tokens || 0);
         bump(perModel[model] ||= {}); bump(perSession[path.basename(f, '.jsonl')] ||= { model });
       } catch { }
     }
   }
-  return { days, project_dirs: cand, per_model: perModel, sessions: Object.keys(perSession).length, tool_calls: toolCalls, skills_invoked: skills, subagents_invoked: agents, per_session: perSession, note: 'Formát logu ověř na aktuální verzi Claude Code; pro přesná čísla /cost nebo ccusage. Normalizuj: tokeny / uzavřený issue.' };
+  return { days, project_dirs: cand, per_model: perModel, sessions: Object.keys(perSession).length, tool_calls: toolCalls, skills_invoked: skills, subagents_invoked: agents, delegace: { ...del, podil_editaci_hlavni: (del.editace_hlavni + del.editace_subagenti) ? +(del.editace_hlavni / (del.editace_hlavni + del.editace_subagenti)).toFixed(2) : null, poznamka: 'Kapitán na silném modelu má plánovat a kontrolovat; kód mají psát subagenti. Podíl editací v hlavním vlákně > 0,3 = nález EFF (drahý model píše kód).' }, per_session: perSession, note: 'Formát logu ověř na aktuální verzi Claude Code; pro přesná čísla /cost nebo ccusage. Normalizuj: tokeny / uzavřený issue.' };
 }
 
 function churn() {
