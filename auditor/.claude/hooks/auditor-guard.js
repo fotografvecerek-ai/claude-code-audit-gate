@@ -42,6 +42,9 @@ function segments(s) { // rozdělí na jednoduché příkazy mimo uvozovky; toke
     if (q) { if (c === q) q = null; else if (c === '\\' && q === '"' && s[i + 1] === '"') { tok += '"'; i++; } else tok += c; continue; }
     if (c === '"' || c === "'") { q = c; had = true; quoted = true; continue; }
     if (c === '&' && (tok.endsWith('>') || s[i + 1] === '>')) { tok += c; had = true; continue; }
+    // '>' je VŽDY metaznak přesměrování — i BEZ mezery za předchozím slovem („slovo>cíl"). Dřív se takový token slepil
+    // dohromady a writeTargets() ho neviděl jako zápis (A-006, fail-open). Zůstává slepený jen fd-prefix (holé číslo/„&").
+    if (c === '>') { if (had && !/^(\d+|&)?>*$/.test(tok)) endTok(); tok += c; had = true; continue; }
     if (c === '`' || c === '\n' || c === ';' || c === '|' || c === '&' || c === '(' || c === ')' || (c === '$' && s[i + 1] === '(')) { if (c === '&' && !had && !toks.length && s[i + 1] === ' ') { tok = '&'; had = true; endTok(); continue; } endSeg(); continue; }
     if (/\s/.test(c)) { endTok(); continue; }
     tok += c; had = true; }
@@ -155,10 +158,21 @@ process.stdin.on('end', () => {
     if (/\bgit\s+(-C\s+\S+\s+)?push\b.*--force|\bgit\s+push\s+-f\b/i.test(cmd)) block('force push zakázán i ve workspace.');
     // zápis shellem: rozhoduje CÍL zápisu (přesměrování, cp/mv/copy/Set-Content…), ne slova v příkazu — `grep x <repo> 2>/dev/null` projde
     const wt = writeTargets(cmd, cwd); const inRepo = p => repo && (p === repo || p.startsWith(repo + '/'));
+    // A-006: nestačilo ověřit „není to v repu aplikace" — cíl navíc MUSÍ ležet uvnitř povoleného workspace (stejný
+    // allowlist jako pro Edit/Write výše). Nejasný/venkovní cíl přesměrování (mimo repo i mimo workspace) = blok (fail-closed).
+    // A-006 kolo 2: navíc povolit JEN pro shellové zápisy cíl uvnitř OS dočasné složky (os.tmpdir() — %TEMP%, /tmp) —
+    // agenti ji běžně a záměrně používají pro jednorázové skripty/scratchpad (viz rules/common/isolated-environment.md);
+    // bez výjimky by pojistka tlačila k jejímu obcházení. Repo aplikace (inRepo výše) i vše ostatní mimo workspace/tmpdir
+    // zůstává blokované; Edit/Write kontrola na řádku výše (fp) tuto výjimku NEMÁ — platí jen pro Bash/PowerShell.
+    const TMP = norm(require('node:os').tmpdir());
+    const inTmp = p => p === TMP || p.startsWith(TMP + '/');
+    const inWorkspace = p => WRITE_ALLOW_DIRS.some(a => p.startsWith(a)) || WRITE_ALLOW_FILES.includes(p) || inTmp(p);
     for (const t of wt) {
       if (t.inline) { if (repoRe && repoRe.test(norm(t.text))) block(`Shellový zápis do repa aplikace zakázán (vložený kód ${t.cmd} zapisuje a zmiňuje cestu repa). Výstupy patří do AUDIT/.`); continue; }
       if (t.path && /\/audit\/bus\/[^/]*\.json$/.test(t.path)) block(`Zprávy na mostu jen přes tools/bus.mjs, ne shellem („${t.tok}").`);
       if (inRepo(t.path)) block(`Shellový zápis do repa aplikace zakázán („${t.tok}" → ${t.path}). Výstupy patří do AUDIT/.`);
+      if (WRITE_DENY.some(d => t.path.startsWith(d))) block(`Shellový zápis do ${t.path} zakázán — 03_dukazy/ patří Kapitánovi („${t.tok}").`);
+      if (!inWorkspace(t.path)) block(`Shellový zápis mimo povolený workspace zakázán („${t.tok}" → ${t.path}). Cíl přesměrování musí být uvnitř AUDIT/, tools/, .claude/, build/ nebo test-results/ ve workspace auditora (A-006: fail-closed pro nejasný/venkovní cíl).`);
     }
     if (/bus\.mjs\s+post\b/.test(cmd) && !/--from\s+auditor\b/.test(cmd)) block('bus post: auditor smí posílat jen --from auditor.');
     // spouštěče a nastavení agentů (Codex, Telegram, samostatnost) mění jen instalátor — ani shellem (rozhoduje cíl zápisu)

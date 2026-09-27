@@ -4,6 +4,10 @@
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync, execSync } from 'node:child_process'; import { fileURLToPath, pathToFileURL } from 'node:url';
 const pkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-selftest-')); const ws = path.join(tmp, 'x-audit'); const repo = path.join(tmp, 'x'); const wt = path.join(tmp, 'wt-a');
+// A-006 kolo 2: guardTmp simuluje „os.tmpdir()" tak, jak ho uvidí SPUŠTĚNÝ hook (přes TMPDIR/TEMP/TMP v env níže) —
+// SOUROZENEC (ne rodič/potomek) tmp/ws/repo, aby zápisy do ws/repo v testech níže dál NEspadaly pod novou tmpdir-výjimku.
+const guardTmp = path.join(path.dirname(tmp), 'auditor-selftest-ostmp-' + path.basename(tmp).slice(-8));
+fs.mkdirSync(guardTmp, { recursive: true });
 const isWin = process.platform === 'win32'; const norm = p => p.replace(/\\/g, '/');
 const gitBash = p => isWin ? '/' + p[0].toLowerCase() + p.slice(2).replace(/\\/g, '/') : p; // Windows cesta → git-bash styl /c/Users/... (A-005 regrese)
 fs.mkdirSync(path.join(ws, 'AUDIT', 'bus'), { recursive: true }); fs.mkdirSync(path.join(ws, 'build'), { recursive: true }); fs.mkdirSync(path.join(repo, '.claude', 'hooks'), { recursive: true });
@@ -12,11 +16,11 @@ const git = (c, cwd = repo) => execSync(`git ${c}`, { cwd, encoding: 'utf8', std
 git('init -q'); git('config user.email t@t'); git('config user.name t'); git('checkout -q -b main'); fs.writeFileSync(path.join(repo, 'README.md'), '# x'); fs.writeFileSync(path.join(repo, '.gitignore'), '.tmp/\n'); git('add -A'); git('-c user.name=t -c user.email=t@t commit -qm init');
 git(`init -q`, ws); git('config user.email t@t', ws); git('config user.name t', ws); git('add -A', ws); git('-c user.name=t -c user.email=t@t commit -qm init --allow-empty', ws);
 git('worktree add -q ../wt-a -b feat/a');
-const env = { ...process.env, AUDITOR_WORKSPACE: norm(ws), AUDITOR_TARGET_REPO: norm(repo), HYGIENE_RULES: path.join(pkg, 'kapitan-side/hygiene/hygiene-rules.json') };
+const env = { ...process.env, AUDITOR_WORKSPACE: norm(ws), AUDITOR_TARGET_REPO: norm(repo), HYGIENE_RULES: path.join(pkg, 'kapitan-side/hygiene/hygiene-rules.json'), TMPDIR: guardTmp, TEMP: guardTmp, TMP: guardTmp };
 const hook = (file, input) => spawnSync(process.execPath, [file], { input: JSON.stringify(input), env, encoding: 'utf8' }).status;
 const AG = path.join(pkg, '.claude/hooks/auditor-guard.js'), KG = path.join(repo, '.claude/hooks/kapitan-audit-guard.js');
 const bash = (cwd, command) => ({ cwd, tool_name: 'Bash', tool_input: { command } }); const write = (cwd, file_path) => ({ cwd, tool_name: 'Write', tool_input: { file_path } });
-const _d = new Date(); const DNES = `${_d.getDate()}. ${_d.getMonth() + 1}. ${_d.getFullYear()}`; // gate se datem stárne (72 h) — test nesmí mít pevné datum
+const _d = new Date(); const DNES = `${_d.getDate()}. ${_d.getMonth() + 1}. ${_d.getFullYear()} ${_d.getHours()}:${String(_d.getMinutes()).padStart(2, '0')}`; // gate se datem stárne (72 h) — test nesmí mít pevné datum
 const results = []; const T = (name, got, exp, nastroj) => results.push({ name, exp, got, ok: got === exp, nastroj });
 // nástroj, který auditor upravil a aktualizace nechala jeho verzi (vedle leží <nástroj>.new = verze balíku): selhání jeho testu neblokuje start —
 // pojistky jsou vždy verze balíku; test ukáže, že místní verze čeká na sloučení (úkol SLOUCIT v AUDIT/NOVE_CILE.md)
@@ -76,6 +80,21 @@ T('A: `git push origin main` (backtick) blokován (A-004 kolo 2)', hook(AG, bash
 T('A: eval "git push origin main" blokován (A-004 kolo 2)', hook(AG, bash(repo, 'eval "git push origin main"')), 2);
 T('A: powershell -c "git push origin main" blokován (A-004 kolo 2)', hook(AG, bash(repo, 'powershell -c "git push origin main"')), 2);
 T('A: eval "vercel --prod" blokován (A-004 kolo 2, WORD_DENY)', hook(AG, bash(ws, 'eval "vercel --prod"')), 2);
+// A-006: '>' slepené k předchozímu slovu (bez mezery, „slovo>cíl") — segments() ho neviděl jako přesměrování (fail-open, reálný nález)
+T('A: echo x>REPO/README.md slepené (bez mezery) blokován (A-006)', hook(AG, bash(ws, `echo x>${norm(repo)}/README.md`)), 2);
+T('A: echo x>1048576 slepené mimo repo i workspace blokován (A-006, repro nálezu)', hook(AG, bash(tmp, 'echo x>1048576')), 2);
+T('A: echo x>../1048576 (relativní útěk z repa) blokován (A-006)', hook(AG, bash(repo, 'echo x>../1048576')), 2);
+T('A: echo x>junk.txt v rootu workspace mimo allowlist blokován (A-006)', hook(AG, bash(ws, 'echo x>junk.txt')), 2);
+T('A: cd repo && echo x>1048576 (slepené) po cd blokován (A-006)', hook(AG, bash(tmp, `cd ${norm(repo)} && echo x>1048576`)), 2);
+T('A: [[ $a > $b ]] zůstává blokován beze změny (A-006, nesmí přestat)', hook(AG, bash(repo, '[[ $a > $b ]]')), 2);
+T('A: (( a > b )) zůstává blokován beze změny (A-006, nesmí přestat)', hook(AG, bash(repo, '(( a > b ))')), 2);
+// A-006 kolo 2: fail-closed workspace-allowlist (výše) by blokoval i zápis do OS dočasné složky (os.tmpdir()),
+// kterou agenti běžně a legitimně používají pro jednorázové skripty/scratchpad — to by tlačilo k obcházení pojistky.
+// inWorkspace() teď navíc povoluje shellový cíl uvnitř os.tmpdir() (viz TMPDIR/TEMP/TMP → guardTmp v env výše);
+// repo aplikace a vše ostatní mimo workspace/tmpdir zůstává blokované.
+T('A: shellový zápis do os.tmpdir() povolen (A-006 kolo 2)', hook(AG, bash(ws, `echo x>${norm(guardTmp)}/1048576`)), 0);
+T('A: echo x>1048576 s cwd v repu aplikace blokován i po povolení tmpdir (A-006 kolo 2)', hook(AG, bash(repo, 'echo x>1048576')), 2);
+T('A: echo "a>b" (uvozovky) není přesměrování — „b" se nebere jako cíl (A-006 kolo 2)', hook(AG, bash(repo, 'echo "a>b"')), 0);
 
 // --- KAPITÁN GUARD
 T('K: zápis do verdiktů blokován', hook(KG, write(repo, path.join(ws, 'AUDIT', '04_verdikty', 'A-1.md'))), 2);
@@ -122,6 +141,9 @@ T('K: `git push origin main` (backtick) blokován (A-005 kolo 2)', hook(KG, bash
 T('K: eval "git push origin main" blokován (A-005 kolo 2)', hook(KG, bash(repo, 'eval "git push origin main"')), 2);
 T('K: powershell -c "git push origin main" blokován (A-005 kolo 2)', hook(KG, bash(repo, 'powershell -c "git push origin main"')), 2);
 T('K: eval "vercel --prod" blokován (A-005 kolo 2, DEPLOY)', hook(KG, bash(repo, 'eval "vercel --prod"')), 2);
+// A-006: shellový zápis slepený k '>' (bez mezery) nesmí obejít SELF-PROTECT ani AUDIT-scope (sdílený tokenizer bug s auditor-guard.js)
+T('K: echo x>.claude/hooks/evil.js slepené blokován (A-006)', hook(KG, bash(repo, 'echo x>.claude/hooks/evil.js')), 2);
+T('K: echo x>WS/AUDIT/04_verdikty/a.md slepené (mimo 03_dukazy) blokován (A-006)', hook(KG, bash(repo, `echo x>${norm(ws)}/AUDIT/04_verdikty/a.md`)), 2);
 // gate 🟢 → push main + deploy povolen; merge auditované větve bez dalších změn → platí; nový obsah → blokován
 const head = git('rev-parse --short HEAD'); fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES} — commit ${head}\nVerdikt: 🟢 SMÍ VYDAT\n`);
 fs.writeFileSync(path.join(repo, 'dirty.ts'), 'x'); T('K: gate 🟢, špinavý strom → blokován', hook(KG, bash(repo, 'vercel --prod')), 2); fs.unlinkSync(path.join(repo, 'dirty.ts'));
