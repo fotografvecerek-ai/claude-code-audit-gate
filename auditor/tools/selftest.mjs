@@ -1,7 +1,29 @@
 #!/usr/bin/env node
 // SELFTEST — regresní sada pro brány balíku. Spouští oba hooky, gate-check, pre-commit check a bus v dočasném prostředí.
 // node tools/selftest.mjs        → tabulka PASS/FAIL, exit 1 při jakémkoliv FAIL. Spouštěj po instalaci a po každé změně hooků.
-import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync, execSync, spawn } from 'node:child_process'; import { fileURLToPath, pathToFileURL } from 'node:url'; import { createHash } from 'node:crypto';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync as _rawSpawnSync, execSync as _rawExecSync, spawn as _rawSpawn } from 'node:child_process'; import { fileURLToPath, pathToFileURL } from 'node:url'; import { createHash } from 'node:crypto';
+// A-027: žádné dítě samotestu nesmí viset bez časového stropu — macOS CI job bez vlastního timeout-minutes takhle
+// běžel, dokud ho po 6 h nezabil tvrdý strop GitHub Actions (nešlo poznat, který test/proces visí). Výchozí strop
+// jde přebít explicitním `timeout`/`killSignal` na konkrétním volání (např. UPDATE-INSTALL má vlastních 240000 ms).
+// SIGKILL (ne výchozí SIGTERM), protože cíl je "garantovaně zabít", ne "slušně požádat" (GUI dialog/zaseklý proces
+// SIGTERM běžně ignoruje). Při signálovém konci (typicky = náš timeout) vypiš přesně co viselo — jinak se to na CI
+// nedá dohledat (viz "onTimeoutWarn").
+const CHILD_TIMEOUT_MS = +(process.env.AUDITOR_SELFTEST_CHILD_TIMEOUT_MS || 90000);
+function onTimeoutWarn(cmd, args) { console.error(`SAMOTEST TIMEOUT (dítě zabito signálem, strop ${CHILD_TIMEOUT_MS}ms): ${cmd} ${(args || []).join(' ')}`); }
+function spawnSync(cmd, args, opts = {}) {
+  const r = _rawSpawnSync(cmd, args, { timeout: CHILD_TIMEOUT_MS, killSignal: 'SIGKILL', ...opts });
+  if (r.signal) onTimeoutWarn(cmd, args);
+  return r;
+}
+function execSync(cmd, opts = {}) {
+  try { return _rawExecSync(cmd, { timeout: CHILD_TIMEOUT_MS, killSignal: 'SIGKILL', ...opts }); }
+  catch (e) { if (e.signal) onTimeoutWarn(cmd, []); throw e; }
+}
+function spawn(cmd, args, opts = {}) {
+  const cp = _rawSpawn(cmd, args, { timeout: CHILD_TIMEOUT_MS, killSignal: 'SIGKILL', ...opts });
+  cp.once('close', (code, signal) => { if (code === null && signal) onTimeoutWarn(cmd, args); });
+  return cp;
+}
 const pkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-selftest-')); const ws = path.join(tmp, 'x-audit'); const repo = path.join(tmp, 'x'); const wt = path.join(tmp, 'wt-a');
 // A-006 kolo 2: guardTmp simuluje „os.tmpdir()" tak, jak ho uvidí SPUŠTĚNÝ hook (přes TMPDIR/TEMP/TMP v env níže) —

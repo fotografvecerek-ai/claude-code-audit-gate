@@ -91,6 +91,17 @@ function nextId(pre) { const n = all().map(r => String(r.id || '')).map(i => (i.
 // zámku, který třeba mezitím patří někomu jinému); vlastnický token v obsahu zámku ověřený před uvolněním, aby proces
 // nikdy nesmazal zámek, který mu už nepatří (i po legitimním "ukradení" starého zámku někým jiným); rename/open s retry
 // na EPERM/EBUSY/EACCES (Windows, otevřený handle); a horní časová mez, aby zámek-jako-adresář nezpůsobil věčnou smyčku.
+// A-010 kolo 3 (A-027, flaky 239/240 a 48/50 na přetíženém CI runneru): stáří zámku (mtime > staleMs) samo o sobě
+// NEROZLIŠÍ "vlastník spadl" od "vlastník žije, jen je pomalý" (CPU hladovění na sdíleném CI runneru, GC pauza) —
+// ve druhém případě by tahle TOCTOU díra smazala zámek PRÁVĚ AKTIVNÍHO vlastníka a pustila dovnitř druhý proces
+// souběžně → tichá ztráta ack, přesně bez pádu (exit 0 u obou). Než zámek prohlásíme za stale, ověř navíc, že PID
+// uložený v tokenu už opravdu neběží — mtime je nutná, ne postačující podmínka.
+function lockOwnerAlive(lockPath) {
+  let content; try { content = fs.readFileSync(lockPath, 'utf8'); } catch { return false; }   // zámek mezitím zmizel/je nečitelný → neblokuj reclaim
+  const pid = Number(String(content).split('-')[0]);
+  if (!Number.isInteger(pid) || pid <= 0) return false;   // cizí/poškozený obsah zámku (test-orphan, adresář…) → nejde ověřit, nepovažuj za živý
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }   // ESRCH = proces mrtvý; EPERM = žije, jen bez oprávnění ho signalizovat
+}
 function withLock(file, fn, { staleMs = LOCK_STALE_MS, timeoutMs = LOCK_TIMEOUT_MS } = {}) {
   const lock = `${file}.lock`;
   const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -101,7 +112,7 @@ function withLock(file, fn, { staleMs = LOCK_STALE_MS, timeoutMs = LOCK_TIMEOUT_
     catch (e) {
       if (e.code !== 'EEXIST' && e.code !== 'EISDIR') throw e;   // EISDIR: zámek je omylem adresář (dřívější pád/bug) — řeš jako "existuje", ne fatálně
       const st = statOrNull(lock);   // st === null → zámek MEZITÍM zmizel (ENOENT) → nikdy nemazat, jen zkusit znovu (tohle byla přesně chyba kola 1)
-      if (st && (Date.now() - st.mtimeMs) > staleMs) { claimStaleLock(lock); continue; }
+      if (st && (Date.now() - st.mtimeMs) > staleMs && !lockOwnerAlive(lock)) { claimStaleLock(lock); continue; }
       if (Date.now() > deadline) throw new Error(`bus: zámek ${path.basename(lock)} se nepodařilo získat do ${timeoutMs}ms (drží ho jiný proces, nebo je poškozený)`);
       sleepMs(10 + Math.floor(Math.random() * 20));   // krátký backoff, ne busy-loop
     }
