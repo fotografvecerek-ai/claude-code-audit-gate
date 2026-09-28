@@ -127,7 +127,7 @@ Gate platí pro merge --no-ff i squash auditovaného commitu, pokud je **hash st
 - Spuštění: `start-auditor.cmd` = `claude --add-dir <repo>` z workspace; první zpráva „Začni intake".
 
 ## Ověření po instalaci (vždy, i po každé změně hooků)
-`node tools/selftest.mjs` — 110 scénářů bran (auditor, Kapitán, pre-commit, bus, gate-check, nový projekt: projekt-guard, kontrolor, release-check) musí být 100 % PASS.
+`node tools/selftest.mjs` — scénáře bran (auditor, Kapitán, pre-commit, bus, gate-check, nový projekt: projekt-guard, kontrolor, release-check) musí být 100 % PASS; aktuální počet vypíše sám nástroj na konci běhu.
 Na Windows navíc jednou spusť `claude --verbose` a ověř, že shellové příkazy chodí jako `Bash` (Git Bash) — hooky mají větev i pro
 `PowerShell`, ale rozhodující je skutečný `tool_name`.
 

@@ -90,9 +90,9 @@ Detaily: [`auditor/CLAUDE.md`](auditor/CLAUDE.md) (ústava auditora), [`auditor/
 
 ## CI
 
-Každý push a PR běží na **Windows, Linuxu i macOS**: syntaxe Node/bash/PowerShell (vč. BOM a zákazu bash4-ismů), samotest bran (200+ scénářů vč. nového projektu, Telegramu, samostatnosti, worktree a katalogu)
+Každý push a PR běží na **Windows, Linuxu i macOS**: syntaxe Node/bash/PowerShell (vč. BOM a zákazu bash4-ismů), samotest bran (stovky scénářů vč. nového projektu, Telegramu, samostatnosti, worktree a katalogu — aktuální počet ukáže výstup `node auditor/tools/selftest.mjs`)
 a end-to-end instalace do fixture repa s rozdělanou prací (ověřuje, že se do gitu uloží jen soubory instalace a brána blokuje). Tag `v*` vydá zip
-jako GitHub Release. Workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
+jako GitHub Release (viz [`.github/workflows/release.yml`](.github/workflows/release.yml)). Workflow: [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ## Přispívání
 
