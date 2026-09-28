@@ -57,7 +57,7 @@ const ANY_DENY = [[/\bvercel\b/i, 'deploy'], [/\b(npm|pnpm|yarn)\s+publish\b/i, 
   [/\brm\s+-[a-z]*r/i, 'rekurzivní mazání'], [/\b(rmSync|rmtree|Remove-Item)\b/i, 'mazání'], [/\b(kill|taskkill|pkill|killall|Stop-Process)\b/i, 'ukončení procesu (Kapitánův dev server / most)']];
 const SQL_DENY = /\b(DROP\s+(TABLE|DATABASE|SCHEMA)|TRUNCATE)\b/i;
 const READONLY = new Set(['cat', 'type', 'grep', 'egrep', 'fgrep', 'rg', 'ag', 'head', 'tail', 'less', 'more', 'wc', 'ls', 'dir', 'find', 'findstr', 'select-string', 'sls', 'get-content', 'gc', 'echo', 'printf', 'write-output', 'write-host', 'jq', 'diff', 'stat', 'file', 'sort', 'uniq', 'test', '[']);
-const WRAP = new Set(['sudo', 'env', 'nohup', 'time', 'exec', 'command', 'call', 'npx', 'bunx', 'xargs', '&', 'start', 'nice']);
+const WRAP = new Set(['sudo', 'env', 'nohup', 'time', 'exec', 'command', 'call', 'npx', 'bunx', 'xargs', '&', 'start', 'nice', 'timeout', 'stdbuf', 'builtin']);
 function extractHeredocs(s) { // A-006 kolo 3: tělo heredocu (<<EOF, <<'EOF', <<-EOF … po ukončovací řádek) se dřív
   if (!s.includes('<<')) return { stripped: s, bodies: [] };  // ZAHODILO (A-006 kolo 2, L22) — teď se ULOŽÍ do bodies[]
   const lines = s.split('\n'); const out = []; const bodies = [];         // (v pořadí výskytu) a komu patří, pozná
@@ -224,7 +224,26 @@ function mutatingRemoteHttp(cmd) {
   }
   return false;
 }
-const GIT_MUT = /\bgit\b(?:\s+-C\s+(\S+))?(?:\s+-c\s+\S+)*\s+(push|commit|merge|rebase|reset|checkout|switch|restore|tag|stash|branch\s+-[dDm]|clean|am|cherry-pick|revert)\b/gi;
+const GIT_MUT_SUBCMDS = new Set(['push', 'commit', 'merge', 'rebase', 'reset', 'checkout', 'switch', 'restore', 'tag', 'stash', 'clean', 'am', 'cherry-pick', 'revert']);
+// A-004 kolo 3: podpříkaz gitu a cíl (-C) se čtou POZIČNĚ z už tokenizovaných argumentů (c.a), NE regexem nad
+// spojeným textem (starý GIT_MUT nad c.all.join(' ')) — hodnota přepínače (-m "text", -c "text") je v c.a JEDEN
+// token, takže text uvnitř (byť zmiňuje „git push") se už nikdy neparsuje jako by šlo o další podpříkaz
+// (opravuje AH07/AH10/AH18). Globální volby gitu v libovolném pořadí: -c k=v, -C dir, --no-pager, -P,
+// --git-dir[=|_]…, --work-tree[=|_]…, --bare, --exec-path[=…] → pak teprve podpříkaz.
+function gitInvocation(a, cwd0) {
+  let target = cwd0, sub = null, i = 0;
+  for (; i < a.length; i++) {
+    const t = a[i];
+    if (t === '-C') { if (a[i + 1] !== undefined) { target = a[i + 1]; i++; } continue; }
+    if (t === '-c') { i++; continue; } // -c name=value = dva tokeny (name=value nemůže být podpříkaz)
+    if (t === '--git-dir' || t === '--work-tree') { i++; continue; }
+    if (/^--(git-dir|work-tree)=/.test(t)) continue;
+    if (/^(--no-pager|-P|--bare|--exec-path)(=.*)?$/.test(t)) continue;
+    if (/^-/.test(t)) continue; // neznámá globální volba gitu (bez odděleného hodnotového tokenu) — přeskočit
+    sub = t.toLowerCase(); i++; break;
+  }
+  return { target, sub, subArgs: a.slice(i) };
+}
 
 let raw = ''; process.stdin.on('data', d => raw += d);
 process.stdin.on('end', () => {
@@ -255,18 +274,22 @@ process.stdin.on('end', () => {
     for (const c of commands(cmd)) {
       if (['cd', 'pushd', 'set-location', 'sl', 'chdir'].includes(c.w)) { const t = c.a.find(x => !/^[-/]/.test(x) || /^\//.test(x) && x.length > 2); if (t) cur = absTarget(t); continue; }
       if (c.w !== 'git') continue;
-      for (const m of c.all.join(' ').matchAll(GIT_MUT)) {
-        const target = m[1] ? norm(m[1]) : cur;
-        const inRepo = repo && (target === repo || target.startsWith(repo + '/') || (repoRe.test(m[1] ? norm(m[1]) : '')));
-        // build/ klon může být junction/symlink jinam (disk mimo produkci) → skutečné cesty položek build/ se berou jako build/
-        let buildReal = []; try { const fsg = require('node:fs'), pg = require('node:path'); const bd = pg.join(WORKSPACE, 'build'); buildReal = fsg.readdirSync(bd).map(n => { try { return norm(fsg.realpathSync.native(pg.join(bd, n))); } catch { return ''; } }).filter(Boolean); } catch { }
-        const inBuild = target.startsWith(ws + '/build/') || buildReal.some(r => target === r || target.startsWith(r + '/'));
-        const inWs = target === ws || target.startsWith(ws + '/') || inBuild;
-        if (inRepo || !inWs) block(`git ${m[2]} mimo workspace auditora zakázán (cíl: ${target}). Auditor commituje jen svůj AUDIT repozitář.`);
-        if (inBuild && !/^(checkout|switch|restore|stash)$/i.test(m[2])) block(`git ${m[2]} v build/ klonu zakázán — klon slouží jen ke čtení a spuštění testů (povoleno: clone, fetch, pull, checkout, switch).`);
-      }
+      const { target: rawTarget, sub, subArgs } = gitInvocation(c.a, cur);
+      if (!sub) continue;
+      const target = absTarget(rawTarget);
+      // force push: jen skutečný --force/-f/--force-with-lease argument gitu za „push", nikdy text zprávy commitu (opravuje AH15)
+      const isForce = sub === 'push' && subArgs.some(x => x === '--force' || x === '-f' || x === '--force-with-lease' || /^--force-with-lease=/.test(x));
+      if (isForce) block('force push zakázán i ve workspace.');
+      const isMutating = GIT_MUT_SUBCMDS.has(sub) || (sub === 'branch' && subArgs[0] && /^-[dDm]/.test(subArgs[0]));
+      if (!isMutating) continue;
+      const inRepo = repo && (target === repo || target.startsWith(repo + '/'));
+      // build/ klon může být junction/symlink jinam (disk mimo produkci) → skutečné cesty položek build/ se berou jako build/
+      let buildReal = []; try { const fsg = require('node:fs'), pg = require('node:path'); const bd = pg.join(WORKSPACE, 'build'); buildReal = fsg.readdirSync(bd).map(n => { try { return norm(fsg.realpathSync.native(pg.join(bd, n))); } catch { return ''; } }).filter(Boolean); } catch { }
+      const inBuild = target.startsWith(ws + '/build/') || buildReal.some(r => target === r || target.startsWith(r + '/'));
+      const inWs = target === ws || target.startsWith(ws + '/') || inBuild;
+      if (inRepo || !inWs) block(`git ${sub} mimo workspace auditora zakázán (cíl: ${target}). Auditor commituje jen svůj AUDIT repozitář.`);
+      if (inBuild && !/^(checkout|switch|restore|stash)$/i.test(sub)) block(`git ${sub} v build/ klonu zakázán — klon slouží jen ke čtení a spuštění testů (povoleno: clone, fetch, pull, checkout, switch).`);
     }
-    if (/\bgit\s+(-C\s+\S+\s+)?push\b.*--force|\bgit\s+push\s+-f\b/i.test(cmd)) block('force push zakázán i ve workspace.');
     // zápis shellem: rozhoduje CÍL zápisu (přesměrování, cp/mv/copy/Set-Content…), ne slova v příkazu — `grep x <repo> 2>/dev/null` projde
     const wt = writeTargets(cmd, cwd); const inRepo = p => repo && (p === repo || p.startsWith(repo + '/'));
     // A-006: nestačilo ověřit „není to v repu aplikace" — cíl navíc MUSÍ ležet uvnitř povoleného workspace (stejný

@@ -80,6 +80,75 @@ T('A: `git push origin main` (backtick) blokován (A-004 kolo 2)', hook(AG, bash
 T('A: eval "git push origin main" blokován (A-004 kolo 2)', hook(AG, bash(repo, 'eval "git push origin main"')), 2);
 T('A: powershell -c "git push origin main" blokován (A-004 kolo 2)', hook(AG, bash(repo, 'powershell -c "git push origin main"')), 2);
 T('A: eval "vercel --prod" blokován (A-004 kolo 2, WORD_DENY)', hook(AG, bash(ws, 'eval "vercel --prod"')), 2);
+{ // A-004 kolo 3: KAŽDÝ případ z AUDIT/04_verdikty/A-004.md (AH = nesmí blokovat, AM = musí blokovat) — ID odpovídají tabulce verdiktu
+  const R = norm(repo), W = norm(ws), BX = `${W}/build/x`;
+  const AH = [
+    ['AH01', repo, 'echo "poznámka: pak udělám git push"', 0],
+    ['AH02', repo, "printf 'dalsi krok: git commit -am x\\n'", 0],
+    ['AH03', repo, 'ls # pak git push origin main', 0],
+    ['AH04', repo, 'true\n# git push origin main', 0],
+    ['AH05', ws, `cat <<'EOF' > ${W}/AUDIT/h05.md\nText: pak udelam git push origin main\nlimit > 1\nEOF`, 0],
+    ['AH06', ws, `cat <<'EOF' > ${W}/AUDIT/h06.md\ngit push origin main je zakazany\nEOF`, 0],
+    ['AH07', ws, `git -C ${W} commit -m "zakaz: git -C ${R} push"`, 0],
+    ['AH08', ws, 'git commit -m "fix: pak git push do repa"', 0],
+    ['AH09', repo, `grep -rn "git push" ${R}/README.md`, 0],
+    ['AH10', repo, 'git log --grep "git push" -3', 0],
+    ['AH11', ws, `W=${BX}; git -C $W checkout main`, 0],
+    ['AH12', ws, `git -C ${BX} fetch origin`, 0],
+    ['AH13', ws, `git -C ${BX} checkout --detach main`, 0],
+    ['AH14', ws, "node -e \"console.log('git push')\"", 0],
+    ['AH15', repo, 'echo "nikdy nedelej git push --force"', 0],
+    ['AH16', ws, "echo 'git commit' > /dev/null", 0],
+    ['AH17', ws, "printf '%s\\n' \"git reset --hard\"", 0],
+    ['AH18', ws, `git -C ${BX} merge-base main main`, 0],
+    ['AH19', ws, `echo "git push" | tee ${W}/AUDIT/h19.txt`, 0],
+  ];
+  const AM = [
+    ['AM01', repo, 'git push origin main', 2],
+    ['AM02', repo, 'true; git push', 2],
+    ['AM03', repo, 'true && git commit -am x', 2],
+    ['AM04', repo, 'false || git push', 2],
+    ['AM05', repo, 'echo x | git push', 2],
+    ['AM06', repo, 'echo x\ngit push', 2],
+    ['AM07', repo, 'echo $(git push)', 2],
+    ['AM08', repo, 'echo `git push`', 2],
+    ['AM09', repo, 'bash -c "git push"', 2],
+    ['AM10', repo, "sh -c 'git commit -am x'", 2],
+    ['AM11', repo, 'eval "git push"', 2],
+    ['AM12', repo, 'VAR=x git push', 2],
+    ['AM13', repo, 'env VAR=x git push', 2],
+    ['AM14', ws, `git -C ${R} push`, 2],
+    ['AM15', repo, 'git    push', 2],
+    ['AM16', repo, 'git\tpush', 2],
+    ['AM17', repo, '"git" push', 2],
+    ['AM18', repo, 'command git push', 2],
+    ['AM19', repo, 'echo main | xargs git push origin', 2],
+    ['AM20', repo, '& git push', 2],
+    ['AM21', repo, 'git.exe push origin main', 2],
+    ['AM22', repo, 'bash -lc "git push"', 2],
+    ['AM23', repo, 'if true; then git push; fi', 2],
+    ['AM24', repo, '{ git push; }', 2],
+    ['AM25', repo, 'sudo -u me git push', 2],
+    ['AM26', repo, 'timeout 60 git push', 2],
+    ['AM27', repo, 'nice -n 10 git push', 2],
+    ['AM28', ws, `git -c core.x=y -C ${R} push`, 2],
+    ['AM29', repo, 'git --no-pager push', 2],
+    ['AM30', repo, 'printf main | xargs -n 1 git push origin', 2],
+    ['AM31', repo, '! git push', 2],
+    ['AM32', ws, `cd ${R} && git commit -am x`, 2],
+    ['AM33', ws, `git -C "${R}" commit -am x`, 2],
+    ['AM34', repo, '/usr/bin/git push', 2],
+    ['AM35', repo, 'pwsh -NoProfile -Command "git push"', 2],
+    ['AM36', repo, 'exec git push', 2],
+    ['AM37', repo, 'while false; do git push; done', 2],
+    ['AM38', repo, "sh -ec 'git push'", 2],
+    ['AM39', repo, 'time git push', 2],
+    ['AM40', repo, '(git push)', 2],
+    ['AM41', repo, 'cmd /c git push', 2],
+    ['AM42', ws, `git -C ${BX} commit -am x`, 2],
+  ];
+  for (const [id, cwd, cmd, exp] of [...AH, ...AM]) T(`A-004 kolo3 ${id}: ${cmd.split('\n')[0].slice(0, 60)}`, hook(AG, bash(cwd, cmd)), exp);
+}
 // A-006: '>' slepené k předchozímu slovu (bez mezery, „slovo>cíl") — segments() ho neviděl jako přesměrování (fail-open, reálný nález)
 T('A: echo x>REPO/README.md slepené (bez mezery) blokován (A-006)', hook(AG, bash(ws, `echo x>${norm(repo)}/README.md`)), 2);
 T('A: echo x>1048576 slepené mimo repo i workspace blokován (A-006, repro nálezu)', hook(AG, bash(tmp, 'echo x>1048576')), 2);
