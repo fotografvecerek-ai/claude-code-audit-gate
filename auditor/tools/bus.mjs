@@ -79,7 +79,21 @@ function ledger() {
     atomicWrite(ledgerPath, lines.join('\n') + '\n');
   });
 }
-const out = o => console.log(typeof o === 'string' ? o : JSON.stringify(o, null, 2));
+// A-027: inbox/thread tisknou desítky kB. console.log do plné neblokující roury (macOS: malý buffer, pomalý čtenář) končí
+// EAGAIN → nezachycená výjimka → exit 1. Zápis tedy jde synchronně po dávkách a na EAGAIN krátce počká (s mezí); EPIPE
+// (čtenář roury skončil dřív, např. `| head`) je normální konec výstupu, ne chyba. Jiné chyby se propagují.
+function writeStdout(text) {
+  const buf = Buffer.from(text + '\n'); const deadline = Date.now() + 30000; let off = 0;
+  while (off < buf.length) {
+    try { off += fs.writeSync(1, buf, off); }
+    catch (e) {
+      if (e.code === 'EPIPE') return;
+      if (e.code !== 'EAGAIN' || Date.now() > deadline) throw e;
+      sleepMs(5);
+    }
+  }
+}
+const out = o => writeStdout(typeof o === 'string' ? o : JSON.stringify(o, null, 2));
 
 function nextId(pre) { const n = all().map(r => String(r.id || '')).map(i => (i.match(new RegExp(`^${pre}-(\\d+)$`)) || [])[1]).filter(Boolean).map(Number); return `${pre}-${String((n.length ? Math.max(...n) : 0) + 1).padStart(3, '0')}`; }
 

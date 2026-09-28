@@ -973,7 +973,10 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
 { // A-010 kolo2 bod 2: souběžný ČTENÁŘ (inbox) při N souběžných ack — Windows EPERM/EBUSY na rename/open bez retry
   // (verdikt: 241/250, horší než bez zámku). Čtenář nesmí spadnout a zapisovatel nesmí ztratit potvrzení.
   const REPS_D = 3, N_D = 50, R_D = 10; let badAckExitD = false, badReaderExitD = false, totalAckD = 0, expectAckD = 0;
-  const readerOne = () => new Promise(resolve => { const cp = spawn(process.execPath, [path.join(pkg, 'tools/bus.mjs'), 'inbox', '--for', 'kapitan'], { cwd: ws, env }); cp.on('close', code => resolve(code)); });
+  // A-027: čtenář musí stdout ODEBÍRAT — inbox tiskne všechny zprávy (desítky kB) a nečtená roura se na macOS (malý buffer,
+  // neblokující zápis) zaplní → EAGAIN/pád. stderr se zachytí do readerErrD (první řádky jdou do popisu T při selhání).
+  let readerErrD = '';
+  const readerOne = () => new Promise(resolve => { const cp = spawn(process.execPath, [path.join(pkg, 'tools/bus.mjs'), 'inbox', '--for', 'kapitan'], { cwd: ws, env }); let err = ''; cp.stdout.resume(); cp.stderr.on('data', d => { err += d; }); cp.on('close', (code, sig) => { if (code !== 0 && !readerErrD) readerErrD = `exit=${code} signal=${sig} stderr: ${err.split('\n').map(l => l.trim()).filter(Boolean).slice(0, 2).join(' | ')}`; resolve(code); }); });
   for (let rep = 0; rep < REPS_D; rep++) {
     const postD = bus('post', '--from', 'auditor', '--type', 'NOTE', '--id', `A-010K2D-${rep}`, '--text', 'ack+reader stress');
     const msgD = JSON.parse(postD.stdout).posted;
@@ -983,7 +986,7 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
     let obj = null; try { obj = JSON.parse(fs.readFileSync(path.join(busDir, msgD), 'utf8')); } catch { }
     totalAckD += obj ? (obj.ack || []).length : 0; expectAckD += N_D;
   }
-  T('BUS A-010 kolo2: souběžný čtenář + N ack — čtenář nikdy nespadne (exit 0)', badReaderExitD, false);
+  T(`BUS A-010 kolo2: souběžný čtenář + N ack — čtenář nikdy nespadne (exit 0)${readerErrD ? ' [' + readerErrD + ']' : ''}`, badReaderExitD, false);
   T('BUS A-010 kolo2: souběžný čtenář + N ack — zapisovatelé nikdy nespadnou (exit 0)', badAckExitD, false);
   T('BUS A-010 kolo2: souběžný čtenář + N ack — 0 ztracených potvrzení napříč běhy', totalAckD, expectAckD);
 }
