@@ -353,4 +353,4 @@ Opravy z vlastního auditu balíku (nálezy A-001 až A-023, ověřeno auditorem
   přesměrovává `HOME`/`USERPROFILE` na dočasnou složku ve všech scénářích, které spouštějí instalátor/`trust-folders.mjs`, a nová pojistka
   (hash skutečného `~/.claude.json` před/po celém samotestu) hlásí FAIL, pokud by se přece jen zapsalo mimo sandbox; starý marker
   `hotovo:true` z přerušené instalace se maže hned na začátku `setup-auditor.ps1`/`.sh`, ne až na konci.
-- Samotest 707.
+- Samotest 708.
