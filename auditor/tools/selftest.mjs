@@ -972,14 +972,19 @@ T('GATE: chybí gate → FAIL', (fs.unlinkSync(path.join(ws, 'AUDIT', '05_releas
   const headP3 = git('rev-parse --short HEAD');
   const fmtCZ = d => `${d.getDate()}. ${d.getMonth() + 1}. ${d.getFullYear()}`;
   const fmtISO = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  const dnes = new Date(), zitra = new Date(Date.now() + 86400000), pred4dny = new Date(Date.now() - 4 * 86400000);
+  const dnes = new Date(), pozitri = new Date(Date.now() + 2 * 86400000), pred4dny = new Date(Date.now() - 4 * 86400000);
   const gc = () => spawnSync(process.execPath, [path.join(pkg, 'kapitan-side/gate-check.mjs'), repo], { env, encoding: 'utf8' }).status;
   fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${fmtCZ(dnes)} — commit ${headP3}\nVerdikt: 🟢 SMÍ VYDAT\n`);
   T('GATE P3: CZ datum bez času (dnes) → PASS kdykoliv během dne', gc(), 0);
   fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${fmtISO(dnes)} — commit ${headP3}\nVerdikt: 🟢 SMÍ VYDAT\n`);
   T('GATE P3: ISO datum bez času (dnes) → PASS kdykoliv během dne', gc(), 0);
-  fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${fmtCZ(zitra)} — commit ${headP3}\nVerdikt: 🟢 SMÍ VYDAT\n`);
-  T('GATE P3: CZ datum bez času (zítra) → FAIL, budoucnost stále detekována', gc(), 2);
+  // A-027: „zítra" (+1 den) je flaky < 1 h před lokální půlnocí — gate-check má úmyslnou toleranci `age < -1 h`
+  // (řádek 56 gate-check.mjs) navrženou pro dnešní datum; datum přesně 1 den dopředu do ní těsně před půlnocí
+  // spadne taky (age je jen pár minut záporné) a gate PROJDE, i když má tvrdit „budoucnost". Pozítří (+2 dny)
+  // má age vždy < -24 h bez ohledu na denní dobu → test je nezávislý na tom, kdy se spustí, a produkční
+  // tolerance (bezpečnostně citlivá) zůstává nedotčená.
+  fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${fmtCZ(pozitri)} — commit ${headP3}\nVerdikt: 🟢 SMÍ VYDAT\n`);
+  T('GATE P3: CZ datum bez času (pozítří, +2 dny) → FAIL, budoucnost stále detekována', gc(), 2);
   fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${fmtCZ(pred4dny)} — commit ${headP3}\nVerdikt: 🟢 SMÍ VYDAT\n`);
   T('GATE P3: datum bez času 4 dny zpět (> 72 h) → FAIL, stáří stále detekováno', gc(), 2);
   fs.unlinkSync(path.join(ws, 'AUDIT', '05_release_gate.md'));
