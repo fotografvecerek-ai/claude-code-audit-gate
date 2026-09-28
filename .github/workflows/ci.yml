@@ -46,7 +46,7 @@ jobs:
             if ($errs) { $errs | ForEach-Object { Write-Error $_.Message }; throw "$($f.Name): parse error" }
           }
           Write-Host "ok: ps1 parse + BOM"
-      - name: selftest bran (634 scénářů)
+      - name: selftest bran (662 scénářů)
         run: node auditor/tools/selftest.mjs
 
   e2e-install:
