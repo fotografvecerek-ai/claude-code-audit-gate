@@ -149,6 +149,70 @@ T('A: eval "vercel --prod" blokován (A-004 kolo 2, WORD_DENY)', hook(AG, bash(w
   ];
   for (const [id, cwd, cmd, exp] of [...AH, ...AM]) T(`A-004 kolo3 ${id}: ${cmd.split('\n')[0].slice(0, 60)}`, hook(AG, bash(cwd, cmd)), exp);
 }
+{ // A-004 kolo 4 (POSLEDNÍ): propustky nalezené auditorem (cases-k2-extra.json / table-k2.md) — obaly bez WRAP záznamu,
+  // globální volby gitu (--git-dir/--work-tree/GIT_DIR=/GIT_WORK_TREE=), -c alias zneužití, „+refspec" a sloučené -uf force
+  const R = norm(repo), W = norm(ws), BX = `${W}/build/x`;
+  const XM = [
+    ['XM01', repo, 'env GIT_DIR=x git push', 2],
+    ['XM02', repo, 'command git push', 2],
+    ['XM03', repo, 'exec git push', 2],
+    ['XM04', repo, 'nohup git push &', 2],
+    ['XM05', repo, 'time git push', 2],
+    ['XM06', repo, 'stdbuf -oL git push', 2],
+    ['XM07', repo, 'ionice -c3 git push', 2],
+    ['XM08', repo, 'echo main | xargs -I{} git push origin {}', 2],
+    ['XM09', repo, 'find . -maxdepth 0 -exec git push ;', 2],
+    ['XM10', repo, 'git -c core.x=y push', 2],
+    ['XM11', repo, 'git --git-dir=.git push', 2],
+    ['XM12', repo, '"$(which git)" push', 2],
+    ['XM13', repo, 'g=git; $g push', 2],
+    ['XM14', repo, 'f(){ git push; }; f', 2],
+    ['XM15', repo, 'bash -c \'bash -c "git push"\'', 2],
+    ['XM16', repo, 'watch git push', 2],
+    ['XM17', repo, '(git push)', 2],
+    ['XM18', repo, 'x=$(git push)', 2],
+    ['XM19', repo, 'x=`git push`', 2],
+    ['XM20', repo, 'true && git push', 2],
+    ['XM21', repo, 'false || git push', 2],
+    ['XM22', repo, 'true; git push', 2],
+    ['XM23', repo, 'echo | git push', 2],
+    ['XM24', repo, 'true\ngit push', 2],
+    ['XM25', repo, 'git commit --amend --no-edit', 2],
+    ['XM26', repo, 'git reset --hard', 2],
+    ['XM27', repo, 'git push --force-with-lease', 2],
+    ['XM28', repo, 'git push origin +main', 2],
+    ['XM29', ws, `git --git-dir=${R}/.git push`, 2],
+    ['XM30', ws, `GIT_DIR=${R}/.git git push`, 2],
+    ['XM31', ws, `git --work-tree=${R} --git-dir=${R}/.git commit -am x`, 2],
+    ['XM32', repo, 'git -c alias.p=push p', 2],
+    ['XM33', ws, `git -C ${W} push --force`, 2],
+    ['XM34', ws, `git -C ${W} push origin +main`, 2],
+    ['XM35', ws, `git -C ${W} push -uf origin main`, 2],
+    ['XM36', ws, `git -C ${W} push --force-with-lease`, 2],
+    ['XM37', ws, `git -C ${BX} push`, 2],
+    ['XM38', ws, `pushd ${R} && git push`, 2],
+    ['XM39', ws, `git --git-dir ${R}/.git push`, 2],
+    ['XM40', repo, 'sudo git push', 2],
+  ];
+  const XH = [
+    ['XH01', repo, 'git log --grep "push"', 0],
+    ['XH02', repo, 'grep -r "git push" docs', 0],
+    ['XH03', repo, 'echo "sudo git push"', 0],
+    ['XH04', ws, `cat <<'EOF' > AUDIT/_data/x.md\nnikdy git push --force\nEOF`, 0],
+    ['XH05', ws, `git -C ${BX} status`, 0],
+    ['XH06', ws, `git -C ${BX} fetch`, 0],
+    ['XH07', ws, `git -C ${BX} checkout main`, 0],
+    ['XH08', repo, 'git diff --stat', 0],
+    ['XH09', ws, 'node tools/bus.mjs post --from auditor --text "git push"', 0],
+    ['XH10', ws, `git -C ${W} commit -m "pozn: git push --force je zakaz"`, 0],
+    ['XH11', ws, `git -C ${BX} pull`, 0],
+    ['XH12', ws, `git -C ${BX} log --oneline -- push`, 0],
+    ['XH13', repo, 'git show HEAD:push.md', 0],
+    ['XH14', ws, `git -C ${BX} branch -a`, 0],
+    ['XH15', repo, 'git status && echo "git reset --hard"', 0],
+  ];
+  for (const [id, cwd, cmd, exp] of [...XM, ...XH]) T(`A-004 kolo4 ${id}: ${cmd.split('\n')[0].slice(0, 60)}`, hook(AG, bash(cwd, cmd)), exp);
+}
 // A-006: '>' slepené k předchozímu slovu (bez mezery, „slovo>cíl") — segments() ho neviděl jako přesměrování (fail-open, reálný nález)
 T('A: echo x>REPO/README.md slepené (bez mezery) blokován (A-006)', hook(AG, bash(ws, `echo x>${norm(repo)}/README.md`)), 2);
 T('A: echo x>1048576 slepené mimo repo i workspace blokován (A-006, repro nálezu)', hook(AG, bash(tmp, 'echo x>1048576')), 2);

@@ -132,8 +132,9 @@ function commands(cmd, depth = 0, out = [], vars = {}) {
     if (toks.length === 1 && /^[A-Za-z_]\w*=/.test(toks[0])) { const eq = toks[0].indexOf('='); vars[toks[0].slice(0, eq)] = toks[0].slice(eq + 1); continue; }
     const subst = t => (t || '').replace(/\$\{(\w+)\}|\$(\w+)/g, (m, b, p) => { const n = b || p; return vars[n] !== undefined ? vars[n] : m; });
     let i = 0;
+    const segEnv = {}; // A-004 kolo 4: „VAR=hodnota" bezprostředně před příkazem v TOMTO segmentu (i za obalem jako env/sudo) — pro GIT_DIR/GIT_WORK_TREE cíl
     for (;;) { const w = baseW(subst(toks[i]));
-      if (/^\w+=/.test(toks[i] || '')) { const eq = toks[i].indexOf('='); vars[toks[i].slice(0, eq)] = toks[i].slice(eq + 1); i++; continue; }
+      if (/^\w+=/.test(toks[i] || '')) { const eq = toks[i].indexOf('='); const nm = toks[i].slice(0, eq), vl = subst(toks[i].slice(eq + 1)); vars[nm] = vl; segEnv[nm] = vl; i++; continue; }
       if (KEYWORDS.has(w)) { i++; continue; }
       if (WRAP.has(w)) {
         i++; if (w === 'start' && toks[i] !== undefined && (toks[i] === '' || /\s/.test(toks[i]))) i++;
@@ -165,7 +166,7 @@ function commands(cmd, depth = 0, out = [], vars = {}) {
     }
     if (w === 'eval') { commands(a.join(' '), depth + 1, out, vars); continue; } // eval "git push …" — obsah se rekurzivně tokenizuje jako u shell -c (kolo 2)
     const inline = ['node', 'python', 'python3', 'py', 'deno', 'bun', 'ruby', 'perl'].includes(w) && lower.some(x => /^(-e|-c|--eval|-p|--print)$/.test(x)) ? a.join(' ') : null;
-    out.push({ w, a, lower, all: [subst(toks[i]), ...a], inline });
+    out.push({ w, a, lower, all: [subst(toks[i]), ...a], inline, envs: segEnv });
   }
   return out;
 }
@@ -234,18 +235,51 @@ const GIT_MUT_SUBCMDS = new Set(['push', 'commit', 'merge', 'rebase', 'reset', '
 // (opravuje AH07/AH10/AH18). Globální volby gitu v libovolném pořadí: -c k=v, -C dir, --no-pager, -P,
 // --git-dir[=|_]…, --work-tree[=|_]…, --bare, --exec-path[=…] → pak teprve podpříkaz.
 function gitInvocation(a, cwd0) {
-  let target = cwd0, sub = null, i = 0;
+  let target = cwd0, sub = null, i = 0, aliasRisk = null;
   for (; i < a.length; i++) {
     const t = a[i];
     if (t === '-C') { if (a[i + 1] !== undefined) { target = a[i + 1]; i++; } continue; }
-    if (t === '-c') { i++; continue; } // -c name=value = dva tokeny (name=value nemůže být podpříkaz)
-    if (t === '--git-dir' || t === '--work-tree') { i++; continue; }
-    if (/^--(git-dir|work-tree)=/.test(t)) continue;
+    if (t === '-c') { // A-004 kolo 4: -c name=value se dřív jen přeskočilo — teď se hodnota kontroluje (alias může skrýt mutační příkaz)
+      const val = a[i + 1]; i++;
+      if (val !== undefined) {
+        const eq = val.indexOf('='); const name = eq >= 0 ? val.slice(0, eq) : val; const value = eq >= 0 ? val.slice(eq + 1) : '';
+        if (/^alias\./i.test(name)) aliasRisk = `-c ${val}`; // git -c alias.X=… → alias může schovat cokoliv, blok bez ohledu na hodnotu
+        else if (/!/.test(value) || value.split(/\s+/).some(w => GIT_MUT_SUBCMDS.has(w.toLowerCase()))) aliasRisk = `-c ${val}`;
+      }
+      continue;
+    }
+    if (t === '--git-dir' || t === '--work-tree') { if (a[i + 1] !== undefined) { target = a[i + 1]; i++; } continue; } // A-004 kolo 4: cíl (--git-dir/--work-tree hodnota) se teď skutečně použije, dřív se jen zahodil
+    if (/^--(git-dir|work-tree)=/.test(t)) { target = t.replace(/^--(git-dir|work-tree)=/, ''); continue; }
     if (/^(--no-pager|-P|--bare|--exec-path)(=.*)?$/.test(t)) continue;
     if (/^-/.test(t)) continue; // neznámá globální volba gitu (bez odděleného hodnotového tokenu) — přeskočit
     sub = t.toLowerCase(); i++; break;
   }
-  return { target, sub, subArgs: a.slice(i) };
+  return { target, sub, subArgs: a.slice(i), aliasRisk };
+}
+// A-004 kolo 4: fail-closed síť pro NEROZPOZNANÉ obaly (ionice, watch, find -exec, „$(which git)"…) — místo vyjmenovávání
+// každého možného obalu se prohlíží SUROVÝ obsah segmentu (c.all): objeví-li se kdekoli token vypadající jako spuštění
+// gitu (přímo „git"/„git.exe", i skrz $(...)/zpětné apostrofy) a KDEKOLI ZA NÍM mutační podpříkaz, blokuje se — POKUD
+// rozpoznané spouštěné slovo segmentu (c.w) není na krátké neškodné allowlistě. „git" samo s nemutujícím podpříkazem
+// řeší přesná poziční logika výše (gitInvocation) — sem se vůbec nedostane (c.w === 'git' je vyloučeno na vstupu).
+// „#" zahajuje (jen pro tuhle síť, ne pro sdílený tokenizer) komentář jako v reálném shellu, aby se neblokovaly
+// poznámky/texty typu „ls # pak git push" (AH03/AH04).
+const SAFE_FIRST_WORD = new Set(['echo', 'printf', 'grep', 'rg', 'cat', 'head', 'tail', 'less', 'wc', 'sort']);
+function looksLikeGitToken(tok) {
+  const s = String(tok || '');
+  if (/(^|[\\/])git(\.exe)?$/i.test(s)) return true;
+  if (/\$\([^)]*\bgit(\.exe)?\b[^)]*\)/i.test(s)) return true;
+  if (/`[^`]*\bgit(\.exe)?\b[^`]*`/i.test(s)) return true;
+  return false;
+}
+function fallbackGitMutationScan(c) {
+  if (c.w === 'git') return false;
+  if (c.w === 'node' && c.all.some(t => /(^|[\\/])(auditor-)?bus\.mjs$/i.test(String(t || '')))) return false;
+  if (SAFE_FIRST_WORD.has(c.w)) return false;
+  const hashIdx = c.all.findIndex(t => /^#/.test(String(t || '')));
+  const toks = hashIdx >= 0 ? c.all.slice(0, hashIdx) : c.all;
+  const gitIdx = toks.findIndex(looksLikeGitToken);
+  if (gitIdx < 0) return false;
+  return toks.slice(gitIdx + 1).some(t => GIT_MUT_SUBCMDS.has(String(t || '').toLowerCase()));
 }
 
 let raw = ''; process.stdin.on('data', d => raw += d);
@@ -281,12 +315,16 @@ process.stdin.on('end', () => {
     const absTarget = p => { p = String(p).replace(/\\/g, '/'); const n = norm(p); return /^\//.test(n) ? norm(collapse(n)) : norm(collapse(cur + '/' + p)); };
     for (const c of commands(cmd)) {
       if (['cd', 'pushd', 'set-location', 'sl', 'chdir'].includes(c.w)) { const t = c.a.find(x => !/^[-/]/.test(x) || /^\//.test(x) && x.length > 2); if (t) cur = absTarget(t); continue; }
+      if (fallbackGitMutationScan(c)) block(`Podezřelý příkaz zmiňuje git a mutační podpříkaz skrz nerozpoznaný obal ("${c.w}") — fail-closed (A-004 kolo 4).`);
       if (c.w !== 'git') continue;
-      const { target: rawTarget, sub, subArgs } = gitInvocation(c.a, cur);
+      const envTarget = (c.envs && (c.envs.GIT_DIR || c.envs.GIT_WORK_TREE)) || cur; // A-004 kolo 4: GIT_DIR=/GIT_WORK_TREE= (i přes env obal) určuje cíl místo cwd
+      const { target: rawTarget, sub, subArgs, aliasRisk } = gitInvocation(c.a, envTarget);
+      if (aliasRisk) block(`git -c s podezřelým aliasem/hodnotou zakázán ("${aliasRisk}") — může skrývat mutační příkaz (A-004 kolo 4).`);
       if (!sub) continue;
       const target = absTarget(rawTarget);
-      // force push: jen skutečný --force/-f/--force-with-lease argument gitu za „push", nikdy text zprávy commitu (opravuje AH15)
-      const isForce = sub === 'push' && subArgs.some(x => x === '--force' || x === '-f' || x === '--force-with-lease' || /^--force-with-lease=/.test(x));
+      // force push: --force/-f/--force-with-lease, „+refspec" a sloučené krátké volby (-uf/-fu) — nikdy text zprávy commitu (opravuje AH15)
+      const isForce = sub === 'push' && subArgs.some(x => x === '--force' || x === '-f' || x === '--force-with-lease' || /^--force-with-lease=/.test(x) ||
+        /^\+/.test(x) || (/^-[A-Za-z]{2,}$/.test(x) && /f/.test(x.slice(1))));
       if (isForce) block('force push zakázán i ve workspace.');
       const isMutating = GIT_MUT_SUBCMDS.has(sub) || (sub === 'branch' && subArgs[0] && /^-[dDm]/.test(subArgs[0]));
       if (!isMutating) continue;
