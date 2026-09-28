@@ -226,6 +226,22 @@ T('A: echo "a>b" (uvozovky) není přesměrování — „b" se nebere jako cíl
   T('A-006 kolo3 H10: pwsh -Command - <<EOF (lone dash = čti ze stdin) blokován', hook(AG, bash(ws, sub("pwsh -Command - <<EOF\necho x > {REPO}/h11.txt\nEOF"))), 2);
   T('A-006 kolo3 H11: powershell - <<EOF (poziční lone dash) blokován', hook(AG, bash(ws, sub("powershell - <<EOF\necho x > {REPO}/h12.txt\nEOF"))), 2);
   T('A-006 kolo3 H12: cmd < skript.bat blokován fail-closed', hook(AG, bash(ws, 'cmd < skript.bat')), 2);
+  // --- A-006 kolo 3 (verdikt K2, table-k2.md): E14 a varianty — segment s vloženým kódem interpretu (node -e/--eval,
+  // python -c, roura do node -e) dřív přeskočil kontrolu přesměrování celého segmentu (propustek). Teď se kontroluje vždy.
+  T('A-006 kolo3 E14a: node -e "console.log(1)" > {OUT}/e14a.txt blokován (dřív propustek)', hook(AG, bash(ws, sub('node -e "console.log(1)" > {OUT}/e14a.txt'))), 2);
+  T('A-006 kolo3 E14b: python -c "print(1)" > {OUT}/e14b.txt blokován (dřív propustek)', hook(AG, bash(ws, sub('python -c "print(1)" > {OUT}/e14b.txt'))), 2);
+  T('A-006 kolo3 E14c: node --eval "1" > {OUT}/e14c.txt blokován (dřív propustek)', hook(AG, bash(ws, sub('node --eval "1" > {OUT}/e14c.txt'))), 2);
+  T('A-006 kolo3 E14d: python3 -c "1" > {OUT}/e14d.txt blokován (dřív propustek)', hook(AG, bash(ws, sub('python3 -c "1" > {OUT}/e14d.txt'))), 2);
+  T('A-006 kolo3 E14e: echo 1 | node -e "1" > {OUT}/e14e.txt (roura + vložený kód) blokován (dřív propustek)', hook(AG, bash(ws, sub('echo 1 | node -e "1" > {OUT}/e14e.txt'))), 2);
+  T('A-006 kolo3 E14f: node -e "console.log(1)" > AUDIT/_data/e14f.txt do povolené složky projde', hook(AG, bash(ws, 'node -e "console.log(1)" > AUDIT/_data/e14f.txt')), 0);
+  T('A-006 kolo3 E14g: node -e "console.log(1)" > /dev/null zůstává povolen', hook(AG, bash(ws, 'node -e "console.log(1)" > /dev/null')), 0);
+  // --- E23: Write/Edit cesta přes junction build/lnk (reálně vede ven z workspace) — dřív se u Edit/Write nevolal realOf.
+  T('A-006 kolo3 E23: Write přes junction build/lnk (reálná cesta mimo workspace) blokován (dřív propustek)', hook(AG, write(ws, path.join(ws, 'build', 'lnk', 'e23.txt'))), 2);
+  T('A-006 kolo3 E23b: Write do build/ mimo junction (běžný lokální klon) zůstává povolen', hook(AG, write(ws, path.join(ws, 'build', 'e23b.txt'))), 0);
+  // --- E33: /dev/null, /dev/stdout, /dev/stderr, >&2 patří na seznam povolených cílů (dřív falešná blokace).
+  T('A-006 kolo3 E33a: echo x > /dev/stderr zůstává/je povolen (dřív falešná blokace)', hook(AG, bash(ws, 'echo x > /dev/stderr')), 0);
+  T('A-006 kolo3 E33b: echo x > /dev/stdout povolen', hook(AG, bash(ws, 'echo x > /dev/stdout')), 0);
+  T('A-006 kolo3 E33c: echo x >&2 povolen', hook(AG, bash(ws, 'echo x >&2')), 0);
 }
 
 // --- KAPITÁN GUARD
@@ -685,7 +701,13 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
 }
 // --- KATALOG: nic se neinstaluje samo; doporučení podle projektu, aktivace/deaktivace beze zbytků, Codex varianta, hooky z katalogu
 if (fs.existsSync(path.join(pkg, 'katalog', 'katalog.json'))) {
-  const KT = path.join(pkg, 'tools', 'katalog.mjs'); const rdS = f => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } }; const kat = (...a) => spawnSync(process.execPath, [KT, ...a], { encoding: 'utf8' });
+  const KT = path.join(pkg, 'tools', 'katalog.mjs'); const rdS = f => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
+  // A-006 kolo 3 (bod 4): „KATALOG Codex TOML" padalo u auditora (343/344) mimo tuto vlastní zemi — kat() dřív dědil
+  // CELÉ process.env (HOME/USERPROFILE/locale/TMPDIR reálného stroje), takže výsledek mohl mírně kolísat mezi stroji.
+  // Izolované HOME/tmp jen pro spuštění katalog.mjs (smysl testu — obsah TOML/AGENTS.md z fixního --cil — se nemění).
+  const katHome = path.join(tmp, 'kat-home'); fs.mkdirSync(katHome, { recursive: true });
+  const katEnv = { ...process.env, HOME: katHome, USERPROFILE: katHome, XDG_CONFIG_HOME: path.join(katHome, '.config'), XDG_CACHE_HOME: path.join(katHome, '.cache'), LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', TMPDIR: katHome, TEMP: katHome, TMP: katHome };
+  const kat = (...a) => spawnSync(process.execPath, [KT, ...a], { encoding: 'utf8', env: katEnv });
   const kp = path.join(tmp, 'kat-projekt'); fs.mkdirSync(kp, { recursive: true }); git('init -q', kp); fs.writeFileSync(path.join(kp, 'package.json'), '{"devDependencies":{"typescript":"5"}}'); fs.writeFileSync(path.join(kp, 'tsconfig.json'), '{}');
   const d = JSON.parse(kat('doporuc', '--cil', kp, '--json', '--nezapisovat').stdout || '{}'); const ano = (d.ano || []).map(x => x.id), ne = (d.ne || []).map(x => x.id);
   T('KATALOG: doporučení podle projektu (TS → typescript-reviewer, bez Pythonu → python-reviewer ne)', `${ano.includes('typescript-reviewer')},${ne.includes('python-reviewer')},${d.holy}`, 'true,true,true');

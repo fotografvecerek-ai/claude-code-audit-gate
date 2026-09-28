@@ -180,7 +180,7 @@ function denyHit(cmd) {   // → { why, tok } nebo null
   return null;
 }
 // KAM příkaz zapisuje: přesměrování (kromě /dev/null, nul, &N) a cíle zapisujících příkazů; cd uvnitř příkazu se sleduje
-const NULLS = /^(\/dev\/null|nul|\$null|&\d?|&-)$/i;
+const NULLS = /^(\/dev\/null|\/dev\/stdout|\/dev\/stderr|nul|\$null|&\d?|&-)$/i;
 const W_LAST = new Set(['cp', 'mv', 'copy', 'move', 'xcopy', 'rsync', 'ln', 'install', 'scp']);
 const W_ALL = new Set(['tee', 'touch', 'mkdir', 'md', 'rm', 'del', 'erase', 'rmdir', 'rd', 'truncate', 'unlink']);
 const W_PS = { 'set-content': 0, 'add-content': 0, 'out-file': 0, 'new-item': 0, 'remove-item': 0, 'clear-content': 0, 'copy-item': 1, 'move-item': 1, 'rename-item': 0 };
@@ -195,7 +195,10 @@ function writeTargets(cmd, cwd0) {
   const mk = (p, w, tok) => UNRESOLVABLE.test(p) ? { unresolved: true, raw: p, cmd: w, tok } : { path: abs(p), cmd: w, tok };
   for (const c of commands(cmd)) {
     if (['cd', 'pushd', 'set-location', 'sl', 'chdir'].includes(c.w)) { const t = c.a.find(x => !/^[-/]/.test(x) || /^\//.test(x) && x.length > 2); if (t) cur = abs(t); continue; }
-    if (c.inline) { if (INLINE_WRITE.test(c.inline)) res.push({ inline: true, text: c.inline, cmd: c.w }); continue; }
+    // A-006 kolo 3: vložený kód (node -e, python -c…) se dřív `continue`-em vyhnul kontrole přesměrování celého
+    // segmentu → `node -e 1 > ../out` prošlo (E14). Podezřelý zápis uvnitř kódu se pořád zaznamená, ale segment
+    // se dál zpracuje stejně jako každý jiný — přesměrování se kontroluje VŽDY, bez ohledu na příkaz.
+    if (c.inline && INLINE_WRITE.test(c.inline)) res.push({ inline: true, text: c.inline, cmd: c.w });
     // přesměrování: `> f`, `>> f`, `1>f`, `2> f`, `&> f`, `>nul`, `>|f` (noclobber override, A-006 kolo 2 B06)
     for (let k = 0; k < c.all.length; k++) { const m = /^(\d|&)?>>?\|?(.*)$/.exec(c.all[k]); if (!m) continue; const had2 = !!m[2]; const t = m[2] || c.all[k + 1] || ''; if (!had2) k++; const tokStr = c.all[k - (had2 ? 0 : 1)] + (had2 ? '' : (t ? ' ' + t : ''));
       // prázdný/přerušený cíl (žádný token za '>') — typicky $(...)/zpětné apostrofy rozštěpily příkaz na segmenty a cíl
@@ -253,9 +256,14 @@ process.stdin.on('end', () => {
 
   if (['Edit', 'Write', 'NotebookEdit', 'MultiEdit'].includes(tool)) {
     const fp = norm(collapse(ti.file_path || ti.notebook_path || '')); if (!fp) process.exit(0);
-    if (WRITE_DENY.some(d => fp.startsWith(d))) block(`Zápis do ${fp} zakázán — 03_dukazy/ patří Kapitánovi.`);
-    if (repo && (fp === repo || fp.startsWith(repo + '/'))) block(`Zápis do repa aplikace zakázán (${fp}). Auditor nekóduje — sepiš nález/návrh do AUDIT/.`);
-    if (!WRITE_ALLOW_DIRS.some(a => fp.startsWith(a)) && !WRITE_ALLOW_FILES.includes(fp)) block(`Zápis mimo povolené složky (${fp}). Povoleno: AUDIT/, tools/, .claude/, build/ (lokální klon pro testy) ve workspace auditora.`);
+    // A-006 kolo 3 (E23): stejně jako u Bash/PowerShell musí i tady projít reálná cesta (fs.realpathSync) —
+    // junction/symlink pod povolenou složkou (typicky build/lnk) může ve skutečnosti vést ven z workspace;
+    // naivní řetězcová shoda nad `fp` samotným by to nepoznala. Blok padne, když selže buď literální, nebo reálná cesta.
+    const fpReal = realOf(fp);
+    if (WRITE_DENY.some(d => fp.startsWith(d)) || WRITE_DENY_REAL.some(d => fpReal.startsWith(d))) block(`Zápis do ${fp} zakázán — 03_dukazy/ patří Kapitánovi.`);
+    if ((repo && (fp === repo || fp.startsWith(repo + '/'))) || (repoReal && (fpReal === repoReal || fpReal.startsWith(repoReal + '/')))) block(`Zápis do repa aplikace zakázán (${fp}). Auditor nekóduje — sepiš nález/návrh do AUDIT/.`);
+    const inAllow = p => WRITE_ALLOW_DIRS.some(a => p.startsWith(a)) || WRITE_ALLOW_FILES.includes(p) || WRITE_ALLOW_DIRS_REAL.some(a => p.startsWith(a)) || WRITE_ALLOW_FILES_REAL.includes(p);
+    if (!inAllow(fp) || !inAllow(fpReal)) block(`Zápis mimo povolené složky (${fp}). Povoleno: AUDIT/, tools/, .claude/, build/ (lokální klon pro testy) ve workspace auditora.`);
     if (/\/audit\/bus\/[^/]*\.json$/.test(fp)) block('Zprávy na mostu jen přes tools/bus.mjs (kontroluje vlastnictví a to, že auditor zadává Kapitánovi jen nálezy) — ne zápisem souboru.');
     if (/\/audit\/bus\/ledger\.md$/.test(fp)) block('LEDGER.md generuje bus.mjs — needitovat ručně.');
     if (/\/tools\/(preflight\.mjs|verze|\.balik-otisky\.json)$/.test(fp)) block('Kontrolu před startem (tools/preflight.mjs), VERZE a otisky nástrojů mění jen aktualizace balíku — spouštěč je volá před startem agenta.');
