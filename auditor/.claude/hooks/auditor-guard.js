@@ -24,14 +24,30 @@ const WRITE_DENY = [`${ws}/audit/03_dukazy/`];
 // cokoliv se nedá vyřešit (nic v cestě zatím neexistuje, chyba OS) vrátí vstup beze změny — nikdy nespadne.
 function realOf(p) {
   if (!p) return p;
-  const fsr = require('node:fs'); let cur = p, suffix = '';
+  const fsr = require('node:fs');
   // Windows: norm() dává cestám tvar „/c/…" (písmeno disku jako první segment) — fs.realpathSync(.native) tohle
   // neumí, bere „/c/…" jako relativní k aktuálnímu disku („C:\c\…") a vždy by to spadlo → realOf byl tiše no-op
   // (junction/symlink vedoucí ven z workspace pod build/ by nikdy neblokoval, viz A-006 kolo 2 B24). Před voláním
   // se převede na „C:/…", výsledek zpět přes norm() do stejného tvaru jako zbytek kódu.
   const toNative = x => process.platform === 'win32' && /^\/[a-z]\//.test(x) ? x[1].toUpperCase() + ':' + x.slice(2) : x;
+  // A-027: norm() cestu dál lowercase (kvůli case-insensitivnímu Windows/macOS). Na case-SENSITIVNÍM FS (Linux) ale
+  // workspace/tmp adresář vzniklý přes fs.mkdtempSync běžně mixuje velká/malá písmena v náhodném sufixu — lowercased
+  // `p` pak na disku přesně neexistuje, fs.realpathSync selže na KAŽDÉ úrovni (i u existujících předků) a smyčka níže
+  // doputuje jen k prvnímu skutečně case-shodnému předku (typicky „/tmp") — zbytek cesty (klidně i junction/symlink
+  // pod build/) zůstane přilepený jako nerozbalený suffix → realOf tiše nic nerozbalí a pojistka na Linuxu propustí
+  // (B24/E23, díra jen na case-sensitivním FS). Náprava: dřív, než se zkouší realpathSync, se cesta segment po
+  // segmentu dopočítá na SKUTEČNÝ tvar na disku (fs.readdirSync rodiče + case-insensitive shoda jména). Na
+  // case-insensitivním FS (Windows/macOS) je tohle no-op (readdirSync najde přesně to, co by stejně našel realpathSync).
+  const nativeFull = toNative(p);
+  const isDrive = /^[A-Za-z]:\//.test(nativeFull);
+  let cur = isDrive ? nativeFull.slice(0, 3) : '/';
+  for (const seg of (isDrive ? nativeFull.slice(3) : nativeFull.slice(1)).split('/').filter(Boolean)) {
+    let hit; try { hit = fsr.readdirSync(cur).find(e => e.toLowerCase() === seg.toLowerCase()); } catch { hit = undefined; }
+    cur = cur.replace(/\/$/, '') + '/' + (hit !== undefined ? hit : seg);
+  }
+  let suffix = '';
   for (let guard = 0; guard < 64 && cur; guard++) {
-    try { return norm(fsr.realpathSync.native(toNative(cur))) + suffix; } catch { }
+    try { return norm(fsr.realpathSync.native(cur)) + suffix; } catch { }
     const i = cur.lastIndexOf('/'); if (i <= 0) break;
     suffix = '/' + cur.slice(i + 1) + suffix; cur = cur.slice(0, i);
   }
