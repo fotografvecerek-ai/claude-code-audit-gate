@@ -45,7 +45,11 @@ function withRetry(fn, { tries = 25, baseMs = 8, retryable = e => TRANSIENT_CODE
     catch (e) { if (i >= tries || !retryable(e)) throw e; sleepMs(Math.min(baseMs * i, 200) + Math.floor(Math.random() * baseMs)); }
   }
 }
-function statOrNull(p) { try { return fs.statSync(p); } catch (e) { if (e.code === 'ENOENT') return null; throw e; } }
+// A-027: na Windows (Node 20/libuv 1.46 = klasická sémantika mazání) zámek, který vlastník právě smazal, zatímco ho jiný
+// proces měl otevřený (stat/read), zůstává chvíli "delete pending": stat i create pak hlásí EPERM místo ENOENT/EEXIST.
+// Reprodukce: 2/1000 procesů exit 1 na `EPERM: stat …json.lock` (stress-ack, 2 CPU). Znamená to "zámek právě mizí" —
+// stejně jako ENOENT: nemazat, jen počkat a zkusit znovu (null).
+function statOrNull(p) { try { return fs.statSync(p); } catch (e) { if (e.code === 'ENOENT' || TRANSIENT_CODES.has(e.code)) return null; throw e; } }
 // Testovatelnost bez čekání na produkční 10s/60s výchozí hodnoty (viz selftest.mjs A-010 kolo2).
 const LOCK_STALE_MS = +(process.env.AUDITOR_BUS_STALE_MS || 10000);
 const LOCK_TIMEOUT_MS = +(process.env.AUDITOR_BUS_LOCK_TIMEOUT_MS || 60000);
@@ -57,7 +61,7 @@ const LOCK_TIMEOUT_MS = +(process.env.AUDITOR_BUS_LOCK_TIMEOUT_MS || 60000);
 function claimStaleLock(lockPath) {
   const grave = `${lockPath}.stale-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   try { withRetry(() => fs.renameSync(lockPath, grave)); }
-  catch (e) { if (e.code === 'ENOENT') return false; throw e; }
+  catch (e) { if (e.code === 'ENOENT' || TRANSIENT_CODES.has(e.code)) return false; throw e; }   // přechodná kolize (delete pending) → nevzdávat, volající smyčka to zkusí znovu
   try { withRetry(() => fs.rmSync(grave, { recursive: true, force: true })); } catch { }
   return true;
 }
@@ -120,14 +124,17 @@ function withLock(file, fn, { staleMs = LOCK_STALE_MS, timeoutMs = LOCK_TIMEOUT_
   const lock = `${file}.lock`;
   const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const deadline = Date.now() + timeoutMs;
-  let owned = false;
+  let owned = false, lastCode = '';
   for (; ;) {
-    try { withRetry(() => fs.writeFileSync(lock, token, { flag: 'wx' })); owned = true; break; }
+    try { fs.writeFileSync(lock, token, { flag: 'wx' }); owned = true; break; }
     catch (e) {
-      if (e.code !== 'EEXIST' && e.code !== 'EISDIR') throw e;   // EISDIR: zámek je omylem adresář (dřívější pád/bug) — řeš jako "existuje", ne fatálně
+      // EISDIR: zámek je omylem adresář (dřívější pád/bug) — řeš jako "existuje", ne fatálně. EPERM/EBUSY/EACCES (A-027):
+      // zámek je na Windows "delete pending" (vlastník ho právě uvolnil) → čekej v téže smyčce do deadline, ne jen 25 retry.
+      if (e.code !== 'EEXIST' && e.code !== 'EISDIR' && !TRANSIENT_CODES.has(e.code)) throw e;
+      lastCode = e.code;
       const st = statOrNull(lock);   // st === null → zámek MEZITÍM zmizel (ENOENT) → nikdy nemazat, jen zkusit znovu (tohle byla přesně chyba kola 1)
       if (st && (Date.now() - st.mtimeMs) > staleMs && !lockOwnerAlive(lock)) { claimStaleLock(lock); continue; }
-      if (Date.now() > deadline) throw new Error(`bus: zámek ${path.basename(lock)} se nepodařilo získat do ${timeoutMs}ms (drží ho jiný proces, nebo je poškozený)`);
+      if (Date.now() > deadline) throw new Error(`bus: zámek ${path.basename(lock)} se nepodařilo získat do ${timeoutMs}ms (drží ho jiný proces, nebo je poškozený; poslední chyba ${lastCode})`);
       sleepMs(10 + Math.floor(Math.random() * 20));   // krátký backoff, ne busy-loop
     }
   }

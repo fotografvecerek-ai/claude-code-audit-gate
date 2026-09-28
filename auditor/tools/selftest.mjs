@@ -895,7 +895,11 @@ T('PC: NUL v .dat2 odmítnut', pc({ 'scripts/t.dat2': Buffer.from([0, 65]) }), 1
 // --- BUS
 const bus = (...a) => spawnSync(process.execPath, [path.join(pkg, 'tools/bus.mjs'), ...a], { cwd: ws, env, encoding: 'utf8' });
 const busDir = path.join(ws, 'AUDIT', 'bus');
-const ackOne = (msg, by) => new Promise(resolve => { const cp = spawn(process.execPath, [path.join(pkg, 'tools/bus.mjs'), 'ack', '--msg', msg, '--by', by], { cwd: ws, env }); cp.on('close', code => resolve(code)); });
+// A-027: ack při nenulovém exitu zapamatuje první chybový řádek stderr (kód chyby + operace) → jde do popisu T, ať CI log ukáže příčinu.
+const ackErr = { first: '' };
+const errLine = (code, sig, err) => { const ls = String(err).split('\n').map(l => l.trim()).filter(Boolean); return `exit=${code} signal=${sig} stderr: ${ls.find(l => /\b(\w*Error|bus:)/.test(l)) || ls[0] || '(prázdný)'}`; };
+const ackOne = (msg, by) => new Promise(resolve => { const cp = spawn(process.execPath, [path.join(pkg, 'tools/bus.mjs'), 'ack', '--msg', msg, '--by', by], { cwd: ws, env }); let err = ''; cp.stdout.resume(); cp.stderr.on('data', d => { err += d; }); cp.on('close', (code, sig) => { if (code !== 0 && !ackErr.first) ackErr.first = errLine(code, sig, err); resolve(code); }); });
+const ackErrTag = () => { const t = ackErr.first ? ` [${ackErr.first}]` : ''; ackErr.first = ''; return t; };
 T('BUS: EVIDENCE bez --sha odmítnuta', bus('post', '--from', 'kapitan', '--type', 'EVIDENCE', '--id', 'A-1', '--ref', 'AUDIT/03_dukazy/A-1/').status, 1);
 T('BUS: EVIDENCE se sha přijata', bus('post', '--from', 'kapitan', '--type', 'EVIDENCE', '--id', 'A-1', '--ref', 'AUDIT/03_dukazy/A-1/', '--sha', head).status, 0);
 T('BUS: VERDICT bez --verdict odmítnut', bus('post', '--from', 'auditor', '--type', 'VERDICT', '--id', 'A-1').status, 1);
@@ -917,7 +921,7 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
   const msg010 = JSON.parse(post010.stdout).posted;
   const N010 = 50;
   const codes010 = await Promise.all(Array.from({ length: N010 }, (_, i) => ackOne(msg010, `worker-${i}`)));
-  T('BUS A-010: 50 souběžných ack — všechny procesy skončí bez chyby', codes010.every(c => c === 0), true);
+  T(`BUS A-010: 50 souběžných ack — všechny procesy skončí bez chyby${ackErrTag()}`, codes010.every(c => c === 0), true);
   let msgObj010 = null, validJson010 = true;
   try { msgObj010 = JSON.parse(fs.readFileSync(path.join(ws, 'AUDIT', 'bus', msg010), 'utf8')); } catch { validJson010 = false; }
   T('BUS A-010: zpráva po 50 souběžných ack zůstává validní JSON', validJson010, true);
@@ -939,7 +943,7 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
     let obj = null; try { obj = JSON.parse(fs.readFileSync(path.join(busDir, msgA), 'utf8')); } catch { }
     totalAckA += obj ? (obj.ack || []).length : 0; expectAckA += N_A;
   }
-  T('BUS A-010 kolo2: uměle zestárlý zámek + N souběžných ack — všechny procesy bez chyby', badExitA, false);
+  T(`BUS A-010 kolo2: uměle zestárlý zámek + N souběžných ack — všechny procesy bez chyby${ackErrTag()}`, badExitA, false);
   T('BUS A-010 kolo2: uměle zestárlý zámek + N souběžných ack — 0 ztracených potvrzení napříč běhy', totalAckA, expectAckA);
 }
 { // A-010 kolo2 bod 3: `post` regeneruje LEDGER.md — stará verze to dělala BEZ zámku, takže souběžné posty na sobě
@@ -987,7 +991,7 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
     totalAckD += obj ? (obj.ack || []).length : 0; expectAckD += N_D;
   }
   T(`BUS A-010 kolo2: souběžný čtenář + N ack — čtenář nikdy nespadne (exit 0)${readerErrD ? ' [' + readerErrD + ']' : ''}`, badReaderExitD, false);
-  T('BUS A-010 kolo2: souběžný čtenář + N ack — zapisovatelé nikdy nespadnou (exit 0)', badAckExitD, false);
+  T(`BUS A-010 kolo2: souběžný čtenář + N ack — zapisovatelé nikdy nespadnou (exit 0)${ackErrTag()}`, badAckExitD, false);
   T('BUS A-010 kolo2: souběžný čtenář + N ack — 0 ztracených potvrzení napříč běhy', totalAckD, expectAckD);
 }
 // --- GATE-CHECK přímo
