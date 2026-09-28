@@ -12,6 +12,11 @@ const run = (cmd, args, cwd) => execFileSync(cmd, args, { cwd, encoding: 'utf8',
 const tryRun = (...a) => { try { return run(...a); } catch (e) { return null; } };
 const rd = f => { try { return fs.readFileSync(f, 'utf8'); } catch { return ''; } };
 if (!fs.existsSync(path.join(ws, '.claude', 'settings.json'))) { console.error(`Auditor v ${ws} ještě není nainstalovaný — použij běžnou instalaci.`); process.exit(3); }
+// A-008 kolo 2: marker dokončené instalace, poslední krok setup-auditor.ps1/.sh ({hotovo, kapitan, hygiena, cas}).
+// Nahrazuje odhad z vedlejších souborů (node_modules, .gitattributes) — ty se dají snadno splést s přerušenou instalací
+// (P4a/P4b) nebo s vlastníkovým vlastním nesouvisejícím souborem (C5). Chybí u starších instalací → legacy heuristika níž.
+const instFile = path.join(ws, 'AUDIT', '.instalace.json');
+let inst = null; try { inst = JSON.parse(rd(instFile).replace(/^﻿/, '')); } catch { }
 const vers = [...rd(path.join(pkg, '..', 'CHANGELOG.md')).matchAll(/^## (\d+)\.(\d+)\.(\d+)/gm)].map(m => m.slice(1).map(Number)).sort((a, b) => a[0] - b[0] || a[1] - b[1] || a[2] - b[2]); const ver = vers.length ? vers.pop().join('.') : 'nová verze';
 const name = path.basename(repo);
 say(`\n== AKTUALIZACE auditora: ${name} → ${ver}`);
@@ -81,6 +86,9 @@ const kapitan = fs.existsSync(path.join(H, 'kapitan-audit-guard.js')); const sta
 // A-008: legitimní „do repa se nesahá" profily mají vlastní marker (audit z GitHubu / kombinace zdravého startu) — použito
 // i níž u Telegramu (2b), ať se nepočítá dvakrát.
 const remoteOrCombo = fs.existsSync(path.join(ws, 'AUDIT', '.remote.json')) || fs.existsSync(path.join(ws, 'AUDIT', '.zdravy-start.json'));
+// A-008 kolo 2: hoistnuto sem (dřív jen v sekci 2c) — použito i v looksIncomplete níž. „Rozjetý" audit (výsledky auditu
+// už existují) je silnější důkaz dokončené staré instalace bez markeru než pouhá existence tools/node_modules.
+const rozjety = ['00_intake.md', '02_HANDOFF.md', '05_release_gate.md', 'ZPRAVA.md', 'ZPRAVA.html'].some(f => fs.existsSync(path.join(ws, 'AUDIT', f))) || (() => { try { return fs.readdirSync(path.join(ws, 'AUDIT', '01_nalezy')).some(f => /^A-\d+\.md$/.test(f)); } catch { return false; } })();
 if (kapitan && !fs.existsSync(path.join(ws, '.opravneni.json'))) { if (process.stdin.isTTY) { try { execFileSync(process.execPath, [path.join(pkg, 'tools', 'opravneni.mjs'), ws, repo, '--ask'], { stdio: 'inherit' }); } catch { } } else warn('samostatnost Kapitána zatím nevybrána (OPATRNÝ) — START → [7]'); }
 if (kapitan) {
   for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'auditor-bus.mjs', 'pre-push-guard.mjs']) put(path.join(pkg, 'kapitan-side', f), `.claude/hooks/${f}`);
@@ -110,18 +118,24 @@ if (starter) {
 const hasMarker = (hookName, txt) => new RegExp(`^#\\s*auditor-managed-hook:\\s*${hookName}\\s*$`, 'm').test(txt);
 if (kapitan || starter) {
   for (const [f, t] of [['hygiene-rules.js'], ['hygiene-rules.json'], ['pre-commit-check.mjs'], ['hooks-package.json', 'package.json']]) put(path.join(HY, f), `.claude/hooks/${t || f}`);
-  // A-008: hygiena už jednou nainstalovaná (repo/.gitattributes ji zapisuje jako POSLEDNÍ krok, až PO obou git hoocích) —
-  // git hook, který přesto úplně chybí, nikdy nevznikl kvůli přerušené instalaci (ne vlastníkovým „ne"). Bezpečně doplnit
-  // (installGitHook z install-pre-commit-hook.mjs — stejná funkce, jakou volá i prvoinstalace, žádná duplicitní logika).
-  const hygienaByla = fs.existsSync(path.join(repo, '.gitattributes')); const repaired = [];
+  // A-008 kolo 2 (oprava regrese C5): samotná existence .gitattributes NEDOKAZUJE, že vlastník hygienu chtěl — může to být
+  // jeho vlastní nesouvisející soubor (repo mělo .gitattributes už předtím, Kapitána zvolil, hygienu vědomě odmítl). Marker
+  // `AUDIT/.instalace.json` (inst.hygiena, zapsaný setup-auditor.ps1/.sh jako POSLEDNÍ krok) je autoritativní; u starších
+  // instalací bez markeru zůstává legacy odhad z .gitattributes. Nezávisle na obojím: vlastní pre-commit hook s NAŠÍM
+  // markerem je sám o sobě důkaz, že hygiena instalace proběhla (P5b — přerušeno mezi pre-commit a pre-push, .gitattributes
+  // i marker ještě chybí) → druhý, nezávislý signál pro doplnění chybějícího pre-push (A-023 K2 addendum).
+  const hygienaZnacka = inst ? inst.hygiena === 'ano' : fs.existsSync(path.join(repo, '.gitattributes')); const repaired = [];
   const pc = path.join(repo, '.git', 'hooks', 'pre-commit'), pcTxt = rd(pc);
-  if (hasMarker('pre-commit', pcTxt)) { fs.copyFileSync(path.join(HY, 'pre-commit-guard.sh'), pc); try { fs.chmodSync(pc, 0o755); } catch { } }
+  const nasPreCommit = hasMarker('pre-commit', pcTxt);
+  const hygienaByla = hygienaZnacka || nasPreCommit;
+  if (nasPreCommit) { fs.copyFileSync(path.join(HY, 'pre-commit-guard.sh'), pc); try { fs.chmodSync(pc, 0o755); } catch { } }
   else if (!fs.existsSync(pc) && hygienaByla) { installGitHook(repo, path.join(HY, 'pre-commit-guard.sh'), 'pre-commit'); repaired.push('pre-commit'); }
   if (fs.existsSync(path.join(H, 'pre-commit-guard.sh'))) put(path.join(HY, 'pre-commit-guard.sh'), '.claude/hooks/pre-commit-guard.sh');
   if (kapitan) {
-    // A-023 AK3: pre-push druhá linie — logika (pre-push-guard.mjs) už je v .claude/hooks/ vždy (viz výš); samotný git hook
-    // wrapper v .git/hooks/pre-push jen aktualizuj, pokud repo ho už má nainstalovaný (instaluje ho setup-auditor, ne update).
-    // A-008: úplně chybějící wrapper při potvrzené hygieně (.gitattributes) doplní stejně jako pre-commit výš.
+    // A-023 K2 addendum: pre-push druhá linie — logika (pre-push-guard.mjs) už je v .claude/hooks/ vždy (viz výš); samotný
+    // git hook wrapper v .git/hooks/pre-push doinstaluj stejnou sdílenou funkcí (installGitHook) jako pre-commit výš, jen
+    // když hygiena skutečně proběhla (hygienaByla — marker, legacy .gitattributes, nebo náš pre-commit marker), nikdy proti
+    // vlastníkově volbě „ne" (C5).
     const pp = path.join(repo, '.git', 'hooks', 'pre-push'), ppTxt = rd(pp);
     if (hasMarker('pre-push', ppTxt)) { fs.copyFileSync(path.join(pkg, 'kapitan-side', 'pre-push-guard.sh'), pp); try { fs.chmodSync(pp, 0o755); } catch { } }
     else if (!fs.existsSync(pp) && hygienaByla) { installGitHook(repo, path.join(pkg, 'kapitan-side', 'pre-push-guard.sh'), 'pre-push'); repaired.push('pre-push'); }
@@ -154,14 +168,15 @@ if (kapitan || starter) {
   } else ok('pojistky v repu už byly aktuální');
   if (left.length) warn(`neuloženo (měl jsi v nich rozdělané změny, nechávám je tobě): ${left.join(', ')}`);
 } else {
-  // A-008: „kapitan" i „starter" false je legitimní (jen audit / audit z GitHubu / vlastník vědomě odmítl Kapitána), ALE
-  // stejně vypadá i instalace přerušená PŘED otázkou na Kapitána (setup-auditor spadl/zavřel se dřív, než se vůbec zeptal).
-  // remoteOrCombo pokrývá GitHub audit a kombinaci zdravého startu (vlastní marker). Zbylý případ (vědomé „ne" u čistého
-  // repo-auditu) nemá marker — ale k otázce na Kapitána se dojde až PO instalaci závislostí (krok 4), takže chybějící
-  // tools/node_modules bezpečně znamená „otázka nikdy nepadla" → přerušeno, ne odmítnuto.
-  const looksIncomplete = !remoteOrCombo && !toolsDepsInstalled;
+  // A-008 kolo 2: „kapitan" i „starter" false je legitimní (jen audit / audit z GitHubu / vlastník vědomě odmítl Kapitána), ALE
+  // stejně vypadá i instalace přerušená PŘED otázkou na Kapitána (setup-auditor spadl/zavřel se dřív, než se vůbec zeptal),
+  // UPROSTŘED `npm install`/stahování Chromia (P4a), nebo přímo u otázky na Kapitána (P4b) — `tools/node_modules` může v
+  // těchto případech existovat (částečně) i chybět a nic to nedokazuje. Marker `AUDIT/.instalace.json` (inst.hotovo) je
+  // autoritativní; u starších instalací bez markeru je `rozjety` (existují výsledky auditu) silnější důkaz dokončené staré
+  // instalace než pouhá existence tools/node_modules — ta se dá splést s přerušeným `npm install` (.staging apod.).
+  const looksIncomplete = inst ? inst.hotovo !== true : (!remoteOrCombo && !rozjety);
   if (looksIncomplete) {
-    console.error('  ❌ instalace vypadá NEDOKONČENÁ: v repu chybí strana Kapitána i zdravého startu A ve workspace nejsou nainstalované závislosti (tools/node_modules) — instalace se zřejmě přerušila ještě PŘED otázkou na Kapitána.');
+    console.error('  ❌ instalace vypadá NEDOKONČENÁ: v repu chybí strana Kapitána i zdravého startu, marker dokončené instalace chybí nebo hlásí nedokončeno a audit ještě nemá žádné výsledky — instalace se zřejmě přerušila (před otázkou na Kapitána, uprostřed instalace závislostí/Chromia, nebo u otázky samotné).');
     console.error('     Spusť znovu setup-auditor.ps1 (Windows) / setup-auditor.sh (Linux, macOS) — doplní, co chybí. Je-li „jen audit" záměr, spusť ho jednou s -Kapitan ne (resp. AUDITOR_KAPITAN=ne), ať se to příště nehlásí.');
     process.exit(1);
   }
@@ -184,7 +199,7 @@ if (kapitan || starter) {
 // 2c) NOVÉ CÍLE AUDITU (delta): žádný audit od začátku — jen cíle přidané novými verzemi, které tento audit ještě nemá
 { const bf = path.join(ws, 'AUDIT', '.balik.json'); let b = {}; try { b = JSON.parse(rd(bf)); } catch { }
   let cile = []; try { cile = JSON.parse(rd(path.join(pkg, 'templates', 'cile_auditu.json'))).cile || []; } catch { }
-  const rozjety = ['00_intake.md', '02_HANDOFF.md', '05_release_gate.md', 'ZPRAVA.md', 'ZPRAVA.html'].some(f => fs.existsSync(path.join(ws, 'AUDIT', f))) || (() => { try { return fs.readdirSync(path.join(ws, 'AUDIT', '01_nalezy')).some(f => /^A-\d+\.md$/.test(f)); } catch { return false; } })();   // rozjetý = cokoliv z výsledků auditu existuje
+  // A-008 kolo 2: `rozjety` teď počítá výš (u remoteOrCombo) — použito i tam pro looksIncomplete, tady jen reuse (žádná duplicitní logika).
   const hotove = new Set(b.hotove || []); const nf = path.join(ws, 'AUDIT', 'NOVE_CILE.md');
   const pending = rozjety ? cile.filter(c => !hotove.has(c.id) && !(c.hotovo_kdyz || []).some(f => fs.existsSync(path.join(ws, f)))) : [];
   if (mergeNew.length && rozjety) pending.push({ id: `SLOUCIT-${stamp}`, od_verze: ver, cil: `sloučit ručně: ${mergeNew.join('; ')}`,
@@ -200,9 +215,14 @@ if (kapitan || starter) {
 
 // 3) kontrola a konec — bez otevírání oken
 tryRun(process.execPath, [path.join(ws, 'tools', 'trust-folders.mjs'), ws, repo]);
+// A-008 kolo 2 (stabilizace A-002): selftest.mjs testuje update-install.mjs nad syntetickým workspace pro každý scénář
+// UPDATE-INSTALL — bez tohoto přeskočení by to pokaždé spustilo VNOŘENÝ celý samotest (~1300 řádků), což je pomalé a
+// zdroj nestability (časování, souběh). AUDITOR_SELFTEST_NO_UPDATE_INSTALL nastavuje jen selftest.mjs sám sobě (nikdy
+// v produkci) — přeskočí ho úplně, ne jen rekurzivní UPDATE-INSTALL sekci uvnitř.
 say('\n  Probíhá závěrečná kontrola (samotest, na Windows 1–3 min) — nic nedělej, počkej na „AKTUALIZOVÁNO"...');
-const st = (() => { try { return { ok: true, out: execFileSync(process.execPath, [path.join('tools', 'selftest.mjs')], { cwd: ws, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }; } catch (e) { return { ok: false, out: String(e.stdout || '') + String(e.stderr || '') }; } })();
-const sum = (st.out.match(/\d+\/\d+ PASS.*/) || [''])[0];
+const st = process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL ? { ok: true, out: '(vynechán uvnitř samotestu — AUDITOR_SELFTEST_NO_UPDATE_INSTALL)' }
+  : (() => { try { return { ok: true, out: execFileSync(process.execPath, [path.join('tools', 'selftest.mjs')], { cwd: ws, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }; } catch (e) { return { ok: false, out: String(e.stdout || '') + String(e.stderr || '') }; } })();
+const sum = process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL ? '(vynecháno)' : (st.out.match(/\d+\/\d+ PASS.*/) || [''])[0];
 if (!st.ok) { console.error(`  ❌ SAMOTEST NEPROŠEL po aktualizaci (${sum}). Pošli tento výpis:\n${st.out.split('\n').filter(l => /^FAIL/.test(l)).join('\n')}`); process.exit(1); }
 ok(`samotest ${sum}`);
 say(`\n================ AKTUALIZOVÁNO: ${name} (${ver}) ================`);
@@ -210,7 +230,8 @@ say('  Audit pokračuje tam, kde byl. Nic se neopakuje, intake ani instalace zno
 say('  Nové nastavení se načte, až okna auditora a Kapitána příště otevřeš. Běžící okna nech doběhnout, pak je zavři');
 const ext = process.platform === 'win32' ? '.cmd' : '.sh'; const pj = fs.existsSync(path.join(ws, 'start-projekt' + ext));
 // Windows: jeden zástupce na ploše pro oba agenty (jedno okno, dvě záložky) — staré dva zástupce nemažeme, uživatel je smaže sám
-let lnkNote = ''; if (pj && process.platform === 'win32') { const lnkName = `Auditor a Kapitan - ${name}`;
+// A-008 kolo 2: AUDITOR_NO_SHORTCUT (stejný vzor jako AUDITOR_NO_OPEN) — selftest/testy nesmí zapisovat na SKUTEČNOU plochu uživatele.
+let lnkNote = ''; if (pj && process.platform === 'win32' && !process.env.AUDITOR_NO_SHORTCUT) { const lnkName = `Auditor a Kapitan - ${name}`;
   const ps = `$w=New-Object -ComObject WScript.Shell;$d=[Environment]::GetFolderPath('Desktop');$p=Join-Path $d '${lnkName.replace(/'/g, "''")}.lnk';if(-not(Test-Path $p)){$l=$w.CreateShortcut($p);$l.TargetPath='cmd.exe';$l.Arguments='/c call "${path.join(ws, 'start-projekt.cmd').replace(/'/g, "''")}"';$l.WorkingDirectory='${ws.replace(/'/g, "''")}';$l.WindowStyle=7;$l.IconLocation='shell32.dll,137';$l.Save();'new'}`;
   const r = tryRun('powershell', ['-NoProfile', '-NonInteractive', '-EncodedCommand', Buffer.from(ps, 'utf16le').toString('base64')], ws);   // UTF-16 → diakritika v cestě v pořádku
   if (r && /new/.test(r)) lnkNote = `  Na ploše je nový zástupce „${lnkName}"; staré „Auditor - ${name}" a „Kapitan - ${name}" můžeš smazat.`; }

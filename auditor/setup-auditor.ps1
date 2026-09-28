@@ -53,6 +53,7 @@ Pop-Location
 
 # 5) strana Kapitána
 $k = if ($Yes) { $Kapitan } else { AskYN "Nainstalovat do repa stranu Kapitána (skill audit-rezim + hook kapitan-audit-guard + gate-check v deploy)?" "ano" }
+$h = 'ne'   # A-008 kolo 2: hygiena se nabízí jen uvnitř větve Kapitána níž; bez Kapitána marker musí hlásit "ne", ne zůstat prázdný
 if ($k -eq 'ano') {
   $sk = Join-Path $repo '.claude/skills/audit-rezim'; New-Item -ItemType Directory -Force -Path $sk | Out-Null
   $body = Get-Content (Join-Path $pkg 'kapitan-side/AUDIT_REZIM.md') -Raw
@@ -90,4 +91,11 @@ if (-not (Get-Command semgrep -ErrorAction SilentlyContinue)) { $notes += "semgr
 $notes += "hook Kapitána spouští gate-check při git push do main/master/production (env PROD_BRANCHES)"
 Add-Content $log (("[{0}] setup {1}" -f (Get-Date -Format s), $name) + "`n" + (($notes | ForEach-Object { "  - $_" }) -join "`n")) -Encoding UTF8
 if (-not $Yes) { $notes | ForEach-Object { Write-Host "POZN.: $_" -ForegroundColor Yellow } } else { Write-Host "Poznámky pro auditora (chybějící volitelné nástroje apod.): AUDIT\instalace.log" }
+
+# 8) marker dokončené instalace (A-008 kolo 2) - MUSÍ být poslední krok: update-install.mjs podle něj pozná, že instalace
+# doběhla celá (ne přerušená uprostřed npm install/Chromia/otázky na Kapitána - P4a/P4b), a jaké volby vlastník udělal
+# (Kapitán, hygiena) - nemá je znovu odhadovat z vedlejších souborů jako tools/node_modules nebo .gitattributes (C5).
+$inst = @{ hotovo = $true; kapitan = $k; hygiena = $h; cas = (Get-Date).ToString('o') } | ConvertTo-Json -Compress
+Set-Content (Join-Path $ws 'AUDIT/.instalace.json') $inst -Encoding UTF8
+
 if (-not $Yes) { Write-Host "`nHOTOVO. Spusť:  $ws\start-auditor.cmd   (auditor sám začne intake)" -ForegroundColor Green; Write-Host "Kapitán:        $ws\start-kapitan.cmd" }

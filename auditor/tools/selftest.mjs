@@ -1289,9 +1289,18 @@ if (fs.existsSync(path.join(pkg, 'katalog', 'katalog.json'))) {
 // kroku, kde update-install.mjs sám spustí samotest svého cíle (ws/tools/selftest.mjs — kopie TOHOTO souboru); bez pojistky by
 // ta vnořená kopie spustila TUHLE sekci znovu (a její vlastní 2 úspěšné scénáře další vnořený samotest — exponenciální růst).
 // Proměnná v env dítěte (update-install.mjs) se nemění a dědí se dál do jeho vnořeného samotestu → rekurze se zastaví v hloubce 1.
+// A-008 kolo 2 (bod 3, POVINNÉ): bezpečnostní snapshot skutečné plochy uživatele — nezávisí na tom, jestli sekce níž
+// vůbec proběhne (AUDITOR_SELFTEST_NO_UPDATE_INSTALL ji může přeskočit celou); porovnání je i tak spuštěné, aby chytilo
+// i budoucí regresi mimo tuhle sekci. Nikdy nic na ploše nemaže — jen POROVNÁVÁ obsah před/po.
+let realDesktopBefore = null, realDesktopFilesBefore = null;
+if (isWin) { try { realDesktopBefore = execSync('powershell -NoProfile -Command "[Environment]::GetFolderPath(\'Desktop\')"', { encoding: 'utf8' }).trim(); realDesktopFilesBefore = new Set(fs.readdirSync(realDesktopBefore)); } catch { realDesktopBefore = null; } }
+
 if (!process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL) {
   const UI = path.join(pkg, 'tools', 'update-install.mjs');
-  const uiEnv = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t', AUDITOR_SELFTEST_NO_UPDATE_INSTALL: '1' };
+  // AUDITOR_NO_SHORTCUT (A-008 kolo 2, bod 3): výchozí pro VŠECHNY scénáře UI-N níž — testy nesmí zapisovat na skutečnou
+  // plochu uživatele (K1 regrese: ui-1/ui-3/ui-4 tam nechaly „Auditor a Kapitan - ui-N.lnk"). Mechanismus samotný ověřuje
+  // samostatný test níž (bez tohohle přepínače, přes přesměrovanou USERPROFILE\Desktop).
+  const uiEnv = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t', AUDITOR_SELFTEST_NO_UPDATE_INSTALL: '1', AUDITOR_NO_SHORTCUT: '1' };
   const uiGit = (dir, c) => execSync(`git ${c}`, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   const uiRepo = dir => { fs.mkdirSync(dir, { recursive: true }); uiGit(dir, 'init -q'); uiGit(dir, 'config user.email t@t'); uiGit(dir, 'config user.name t'); uiGit(dir, 'checkout -q -b main');
     fs.writeFileSync(path.join(dir, 'README.md'), '# x'); uiGit(dir, 'add -A'); uiGit(dir, '-c user.name=t -c user.email=t@t commit -qm init'); };
@@ -1350,7 +1359,96 @@ if (!process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL) {
   T('UPDATE-INSTALL A-007 kolo3: cizí pre-commit hook s podřetězcem „pre-commit-check" (bez markeru) zůstane při aktualizaci byte-identický, beze zálohy',
     `exit=${p4.status},obsah=${fs.readFileSync(path.join(r4, '.git', 'hooks', 'pre-commit'), 'utf8') === cizíObsahR4},bak=${bakR4.length}`,
     'exit=0,obsah=true,bak=0');
+
+  const HY = path.join(pkg, 'kapitan-side', 'hygiene');
+
+  // 5) A-008 kolo 2 (P4a): přerušeno UPROSTŘED npm install / stahování Chromia — tools/node_modules už existuje (npm doběhl
+  //    nebo je rozdělaný), ale k otázce na Kapitána se instalátor vůbec nedostal (žádné .claude/hooks, žádný marker, žádný
+  //    remote/rozjetý audit). Stará logika brala samotnou existenci tools/node_modules jako důkaz dokončené instalace
+  //    (toolsDepsInstalled) → tiché OK. Marker (.instalace.json) chybí → nová logika musí spadnout na fallback
+  //    (!remoteOrCombo && !rozjety) a instalaci správně označit za nedokončenou.
+  const r5 = path.join(tmp, 'ui-5'), w5 = path.join(tmp, 'ui-5-audit'); uiRepo(r5); uiWs(w5, { deps: true });
+  const p5 = runUI(r5, w5);
+  T('UPDATE-INSTALL A-008 kolo 2 (P4a): přerušeno při npm/Chromiu (node_modules existuje, žádný marker/Kapitán/remote) → nikdy tiché OK',
+    `exit=${p5.status !== 0},varovani=${/NEDOKONČ/.test(p5.stdout + p5.stderr)}`, 'exit=true,varovani=true');
+
+  // 6) A-008 kolo 2 (P4b): přerušeno PŘÍMO u otázky na Kapitána — v setup-auditor.ps1/.sh se soubory strany Kapitána
+  //    (kapitan-audit-guard.js…) kopírují AŽ PO odpovědi „ano" (jeden blok); umře-li přesně u otázky (proces zabit, terminál
+  //    zavřen během čekání na vstup), `.claude/hooks/kapitan-audit-guard.js` v repu ještě NEEXISTUJE — jinak by update-install
+  //    (kapitan=true) vzal repo jako legitimně nainstalovaný Kapitán a šel by úplně jinou (správnou) větví, ne větví
+  //    looksIncomplete. Rozdíl od P4a: `.claude/hooks` složka už existuje prázdná (instalátor ji stihl založit, soubory ne).
+  const r6 = path.join(tmp, 'ui-6'), w6 = path.join(tmp, 'ui-6-audit'); uiRepo(r6); uiWs(w6, { deps: true });
+  fs.mkdirSync(path.join(r6, '.claude', 'hooks'), { recursive: true });
+  const p6 = runUI(r6, w6);
+  T('UPDATE-INSTALL A-008 kolo 2 (P4b): přerušeno u otázky na Kapitána (prázdná .claude/hooks, žádný marker/Kapitán/remote) → nikdy tiché OK',
+    `exit=${p6.status !== 0},varovani=${/NEDOKONČ/.test(p6.stdout + p6.stderr)}`, 'exit=true,varovani=true');
+
+  // 7) A-008 kolo 2 (C5, regrese testu 3 výš): vlastník má VLASTNÍ .gitattributes (nesouvisí s auditorem) a hygienu vědomě
+  //    ODMÍTL (marker hygiena:"ne") — na rozdíl od testu 3 (hygiena OPRAVDU byla nainstalována, jen hooky chybí). Stará
+  //    logika (hygienaByla = existuje .gitattributes) by si spletla cizí soubor s potvrzenou hygienou a hooky nainstalovala
+  //    proti vůli vlastníka. Marker musí mít přednost před pouhou existencí souboru.
+  const r7 = path.join(tmp, 'ui-7'), w7 = path.join(tmp, 'ui-7-audit'); uiRepo(r7); uiWs(w7);
+  fs.mkdirSync(path.join(r7, '.claude', 'hooks'), { recursive: true });
+  fs.copyFileSync(path.join(pkg, 'kapitan-side', 'kapitan-audit-guard.js'), path.join(r7, '.claude', 'hooks', 'kapitan-audit-guard.js'));
+  fs.writeFileSync(path.join(r7, '.gitattributes'), '* text=auto\n');
+  fs.writeFileSync(path.join(w7, 'AUDIT', '.instalace.json'), JSON.stringify({ hotovo: true, kapitan: 'ano', hygiena: 'ne', cas: new Date().toISOString() }));
+  const p7 = runUI(r7, w7);
+  T('UPDATE-INSTALL A-008 kolo 2 (C5): vlastníkovo vlastní .gitattributes + hygiena vědomě odmítnuta (marker) → hooky se NEinstalují',
+    `exit=${p7.status},pre-commit=${hookMarker(path.join(r7, '.git', 'hooks', 'pre-commit'), 'pre-commit')},pre-push=${hookMarker(path.join(r7, '.git', 'hooks', 'pre-push'), 'pre-push')},prerušeno=${/přerušená dřívější instalace/.test(p7.stdout)}`,
+    'exit=0,pre-commit=false,pre-push=false,prerušeno=false');
+
+  // 8) A-008 kolo 2 (P5b / A-023): přerušeno MEZI pre-commit a pre-push (bez .gitattributes a bez markeru — legitimní starý
+  //    profil, ne C5). pre-commit je náš (marker), pre-push úplně chybí → nasPreCommit dá nezávislý důkaz, že hygiena
+  //    doopravdy běžela, a pre-push se má doplnit (installGitHook, sdílená funkce, cizí hook by nepřepsala).
+  const r8 = path.join(tmp, 'ui-8'), w8 = path.join(tmp, 'ui-8-audit'); uiRepo(r8); uiWs(w8);
+  fs.mkdirSync(path.join(r8, '.claude', 'hooks'), { recursive: true });
+  fs.copyFileSync(path.join(pkg, 'kapitan-side', 'kapitan-audit-guard.js'), path.join(r8, '.claude', 'hooks', 'kapitan-audit-guard.js'));
+  fs.mkdirSync(path.join(r8, '.git', 'hooks'), { recursive: true });
+  fs.copyFileSync(path.join(HY, 'pre-commit-guard.sh'), path.join(r8, '.git', 'hooks', 'pre-commit'));
+  const p8 = runUI(r8, w8);
+  T('UPDATE-INSTALL A-008 kolo 2 (P5b/A-023): přerušeno mezi pre-commit a pre-push (bez .gitattributes/markeru) → pre-push se doplní podle vlastního markeru v pre-commit',
+    `exit=${p8.status},pre-push=${hookMarker(path.join(r8, '.git', 'hooks', 'pre-push'), 'pre-push')},doplneno=${/doplněny.*pre-push/.test(p8.stdout)}`,
+    'exit=0,pre-push=true,doplneno=true');
+
+  // 9) A-008 kolo 2 (bod 3, mechanismus AUDITOR_NO_SHORTCUT): jediný test, co AUDITOR_NO_SHORTCUT z uiEnv záměrně SUNDÁ —
+  //    ověřuje, že vypínač funguje, tak že bez něj zástupce vznikne (v PŘESMĚROVANÉ ploše, nikdy ve skutečné). USERPROFILE
+  //    se přesměruje na dočasnou složku; [Environment]::GetFolderPath('Desktop') to respektuje jen když registr ukládá
+  //    cestu jako rozvinutelné %USERPROFILE%\Desktop — u OneDrive Known Folder Move to bývá pevná cesta mimo USERPROFILE,
+  //    proto adaptivní kontrola: neodpovídá-li skutečná plocha vzorci, test se BEZPEČNĚ přeskočí (bezpečnostní snapshot
+  //    níž chrání dál v obou případech).
+  if (isWin) {
+    let realDesktopNow = null;
+    try { realDesktopNow = execSync('powershell -NoProfile -Command "[Environment]::GetFolderPath(\'Desktop\')"', { encoding: 'utf8' }).trim(); } catch { realDesktopNow = null; }
+    const expectedDesktop = path.join(process.env.USERPROFILE || '', 'Desktop');
+    if (realDesktopNow && path.resolve(realDesktopNow) === path.resolve(expectedDesktop)) {
+      const fakeHome = path.join(tmp, 'fake-home'); const fakeDesktop = path.join(fakeHome, 'Desktop');
+      fs.mkdirSync(fakeDesktop, { recursive: true });
+      // POZOR: bez `{remote:true}` — .remote.json by vypnul hasK ve write-launchers.mjs a ten by SMAZAL start-projekt.cmd
+      // dřív, než se dostane na řadu blok se zástupcem (pj by pak bylo false). looksIncomplete se splní přes rozjety marker.
+      const r9 = path.join(tmp, 'ui-9'), w9 = path.join(tmp, 'ui-9-audit'); uiRepo(r9); uiWs(w9);
+      fs.writeFileSync(path.join(w9, 'AUDIT', '02_HANDOFF.md'), '# x\n');
+      const env9 = { ...uiEnv, USERPROFILE: fakeHome, HOME: fakeHome }; delete env9.AUDITOR_NO_SHORTCUT;
+      const p9 = spawnSync(process.execPath, [UI, r9, w9], { encoding: 'utf8', env: env9, timeout: 240000 });
+      let madeInFake = false; try { madeInFake = fs.readdirSync(fakeDesktop).some(f => /\.lnk$/i.test(f)); } catch { }
+      let madeNaSkutecne = false; try { madeNaSkutecne = realDesktopFilesBefore && fs.readdirSync(realDesktopNow).some(f => /\.lnk$/i.test(f) && !realDesktopFilesBefore.has(f)); } catch { }
+      T('UPDATE-INSTALL A-008 kolo 2: bez AUDITOR_NO_SHORTCUT vznikne zástupce jen v přesměrované (USERPROFILE) ploše, nikdy na skutečné',
+        `exit=${p9.status},lnk_fake=${madeInFake},lnk_skutecna=${madeNaSkutecne}`, 'exit=0,lnk_fake=true,lnk_skutecna=false');
+    } else {
+      console.log('  (přeskočeno: mechanismus AUDITOR_NO_SHORTCUT — skutečná plocha neodpovídá %USERPROFILE%\\Desktop, pravděpodobně OneDrive KFM; bezpečnostní snapshot níž chrání dál)');
+    }
+  }
 }
+
+// A-008 kolo 2 (bod 3, POVINNÉ): uzávěrka bezpečnostního snapshotu z hlavičky sekce — ať selže cokoliv výš (mechanismus,
+// test, budoucí regrese), tenhle porovnávací krok to odhalí. Nikdy nic nemaže — existující soubory na skutečné ploše
+// vlastníka zůstávají netknuté; jde jen o POROVNÁNÍ seznamu před/po.
+if (isWin && realDesktopBefore) {
+  let novéNaPloše = [];
+  try { const after = fs.readdirSync(realDesktopBefore); novéNaPloše = after.filter(f => !realDesktopFilesBefore.has(f)); } catch { }
+  T('UPDATE-INSTALL A-008 kolo 2: celá sekce samotestu nezapsala NIC na skutečnou plochu uživatele (bezpečnostní snapshot před/po)',
+    `nove=${novéNaPloše.length}${novéNaPloše.length ? ':' + novéNaPloše.join(',') : ''}`, 'nove=0');
+}
+
 const slouc = results.filter(r => !r.ok && cekaNaSlouceni(r.nastroj)); const fails = results.filter(r => !r.ok && !slouc.includes(r));
 for (const r of results) console.log(`${r.ok ? 'PASS' : slouc.includes(r) ? 'SLOUČIT' : 'FAIL'}  ${r.name}${r.ok ? '' : `  (očekáváno ${r.exp}, bylo ${r.got})${slouc.includes(r) ? ` — běží tvoje upravená tools/${r.nastroj}, verze balíku čeká v tools/${r.nastroj}.new (úkol SLOUCIT v AUDIT/NOVE_CILE.md); pojistky to neovlivňuje` : ''}`}`);
 if (slouc.length) console.log(`\n${slouc.length} test(y) čeká na sloučení upraveného nástroje s verzí balíku — neblokuje start, auditor to vyřeší podle NOVE_CILE.md`);
