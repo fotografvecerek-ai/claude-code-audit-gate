@@ -13,7 +13,12 @@ WS=${AUDITOR_WS:-$(ask "Workspace auditora (vytvoří se)" "$(dirname "$REPO")/$
 REMOTE=${AUDITOR_REMOTE:-$(ask "Git remote pro AUDIT workspace (prázdné = jen lokální)" "")}
 MODEL=${AUDITOR_MODEL:-$(ask "Model hlavního vlákna auditora (opus / best / sonnet)" "opus")}
 
-mkdir -p "$WS"; for d in CLAUDE.md README.md BRIDGE.md .claude checklists templates tools kapitan-side starter katalog; do cp -r "$PKG/$d" "$WS/"; done
+mkdir -p "$WS"
+# A-008 kolo 3 (P4d): marker hotovo:true z PŘEDCHOZÍ (třeba úspěšné) instalace nesmí přežít TENHLE běh, dokud sám znovu
+# neskončí úspěšně - jinak by update-install.mjs při přerušení TOHOTO běhu tiše hlásil "OK" podle starého markeru.
+# Smazat HNED NA ZAČÁTKU (marker se zapíše znovu jako POSLEDNÍ krok, viz níže, jen když tenhle běh doběhne celý).
+rm -f "$WS/AUDIT/.instalace.json"
+for d in CLAUDE.md README.md BRIDGE.md .claude checklists templates tools kapitan-side starter katalog; do cp -r "$PKG/$d" "$WS/"; done
 # AUDIT/ = data auditora - pri aktualizaci se neprepisuje; ze sablony jen chybejici soubory
 ( cd "$PKG/AUDIT" && find . -type f | while read -r f; do [ -e "$WS/AUDIT/$f" ] || { mkdir -p "$WS/AUDIT/$(dirname "$f")"; cp "$f" "$WS/AUDIT/$f"; }; done )
 mkdir -p "$WS"/AUDIT/{01_nalezy/momentky,03_dukazy,04_verdikty,bus,.auth}

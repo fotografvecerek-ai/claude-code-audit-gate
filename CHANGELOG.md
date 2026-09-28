@@ -348,4 +348,9 @@ Opravy z vlastního auditu balíku (nálezy A-001 až A-023, ověřeno auditorem
   vynucuje LF pro `auditor/katalog/**`.
 - **Dokumentace odpovídá realitě** (A-003): tvrzení o GitHub Release v README doloženo odkazem na `release.yml`; zastaralé pevné počty
   scénářů v CONTRIBUTING.md, README.md a NAVOD.txt nahrazeny popisem bez pevného čísla (mění se s každým PR).
-- Samotest 703.
+- **Kolo 3 (A-008 P1, poslední kolo):** stará instalace bez markeru + vlastní `.gitattributes` vlastníka už nedostane naše git hooky proti
+  jeho volbě (`update-install.mjs` bez markeru bere za „náš" jen pre-commit s markerem, ne pouhou existenci `.gitattributes`); samotest
+  přesměrovává `HOME`/`USERPROFILE` na dočasnou složku ve všech scénářích, které spouštějí instalátor/`trust-folders.mjs`, a nová pojistka
+  (hash skutečného `~/.claude.json` před/po celém samotestu) hlásí FAIL, pokud by se přece jen zapsalo mimo sandbox; starý marker
+  `hotovo:true` z přerušené instalace se maže hned na začátku `setup-auditor.ps1`/`.sh`, ne až na konci.
+- Samotest 707.

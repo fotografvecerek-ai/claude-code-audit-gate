@@ -21,6 +21,11 @@ $model = if ($Yes) { $Model } else { Ask "Model hlavního vlákna auditora (opus
 
 # 1) workspace
 New-Item -ItemType Directory -Force -Path $ws | Out-Null
+# A-008 kolo 3 (P4d): marker hotovo:true z PŘEDCHOZÍ (třeba úspěšné) instalace nesmí přežít TENHLE běh, dokud sám znovu
+# neskončí úspěšně - jinak by update-install.mjs při přerušení TOHOTO běhu tiše hlásil "OK" podle starého markeru.
+# Smazat HNED NA ZAČÁTKU (marker se zapíše znovu jako POSLEDNÍ krok, viz níže, jen když tenhle běh doběhne celý).
+$markerPath = Join-Path $ws 'AUDIT/.instalace.json'
+if (Test-Path $markerPath) { Remove-Item -Force $markerPath }
 foreach ($d in 'CLAUDE.md','README.md','BRIDGE.md','.claude','checklists','templates','tools','kapitan-side','starter','katalog') { Copy-Item -Recurse -Force (Join-Path $pkg $d) $ws }
 # AUDIT/ = data auditora (nalezy, verdikty, bus, retro) - pri aktualizaci se NIKDY neprepisuje; ze sablony jen chybejici soubory
 Get-ChildItem (Join-Path $pkg 'AUDIT') -Recurse -File | ForEach-Object { $rel = $_.FullName.Substring((Join-Path $pkg 'AUDIT').Length); $dst = Join-Path (Join-Path $ws 'AUDIT') $rel; if (-not (Test-Path $dst)) { New-Item -ItemType Directory -Force -Path (Split-Path $dst) | Out-Null; Copy-Item $_.FullName $dst } }

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SELFTEST — regresní sada pro brány balíku. Spouští oba hooky, gate-check, pre-commit check a bus v dočasném prostředí.
 // node tools/selftest.mjs        → tabulka PASS/FAIL, exit 1 při jakémkoliv FAIL. Spouštěj po instalaci a po každé změně hooků.
-import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync, execSync, spawn } from 'node:child_process'; import { fileURLToPath, pathToFileURL } from 'node:url';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync, execSync, spawn } from 'node:child_process'; import { fileURLToPath, pathToFileURL } from 'node:url'; import { createHash } from 'node:crypto';
 const pkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-selftest-')); const ws = path.join(tmp, 'x-audit'); const repo = path.join(tmp, 'x'); const wt = path.join(tmp, 'wt-a');
 // A-006 kolo 2: guardTmp simuluje „os.tmpdir()" tak, jak ho uvidí SPUŠTĚNÝ hook (přes TMPDIR/TEMP/TMP v env níže) —
@@ -25,6 +25,27 @@ const results = []; const T = (name, got, exp, nastroj) => results.push({ name, 
 // nástroj, který auditor upravil a aktualizace nechala jeho verzi (vedle leží <nástroj>.new = verze balíku): selhání jeho testu neblokuje start —
 // pojistky jsou vždy verze balíku; test ukáže, že místní verze čeká na sloučení (úkol SLOUCIT v AUDIT/NOVE_CILE.md)
 const cekaNaSlouceni = n => !!n && fs.existsSync(path.join(pkg, 'tools', n + '.new'));
+
+// A-008 kolo 3 (bod 2, POVINNÉ pojistka) + kolo 2 (bod 3, plocha, přesunuto sem): bezpečnostní snapshot SKUTEČNÉHO
+// ~/.claude.json a SKUTEČNÉ plochy uživatele PŘED CELÝM samotestem — ne jen před jednou sekcí (UPDATE-INSTALL), ať
+// chytí i budoucí regresi odjinud. os.homedir() / GetFolderPath('Desktop') tady NEJSOU přesměrované (tenhle top-level
+// proces běží s obyčejným process.env) → jde o opravdu skutečné cesty vlastníka. Porovnání (jen ČTE, nikdy
+// nezapisuje/neuklízí) je na konci souboru, těsně před process.exit; rozdíl = FAIL. Skutečný ~/.claude.json se tímhle
+// testem nikdy nemění a nemaže — případné staré klíče z dřívějších (neopravených) běhů zůstávají, dokud je neuklidí vlastník.
+const hashFile = f => { try { return createHash('sha256').update(fs.readFileSync(f)).digest('hex'); } catch { return null; } };
+const realClaudeJsonPath = path.join(os.homedir(), '.claude.json');
+const realClaudeJsonHashPred = hashFile(realClaudeJsonPath);
+// A-008 kolo 3 (oprava po ostrém běhu): syrový hash CELÉHO souboru je citlivý na BĚŽNÉ souběžné zápisy jiných spuštěných
+// Claude Code oken na stejném stroji (OAuth refresh, čítače, session bookkeeping) — nezávislý poller (mimo tenhle proces,
+// jen čte) prokázal změnu hashe 2× během ~2 min běhu tohoto samotestu, beze změny velikosti a bez jakékoliv sekce tohoto
+// souboru schopné zápisu. FAIL se proto neváže na syrový hash (ten se dál jen loguje pro diagnostiku), ale na CÍLENOU
+// shodu: žádný nový klíč v projects{} odpovídající dočasné složce TOHOTO běhu (path.basename(tmp), řádek 6) — přesně
+// vzor skutečné regrese z verdiktu A-008 K2 bodu 2 („+40 klíčů projects[...Temp\auditor-selftest-*\ui-N...]").
+const realClaudeJsonTmpPattern = new RegExp(path.basename(tmp).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+const realClaudeJsonProjectKeys = () => { try { const j = JSON.parse(fs.readFileSync(realClaudeJsonPath, 'utf8')); return new Set(Object.keys(j.projects || {}).filter(k => realClaudeJsonTmpPattern.test(k))); } catch { return new Set(); } };
+const realClaudeJsonLeakBefore = realClaudeJsonProjectKeys();
+let realDesktopBefore = null, realDesktopFilesBefore = null;
+if (isWin) { try { realDesktopBefore = execSync('powershell -NoProfile -Command "[Environment]::GetFolderPath(\'Desktop\')"', { encoding: 'utf8' }).trim(); realDesktopFilesBefore = new Set(fs.readdirSync(realDesktopBefore)); } catch { realDesktopBefore = null; } }
 
 // --- AUDITOR GUARD
 T('A: zápis do repa blokován', hook(AG, write(ws, path.join(repo, 'src', 'a.ts'))), 2);
@@ -814,6 +835,39 @@ T('PC: NUL v .dat2 odmítnut', pc({ 'scripts/t.dat2': Buffer.from([0, 65]) }), 1
       T('A-007 kolo3: doslovný řádek setup-auditor.sh (set -euo pipefail) po skutečném selhání install-pre-commit-hook.mjs skončí chybou, nehlásí konec',
         `nalezen=${nalezen},exit=${res.status !== 0},konec=${/SETUP_REACHED_END/.test(res.stdout || '')}`, 'nalezen=true,exit=true,konec=false');
     }
+
+    // A-008 kolo 3 (P2, P4d): marker hotovo:true z PŘEDCHOZÍ instalace nesmí přežít NOVÝ (třeba přerušený) běh setupu — jinak
+    // by update-install.mjs při přerušení TOHOTO běhu tiše hlásil OK podle starého markeru. Test spouští DOSLOVNÝ blok/řádek
+    // ze SKUTEČNÉHO souboru (najde ho čerstvým čtením — smazání nebo přesun kódu to samo zachytí), proti SKUTEČNÉMU starému
+    // markeru na disku — žádná reimplementace.
+    {
+      const ps1Lines = ps1.split(/\r?\n/);
+      const anchorIdx = ps1Lines.findIndex(l => l.includes("Join-Path $ws 'AUDIT/.instalace.json'"));
+      const nalezen = anchorIdx >= 0 && /Remove-Item -Force \$markerPath/.test(ps1Lines[anchorIdx + 1] || '');
+      const blok = nalezen ? `${ps1Lines[anchorIdx]}\n${ps1Lines[anchorIdx + 1]}` : '';
+      const wsBroken = path.join(tmp, 'a008p4d-ps1-ws'); fs.mkdirSync(path.join(wsBroken, 'AUDIT'), { recursive: true });
+      fs.writeFileSync(path.join(wsBroken, 'AUDIT', '.instalace.json'), JSON.stringify({ hotovo: true, kapitan: 'ano', hygiena: 'ano', cas: '2020-01-01T00:00:00.000Z' }));
+      const wrap = path.join(tmp, 'a008p4d.ps1');
+      fs.writeFileSync(wrap, `$ws = ${qp(wsBroken)}\n${blok}\nWrite-Host 'MARKER_CHECK_DONE'\n`);
+      const res = nalezen ? spawnSync('pwsh', ['-NoProfile', '-File', wrap], { encoding: 'utf8', timeout: 30000 }) : { status: null, stdout: '' };
+      const smazano = !fs.existsSync(path.join(wsBroken, 'AUDIT', '.instalace.json'));
+      T('A-008 kolo 3 (P4d): doslovný blok setup-auditor.ps1 smaže starý marker hotovo:true hned na začátku (dřív, než se zapíše znovu)',
+        `nalezen=${nalezen},dokonceno=${/MARKER_CHECK_DONE/.test(res.stdout || '')},smazano=${smazano}`, 'nalezen=true,dokonceno=true,smazano=true');
+    }
+    {
+      const shLines = shsetup.split(/\r?\n/);
+      const lineIdx = shLines.findIndex(l => l.includes('rm -f') && l.includes('.instalace.json'));
+      const nalezen = lineIdx >= 0;
+      const segment = nalezen ? shLines[lineIdx] : '';
+      const wsBroken = path.join(tmp, 'a008p4d-sh-ws'); fs.mkdirSync(path.join(wsBroken, 'AUDIT'), { recursive: true });
+      fs.writeFileSync(path.join(wsBroken, 'AUDIT', '.instalace.json'), '{"hotovo":true,"kapitan":"ano","hygiena":"ano","cas":"2020-01-01T00:00:00Z"}\n');
+      const wrap = path.join(tmp, 'a008p4d.sh');
+      fs.writeFileSync(wrap, `set -euo pipefail\nWS=${qb(wsBroken)}\n${segment}\necho MARKER_CHECK_DONE\n`);
+      const res = nalezen ? spawnSync('bash', [wrap], { encoding: 'utf8', timeout: 30000 }) : { status: null, stdout: '' };
+      const smazano = !fs.existsSync(path.join(wsBroken, 'AUDIT', '.instalace.json'));
+      T('A-008 kolo 3 (P4d): doslovný řádek setup-auditor.sh smaže starý marker hotovo:true hned na začátku (dřív, než se zapíše znovu)',
+        `nalezen=${nalezen},dokonceno=${/MARKER_CHECK_DONE/.test(res.stdout || '')},smazano=${smazano}`, 'nalezen=true,dokonceno=true,smazano=true');
+    }
   }
 }
 // --- BUS
@@ -1333,18 +1387,21 @@ if (fs.existsSync(path.join(pkg, 'katalog', 'katalog.json'))) {
 // kroku, kde update-install.mjs sám spustí samotest svého cíle (ws/tools/selftest.mjs — kopie TOHOTO souboru); bez pojistky by
 // ta vnořená kopie spustila TUHLE sekci znovu (a její vlastní 2 úspěšné scénáře další vnořený samotest — exponenciální růst).
 // Proměnná v env dítěte (update-install.mjs) se nemění a dědí se dál do jeho vnořeného samotestu → rekurze se zastaví v hloubce 1.
-// A-008 kolo 2 (bod 3, POVINNÉ): bezpečnostní snapshot skutečné plochy uživatele — nezávisí na tom, jestli sekce níž
-// vůbec proběhne (AUDITOR_SELFTEST_NO_UPDATE_INSTALL ji může přeskočit celou); porovnání je i tak spuštěné, aby chytilo
-// i budoucí regresi mimo tuhle sekci. Nikdy nic na ploše nemaže — jen POROVNÁVÁ obsah před/po.
-let realDesktopBefore = null, realDesktopFilesBefore = null;
-if (isWin) { try { realDesktopBefore = execSync('powershell -NoProfile -Command "[Environment]::GetFolderPath(\'Desktop\')"', { encoding: 'utf8' }).trim(); realDesktopFilesBefore = new Set(fs.readdirSync(realDesktopBefore)); } catch { realDesktopBefore = null; } }
+// A-008 kolo 2 (bod 3, POVINNÉ) + kolo 3: bezpečnostní snapshot skutečné plochy uživatele — přesunuto na začátek
+// souboru (u realClaudeJsonHashPred), ať chytí i budoucí regresi mimo tuhle sekci; proměnné realDesktopBefore/
+// realDesktopFilesBefore jsou odtamtud. Porovnání s „po" je na konci souboru. Nikdy nic na ploše nemaže.
 
 if (!process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL) {
   const UI = path.join(pkg, 'tools', 'update-install.mjs');
   // AUDITOR_NO_SHORTCUT (A-008 kolo 2, bod 3): výchozí pro VŠECHNY scénáře UI-N níž — testy nesmí zapisovat na skutečnou
   // plochu uživatele (K1 regrese: ui-1/ui-3/ui-4 tam nechaly „Auditor a Kapitan - ui-N.lnk"). Mechanismus samotný ověřuje
   // samostatný test níž (bez tohohle přepínače, přes přesměrovanou USERPROFILE\Desktop).
-  const uiEnv = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t', AUDITOR_SELFTEST_NO_UPDATE_INSTALL: '1', AUDITOR_NO_SHORTCUT: '1' };
+  // A-008 kolo 3 (bod 2, KRITICKÉ): uiHome přesměruje HOME i USERPROFILE (a APPDATA/LOCALAPPDATA pro jistotu) na sandbox
+  // pro VŠECHNY scénáře, co spouští update-install.mjs — ten interně volá trust-folders.mjs (tryRun/run BEZ vlastního
+  // env → dědí env dítěte, tedy tenhle uiEnv), který zapisuje do os.homedir()/.claude.json. Bez přesměrování by to byl
+  // SKUTEČNÝ soubor vlastníka (ověřeno: +40 klíčů projects[...] a přepsaná .bak za 3 běhy, viz verdikt A-008 K2 bod 2).
+  const uiHome = path.join(tmp, 'ui-home'); fs.mkdirSync(uiHome, { recursive: true });
+  const uiEnv = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t', AUDITOR_SELFTEST_NO_UPDATE_INSTALL: '1', AUDITOR_NO_SHORTCUT: '1', HOME: uiHome, USERPROFILE: uiHome, APPDATA: path.join(uiHome, 'AppData', 'Roaming'), LOCALAPPDATA: path.join(uiHome, 'AppData', 'Local') };
   const uiGit = (dir, c) => execSync(`git ${c}`, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
   const uiRepo = dir => { fs.mkdirSync(dir, { recursive: true }); uiGit(dir, 'init -q'); uiGit(dir, 'config user.email t@t'); uiGit(dir, 'config user.name t'); uiGit(dir, 'checkout -q -b main');
     fs.writeFileSync(path.join(dir, 'README.md'), '# x'); uiGit(dir, 'add -A'); uiGit(dir, '-c user.name=t -c user.email=t@t commit -qm init'); };
@@ -1374,16 +1431,21 @@ if (!process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL) {
   T('UPDATE-INSTALL A-008: legitimní profil „jen audit" (AUDIT/.remote.json) beze změn → OK',
     `exit=${p2.status},aktualizovano=${/AKTUALIZOVÁNO/.test(p2.stdout)},varovani=${/NEDOKONČ/.test(p2.stdout + p2.stderr)}`, 'exit=0,aktualizovano=true,varovani=false');
 
-  // 3) třetí díra (vlastní zjištění): hygiena už jednou potvrzeně nainstalovaná (.gitattributes existuje — instalátor ho zapisuje
-  //    jako POSLEDNÍ krok, až PO obou git hoocích), ale .git/hooks/pre-commit i pre-push úplně chybí (instalace spadla přesně
-  //    mezi tím). Dřívější kód jen AKTUALIZOVAL hook, co už měl marker — takhle to zůstávalo navždy nedoplněné. installGitHook
-  //    (sdílená funkce z install-pre-commit-hook.mjs, stejná jako u prvoinstalace — žádná duplicitní logika) teď oba doplní.
+  // 3) třetí díra (vlastní zjištění) + A-008 kolo 3 (C5L): hygiena už jednou potvrzeně nainstalovaná, ale .git/hooks/pre-commit
+  //    i pre-push úplně chybí (např. .git smazán a znovu založen). Dřívější kód jen AKTUALIZOVAL hook, co už měl marker —
+  //    takhle to zůstávalo navždy nedoplněné. installGitHook (sdílená funkce z install-pre-commit-hook.mjs, stejná jako u
+  //    prvoinstalace — žádná duplicitní logika) teď oba doplní. PŮVODNĚ (do kola 3) odvozoval test „potvrzenou hygienu" jen
+  //    z existence .gitattributes bez markeru — přesně ten samý signál, který C5L (scénář 10 níž) ukázal jako nespolehlivý
+  //    (vlastníkovo VLASTNÍ .gitattributes bez markeru ≠ potvrzená hygiena). Od kola 3 test proto místo toho staví na
+  //    markeru (hygiena:"ano") — jediném spolehlivém důkazu, že vlastník hygienu opravdu potvrdil; reálné instalace po
+  //    kole 2 marker vždy mají.
   const r3 = path.join(tmp, 'ui-3'), w3 = path.join(tmp, 'ui-3-audit'); uiRepo(r3); uiWs(w3);
   fs.mkdirSync(path.join(r3, '.claude', 'hooks'), { recursive: true });
   fs.copyFileSync(path.join(pkg, 'kapitan-side', 'kapitan-audit-guard.js'), path.join(r3, '.claude', 'hooks', 'kapitan-audit-guard.js'));
   fs.writeFileSync(path.join(r3, '.gitattributes'), '* text=auto\n');
+  fs.writeFileSync(path.join(w3, 'AUDIT', '.instalace.json'), JSON.stringify({ hotovo: true, kapitan: 'ano', hygiena: 'ano', cas: new Date().toISOString() }));
   const p3 = runUI(r3, w3);
-  T('UPDATE-INSTALL A-008: git hooky chybějící navzdory potvrzené hygieně (.gitattributes) se doplní (installGitHook)',
+  T('UPDATE-INSTALL A-008 kolo 3: git hooky chybějící navzdory potvrzené hygieně (marker hygiena:ano) se doplní (installGitHook)',
     `exit=${p3.status},pre-commit=${hookMarker(path.join(r3, '.git', 'hooks', 'pre-commit'), 'pre-commit')},pre-push=${hookMarker(path.join(r3, '.git', 'hooks', 'pre-push'), 'pre-push')}`,
     'exit=0,pre-commit=true,pre-push=true');
 
@@ -1481,6 +1543,22 @@ if (!process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL) {
       console.log('  (přeskočeno: mechanismus AUDITOR_NO_SHORTCUT — skutečná plocha neodpovídá %USERPROFILE%\\Desktop, pravděpodobně OneDrive KFM; bezpečnostní snapshot níž chrání dál)');
     }
   }
+
+  // 10) A-008 kolo 3 (C5L, regrese oproti testu 7 výš): STARŠÍ instalace úplně BEZ markeru (AUDIT/.instalace.json nikdy
+  //     nevznikl — proběhla ještě před A-008 kolo 2) + vlastníkovo VLASTNÍ .gitattributes (nesouvisí s auditorem, v repu
+  //     ho měl už předtím) + ŽÁDNÝ náš pre-commit marker (hygienu tehdy odmítl, hook nikdy nevznikl). Stará logika (řádek
+  //     127 před kolem 3) bez markeru odvozovala hygienaZnacka z fs.existsSync(.gitattributes) → nainstalovala by hooky
+  //     proti vůli vlastníka. Oprava: bez markeru je jediný signál nasPreCommit (tady chybí) → hooky se nemají instalovat
+  //     vůbec a nejde o „přerušenou dřívější instalaci" (je to legitimní starý stav).
+  const r10 = path.join(tmp, 'ui-10'), w10 = path.join(tmp, 'ui-10-audit'); uiRepo(r10); uiWs(w10);
+  fs.mkdirSync(path.join(r10, '.claude', 'hooks'), { recursive: true });
+  fs.copyFileSync(path.join(pkg, 'kapitan-side', 'kapitan-audit-guard.js'), path.join(r10, '.claude', 'hooks', 'kapitan-audit-guard.js'));
+  fs.writeFileSync(path.join(r10, '.gitattributes'), '* text=auto\n');
+  // žádný AUDIT/.instalace.json ve w10 — to je přesně ta „stará instalace bez markeru"
+  const p10 = runUI(r10, w10);
+  T('UPDATE-INSTALL A-008 kolo 3 (C5L): stará instalace BEZ markeru + vlastní .gitattributes (bez našeho pre-commit) → hooky se NEinstalují',
+    `exit=${p10.status},pre-commit=${hookMarker(path.join(r10, '.git', 'hooks', 'pre-commit'), 'pre-commit')},pre-push=${hookMarker(path.join(r10, '.git', 'hooks', 'pre-push'), 'pre-push')},prerušeno=${/přerušená dřívější instalace/.test(p10.stdout)}`,
+    'exit=0,pre-commit=false,pre-push=false,prerušeno=false');
 }
 
 // A-008 kolo 2 (bod 3, POVINNÉ): uzávěrka bezpečnostního snapshotu z hlavičky sekce — ať selže cokoliv výš (mechanismus,
@@ -1492,6 +1570,18 @@ if (isWin && realDesktopBefore) {
   T('UPDATE-INSTALL A-008 kolo 2: celá sekce samotestu nezapsala NIC na skutečnou plochu uživatele (bezpečnostní snapshot před/po)',
     `nove=${novéNaPloše.length}${novéNaPloše.length ? ':' + novéNaPloše.join(',') : ''}`, 'nove=0');
 }
+
+// A-008 kolo 3 (bod 2, POVINNÉ): uzávěrka pojistky ~/.claude.json z hlavičky souboru. CÍLENÁ kontrola (ne syrový hash,
+// viz zdůvodnění u definice výš) — žádný nový klíč v projects{} skutečného souboru neodpovídá dočasné složce TOHOTO
+// běhu. Rozdíl = FAIL: znamená, že NĚKTERÝ test zapsal do SKUTEČNÉHO souboru vlastníka místo do přesměrovaného sandboxu
+// (typicky trust-folders.mjs volané update-install.mjs bez přesměrovaného HOME/USERPROFILE v env — přesně tahle
+// regrese, viz uiHome výš). Skutečný ~/.claude.json se tímhle testem NIKDY nemění ani neuklízí — případné staré klíče
+// z dřívějších (neopravených) běhů zůstávají, dokud je vlastník sám nesmaže; hash se dál loguje jen pro diagnostiku,
+// protože ho mění i běžné souběžné zápisy jiných oken, ne jen regrese tohoto balíku.
+const realClaudeJsonLeakAfter = [...realClaudeJsonProjectKeys()].filter(k => !realClaudeJsonLeakBefore.has(k));
+if (hashFile(realClaudeJsonPath) !== realClaudeJsonHashPred && !realClaudeJsonLeakAfter.length) console.log('(info) skutečný ~/.claude.json změnil hash během běhu bez nových klíčů dočasné složky — souběžný zápis jiného okna, ne regrese tohoto balíku');
+T('CELÝ SAMOTEST: skutečný ~/.claude.json nedostal žádný nový klíč z dočasné složky tohoto běhu (cílená pojistka, mimo sandbox)',
+  realClaudeJsonLeakAfter.join(','), '');
 
 const slouc = results.filter(r => !r.ok && cekaNaSlouceni(r.nastroj)); const fails = results.filter(r => !r.ok && !slouc.includes(r));
 for (const r of results) console.log(`${r.ok ? 'PASS' : slouc.includes(r) ? 'SLOUČIT' : 'FAIL'}  ${r.name}${r.ok ? '' : `  (očekáváno ${r.exp}, bylo ${r.got})${slouc.includes(r) ? ` — běží tvoje upravená tools/${r.nastroj}, verze balíku čeká v tools/${r.nastroj}.new (úkol SLOUCIT v AUDIT/NOVE_CILE.md); pojistky to neovlivňuje` : ''}`}`);

@@ -118,13 +118,15 @@ if (starter) {
 const hasMarker = (hookName, txt) => new RegExp(`^#\\s*auditor-managed-hook:\\s*${hookName}\\s*$`, 'm').test(txt);
 if (kapitan || starter) {
   for (const [f, t] of [['hygiene-rules.js'], ['hygiene-rules.json'], ['pre-commit-check.mjs'], ['hooks-package.json', 'package.json']]) put(path.join(HY, f), `.claude/hooks/${t || f}`);
-  // A-008 kolo 2 (oprava regrese C5): samotná existence .gitattributes NEDOKAZUJE, že vlastník hygienu chtěl — může to být
-  // jeho vlastní nesouvisející soubor (repo mělo .gitattributes už předtím, Kapitána zvolil, hygienu vědomě odmítl). Marker
-  // `AUDIT/.instalace.json` (inst.hygiena, zapsaný setup-auditor.ps1/.sh jako POSLEDNÍ krok) je autoritativní; u starších
-  // instalací bez markeru zůstává legacy odhad z .gitattributes. Nezávisle na obojím: vlastní pre-commit hook s NAŠÍM
-  // markerem je sám o sobě důkaz, že hygiena instalace proběhla (P5b — přerušeno mezi pre-commit a pre-push, .gitattributes
-  // i marker ještě chybí) → druhý, nezávislý signál pro doplnění chybějícího pre-push (A-023 K2 addendum).
-  const hygienaZnacka = inst ? inst.hygiena === 'ano' : fs.existsSync(path.join(repo, '.gitattributes')); const repaired = [];
+  // A-008 kolo 2 (oprava regrese C5) + kolo 3 (oprava regrese C5L): samotná existence .gitattributes NEDOKAZUJE, že vlastník
+  // hygienu chtěl — může to být jeho vlastní nesouvisející soubor (repo mělo .gitattributes už předtím, Kapitána zvolil,
+  // hygienu vědomě odmítl). Marker `AUDIT/.instalace.json` (inst.hygiena, zapsaný setup-auditor.ps1/.sh jako POSLEDNÍ krok)
+  // je autoritativní. U STARŠÍCH instalací BEZ markeru se .gitattributes už NEPOUŽÍVÁ jako odhad (C5L: vlastník hygienu
+  // odmítl, ale vlastní/starý .gitattributes v repu měl už předtím → dřív se to mylně vyhodnotilo jako „hygiena byla").
+  // Jediný legacy signál bez markeru je vlastní pre-commit hook s NAŠÍM markerem — ten je sám o sobě důkaz, že hygiena
+  // instalace proběhla (P5b — přerušeno mezi pre-commit a pre-push, .gitattributes i marker ještě chybí) → nezávislý
+  // signál pro doplnění chybějícího pre-push (A-023 K2 addendum).
+  const hygienaZnacka = inst ? inst.hygiena === 'ano' : false; const repaired = [];
   const pc = path.join(repo, '.git', 'hooks', 'pre-commit'), pcTxt = rd(pc);
   const nasPreCommit = hasMarker('pre-commit', pcTxt);
   const hygienaByla = hygienaZnacka || nasPreCommit;
