@@ -581,23 +581,77 @@ T('K: A-023 AK4 K40 — grep -rn "gh release create" docs/ není vydání', hook
 {
   const PG = path.join(repo, '.claude', 'hooks', 'pre-push-guard.mjs');
   const prePush = (cwd, stdin, envExtra) => spawnSync(process.execPath, [PG], { cwd, input: stdin, env: { ...env, ...envExtra }, encoding: 'utf8' });
-  const shaMain = git('rev-parse HEAD'); const shaFeat = git('rev-parse HEAD', wt);
+  const shaMain = git('rev-parse HEAD'); const shaFeat = git('rev-parse HEAD', wt); // wt (feat/a) má od řádku 536 jiný obsah (feature.ts) než main
 
   // bez zelené brány: push na main musí být blokován
   fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES}\nAuditovaný commit: \`neexistujiciHash\`\nVerdikt: 🔴 NESMÍ VYDAT\n`);
-  const resMain = prePush(repo, `refs/heads/main ${shaMain} refs/heads/main ${shaMain}\n`, { AUDITOR_TARGET_REPO: norm(repo) });
+  const resMain = prePush(repo, `refs/heads/main ${shaMain} refs/heads/main ${shaMain}\n`, {});
   T('A-023 AK3: pre-push na main bez zelené brány → blokován (exit≠0)', resMain.status !== 0, true);
   T('A-023 AK3: pre-push blokace vypíše českou hlášku', /PRE-PUSH BLOKOVÁN/.test(resMain.stderr || ''), true);
 
   // push na feature větev → projde bez ohledu na bránu
-  const resFeat = prePush(wt, `refs/heads/feat/a ${shaFeat} refs/heads/feat/a ${shaFeat}\n`, { AUDITOR_TARGET_REPO: norm(wt) });
+  const resFeat = prePush(wt, `refs/heads/feat/a ${shaFeat} refs/heads/feat/a ${shaFeat}\n`, {});
   T('A-023 AK3: pre-push na feature větev → povolen (exit 0)', resFeat.status, 0);
 
   // se zelenou branou na aktuální commit main → push na main projde
   fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES}\nAuditovaný commit: \`${git('rev-parse --short HEAD')}\`\nVerdikt: 🟢 SMÍ VYDAT\n`);
-  const resMainOk = prePush(repo, `refs/heads/main ${shaMain} refs/heads/main ${shaMain}\n`, { AUDITOR_TARGET_REPO: norm(repo) });
+  const resMainOk = prePush(repo, `refs/heads/main ${shaMain} refs/heads/main ${shaMain}\n`, {});
   T('A-023 AK3: pre-push na main se zelenou bránou → povolen (exit 0)', resMainOk.status, 0);
+
+  // --- A-023 AK3 kolo 2 (P19, P21): auditor prokázal SKUTEČNÝM `git push`, že se brána posuzovala pro HEAD repa
+  // (ne pro tlačený sha) a že šla obejít podvrženým AUDITOR_WORKSPACE. Gate zůstává zelená jen pro shaMain (výše).
+
+  // P19: `git push origin feat:main` — tlačený obsah (shaFeat) se liší od zeleně gatovaného shaMain, i když repo má
+  // main pořád checkoutnuté jako HEAD. Dřív se gatoval HEAD repa → prošlo by to; teď se gatuje TLAČENÝ sha → blok.
+  const resFeatToMain = prePush(repo, `refs/heads/feat/a ${shaFeat} refs/heads/main ${shaFeat}\n`, {});
+  T('A-023 AK3 kolo2 (P19): feat obsah do main (tlačený sha ≠ zelený main) → blokován (exit≠0)', resFeatToMain.status !== 0, true);
+  T('A-023 AK3 kolo2 (P19): hláška jmenuje tlačený commit, ne HEAD repa', new RegExp(shaFeat.slice(0, 8)).test(resFeatToMain.stderr || ''), true);
+
+  // P21: push main na jeho VLASTNÍ aktuální HEAD (shaMain) — schválně STEJNÝ commit, který stará (kolo 1) i nová větev kódu
+  // skutečně kontroluje, ať test izolovaně prokáže P21, ne náhodou i P19. Reálná brána (ws) je červená; podvržený
+  // AUDITOR_WORKSPACE ukazuje na FALEŠNÝ workspace se zelenou bránou přímo pro shaMain — stará chyba by mu uvěřila.
   fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES}\nAuditovaný commit: \`neexistujiciHash\`\nVerdikt: 🔴 NESMÍ VYDAT\n`);
+  const fakeWs = path.join(tmp, 'fake-audit'); fs.mkdirSync(path.join(fakeWs, 'AUDIT'), { recursive: true });
+  fs.writeFileSync(path.join(fakeWs, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES}\nAuditovaný commit: \`${shaMain.slice(0, 7)}\`\nVerdikt: 🟢 SMÍ VYDAT\n`);
+  const resSpoof = prePush(repo, `refs/heads/main ${shaMain} refs/heads/main ${shaMain}\n`, { AUDITOR_WORKSPACE: norm(fakeWs) });
+  T('A-023 AK3 kolo2 (P21): podvržený AUDITOR_WORKSPACE se ignoruje, reálná (červená) brána rozhoduje → blokován (exit≠0)', resSpoof.status !== 0, true);
+  T('A-023 AK3 kolo2 (P21): podvržená proměnná projde i s AUDITOR_TARGET_REPO na cizí cestu', prePush(repo, `refs/heads/main ${shaMain} refs/heads/main ${shaMain}\n`, { AUDITOR_WORKSPACE: norm(fakeWs), AUDITOR_TARGET_REPO: norm(fakeWs) }).status !== 0, true);
+
+  // smazání chráněné větve (git push origin :main → local ref "(delete)", local sha samé nuly) je vždy blokované,
+  // schválně i se ZELENOU bránou pro shaMain (aby test prokázal: blokace je nepodmíněná, ne náhoda kvůli červené bráně).
+  fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES}\nAuditovaný commit: \`${shaMain.slice(0, 7)}\`\nVerdikt: 🟢 SMÍ VYDAT\n`);
+  const zero = '0'.repeat(40);
+  const resDelete = prePush(repo, `(delete) ${zero} refs/heads/main ${shaMain}\n`, {});
+  T('A-023 AK3 kolo2: smazání main (local sha nuly) → vždy blokováno i se zelenou branou (exit≠0)', resDelete.status !== 0, true);
+  T('A-023 AK3 kolo2: hláška o smazání zmiňuje větev', /smazán.*main/.test(resDelete.stderr || ''), true);
+
+  // po sondách kolo 2 gate zpátky na výchozí červenou, ať navazující testy níž nezávisí na stavu tady
+  fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES}\nAuditovaný commit: \`neexistujiciHash\`\nVerdikt: 🔴 NESMÍ VYDAT\n`);
+
+  // --- A-023 AK3 kolo 2: end-to-end přes SKUTEČNÝ `git push` a nainstalovaný .sh wrapper (bare origin + clone) —
+  // ne přímé volání .mjs jako výše: ověří, že pre-push-guard.sh správně předá stdin/cwd produkčnímu .mjs a že
+  // worktree-based kontrola (P19) funguje i z reálné instalace, ne jen ze syntetického stdin.
+  {
+    const e2e = path.join(tmp, 'a023-e2e'); const originBare = path.join(e2e, 'origin.git'); const appDir = path.join(e2e, 'app');
+    fs.mkdirSync(originBare, { recursive: true }); git('init -q --bare -b main', originBare);
+    execSync(`git clone -q ${norm(originBare)} ${norm(appDir)}`, { encoding: 'utf8' });
+    git('config user.email t@t', appDir); git('config user.name t', appDir); git('checkout -q -b main', appDir);
+    const appHooks = path.join(appDir, '.claude', 'hooks'); fs.mkdirSync(appHooks, { recursive: true });
+    fs.copyFileSync(path.join(pkg, 'kapitan-side/pre-push-guard.mjs'), path.join(appHooks, 'pre-push-guard.mjs'));
+    fs.copyFileSync(path.join(pkg, 'kapitan-side/gate-check.mjs'), path.join(appHooks, 'gate-check.mjs'));
+    fs.mkdirSync(path.join(appDir, '.git', 'hooks'), { recursive: true });
+    fs.copyFileSync(path.join(pkg, 'kapitan-side/pre-push-guard.sh'), path.join(appDir, '.git', 'hooks', 'pre-push'));
+    if (!isWin) fs.chmodSync(path.join(appDir, '.git', 'hooks', 'pre-push'), 0o755);
+    fs.writeFileSync(path.join(appDir, 'a.txt'), '1'); git('add -A', appDir); git('-c user.name=t -c user.email=t@t commit -qm c1', appDir);
+    const shaE2E = git('rev-parse HEAD', appDir);
+    const appWs = path.join(e2e, 'app-audit'); fs.mkdirSync(path.join(appWs, 'AUDIT'), { recursive: true });
+    const push = () => spawnSync('git', ['push', 'origin', 'main'], { cwd: appDir, encoding: 'utf8', env: { ...process.env, AUDITOR_WORKSPACE: undefined, AUDITOR_TARGET_REPO: undefined } });
+    fs.writeFileSync(path.join(appWs, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES}\nAuditovaný commit: \`neexistujiciHash\`\nVerdikt: 🔴 NESMÍ VYDAT\n`);
+    T('A-023 AK3 kolo2 e2e: skutečný git push přes .sh wrapper bez zelené brány → blokován', push().status !== 0, true);
+    fs.writeFileSync(path.join(appWs, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES}\nAuditovaný commit: \`${shaE2E.slice(0, 7)}\`\nVerdikt: 🟢 SMÍ VYDAT\n`);
+    T('A-023 AK3 kolo2 e2e: skutečný git push přes .sh wrapper se zelenou branou → povolen', push().status, 0);
+    fs.rmSync(e2e, { recursive: true, force: true });
+  }
 
   // instalace: cizí pre-push hook (bez markeru) → zálohován, stejný instalátor jako pre-commit (A-023 AK3, generalizace A-007)
   const IPC2 = path.join(pkg, 'tools/install-pre-commit-hook.mjs'); const srcPP = path.join(pkg, 'kapitan-side/pre-push-guard.sh');
