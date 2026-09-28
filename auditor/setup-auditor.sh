@@ -36,10 +36,11 @@ if [ "$K" = "ano" ]; then
   node "$WS/tools/kapitan-role.mjs" "$WS" --claude-md "$REPO" || echo "Zápis role Kapitána do CLAUDE.md selhal"
   H=${AUDITOR_HYGIENA:-$(askyn "Nainstalovat hygienu do repa (pre-commit guard, .gitattributes, .gitignore doplněk)?" "ano")}
   if [ "$H" = "ano" ]; then
-    mkdir -p "$REPO/.git/hooks" && cp "$PKG/kapitan-side/hygiene/"{pre-commit-check.mjs,hygiene-rules.js,hygiene-rules.json} "$REPO/.claude/hooks/" && node "$WS/tools/install-pre-commit-hook.mjs" "$REPO" "$PKG/kapitan-side/hygiene/pre-commit-guard.sh"
+    mkdir -p "$REPO/.git/hooks" && cp "$PKG/kapitan-side/hygiene/"{pre-commit-check.mjs,hygiene-rules.js,hygiene-rules.json} "$REPO/.claude/hooks/" && node "$WS/tools/install-pre-commit-hook.mjs" "$REPO" "$PKG/kapitan-side/hygiene/pre-commit-guard.sh" pre-commit
+    cp "$PKG/kapitan-side/pre-push-guard.mjs" "$REPO/.claude/hooks/" && node "$WS/tools/install-pre-commit-hook.mjs" "$REPO" "$PKG/kapitan-side/pre-push-guard.sh" pre-push
     [ -f "$REPO/.gitattributes" ] || cp "$PKG/kapitan-side/hygiene/gitattributes.template" "$REPO/.gitattributes"
     grep -q 'hygiena (auditor)' "$REPO/.gitignore" 2>/dev/null || cat "$PKG/kapitan-side/hygiene/gitignore.addendum" >> "$REPO/.gitignore"
-    echo "Hygiena nainstalována (pre-commit guard aktivní; husky/lefthook: přidej volání skriptu do jejich configu)."
+    echo "Hygiena nainstalována (pre-commit + pre-push guard aktivní; husky/lefthook: přidej volání skriptu do jejich configu)."
   fi
   C=${AUDITOR_CI:-$(askyn "Nainstalovat GitHub Actions workflow auditor-gate (CI brána mimo agenta; vyžaduje chráněnou main + secrets AUDIT_REPO, AUDIT_REPO_TOKEN)?" "ano")}
   if [ "$C" = "ano" ]; then mkdir -p "$REPO/.github/workflows" && cp "$PKG/kapitan-side/ci/auditor-gate.yml" "$REPO/.github/workflows/auditor-gate.yml" && echo "CI workflow nainstalován → na GitHubu: Settings → Branches → protect main → required status check 'auditor-gate'; Secrets: AUDIT_REPO, AUDIT_REPO_TOKEN (read-only PAT na audit repo)."; fi

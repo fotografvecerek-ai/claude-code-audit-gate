@@ -14,11 +14,40 @@ const collapse = p => { const s = String(p || '').replace(/^\\\\[?.]\\/, '').rep
 const fsx = require('node:fs');
 let R = null; for (const c of [path.join(__dirname, 'hygiene-rules.js'), path.join(__dirname, 'hygiene', 'hygiene-rules.js'), path.join(process.env.AUDITOR_WORKSPACE || '', 'kapitan-side/hygiene/hygiene-rules.js')]) { try { R = require(c).load(); break; } catch { } }
 const PROD_BRANCH = new RegExp(process.env.PROD_BRANCHES || '^(main|master|production|prod|release)$', 'i');
-const DEPLOY = [/\bvercel\s+(deploy|--prod|alias|promote)|\bvercel\b.*--prod/i, /\b(npm|pnpm|yarn)\s+publish\b/i, /\bprisma\s+migrate\s+deploy\b/i, /\bsupabase\s+(db\s+push|functions\s+deploy)\b/i, /\bcapgo\b.*(upload|bundle)/i, /\bbuild_ota\.py\b/i, /\b(eas|fastlane)\s+(submit|build)\b/i, /\bgh\s+release\s+create\b/i, /\bgh\s+pr\s+merge\b/i];
+// A-023 AK4 fix (a): DEPLOY se vyhodnocuje jen když PRVNÍ SLOVO segmentu (c.w, případně skutečný interpret u -e/-c) odpovídá nástroji —
+// dřív regex běžel nad celým textem segmentu (včetně obsahu v uvozovkách), takže echo/grep/git commit -m se slovem „vercel --prod" apod. blokovaly (KH11, KH12, K35, K40).
+const DEPLOY = [
+  { bin: /^vercel$/, re: /\bvercel\s+(deploy|--prod|alias|promote)|\bvercel\b.*--prod/i },
+  { bin: /^(npm|pnpm|yarn)$/, re: /\b(npm|pnpm|yarn)\s+publish\b/i },
+  { bin: /^prisma$/, re: /\bprisma\s+migrate\s+deploy\b/i },
+  { bin: /^supabase$/, re: /\bsupabase\s+(db\s+push|functions\s+deploy)\b/i },
+  { bin: /^capgo$/, re: /\bcapgo\b.*(upload|bundle)/i },
+  { bin: /^(python3?|py|build_ota\.py)$/, re: /\bbuild_ota\.py\b/i },
+  { bin: /^(eas|fastlane)$/, re: /\b(eas|fastlane)\s+(submit|build)\b/i },
+  { bin: /^gh$/, re: /\bgh\s+release\s+create\b/i },
+  { bin: /^gh$/, re: /\bgh\s+pr\s+merge\b/i },
+];
 // --- analýza příkazu (stejná jako v hooku auditora): rozhoduje CÍL zápisu, ne slova v příkazu — čtení s 2>/dev/null projde
 const WRAP = new Set(['sudo', 'env', 'nohup', 'time', 'exec', 'command', 'call', 'npx', 'bunx', 'xargs', '&', 'start', 'nice']);
 const KEYWORDS = new Set(['then', 'do', 'else', 'elif', '{', '}', '!']); // A-005 kolo 3: "if cond; then git push…; fi" — 'then' by jinak skryl 'git' jako c.w
+// A-023 AK4 fix (c): heredoc (`cat <<'EOF' ... EOF`) tělo je DATA zapisovaná do souboru/streamu, ne shellové příkazy —
+// naivní dělení na '\n' ho dřív rozsekalo na samostatné segmenty (KH15: "git push origin main" v těle heredocu se vyhodnotilo jako skutečný push).
+// Odstraní řádky mezi `<<[-]['"]?DELIM['"]?` a uzavírací řádkou DELIM (včetně), zbytek příkazu (před/po) zůstává beze změny.
+function stripHeredocs(s) {
+  const startRe = /<<-?\s*(['"]?)([A-Za-z_]\w*)\1/g; let out = s, guard = 0, m;
+  while ((m = startRe.exec(out)) && guard++ < 50) {
+    const delim = m[2]; const bodyStart = out.indexOf('\n', m.index + m[0].length);
+    if (bodyStart === -1) break; // heredoc bez těla na dalších řádcích v tomto textu — nic k odstranění
+    const endRe = new RegExp('\\n[ \\t]*' + delim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=\\n|$)');
+    const rest = out.slice(bodyStart); const endM = endRe.exec(rest);
+    if (!endM) break; // neukončený heredoc v tomto úseku — necháme beze změny (segments() to zpracuje jako dřív, fail-closed)
+    out = out.slice(0, bodyStart) + out.slice(bodyStart + endM.index + endM[0].length);
+    startRe.lastIndex = bodyStart;
+  }
+  return out;
+}
 function segments(s) { // rozdělí na jednoduché příkazy mimo uvozovky; tokeny bez uvozovek; `2>&1`, `&>` zůstanou jedním tokenem
+  s = stripHeredocs(s);
   const out = []; let tok = '', toks = [], q = null, had = false, quoted = false;
   // citovaný token, který vypadá jako přesměrování (`grep ">" f`), dostane neviditelnou značku → není to přesměrování
   const endTok = () => { if (had) toks.push(quoted && /^(\d|&)?>/.test(tok) ? '\u200b' + tok : tok); tok = ''; had = false; quoted = false; }; const endSeg = () => { endTok(); if (toks.length) out.push(toks); toks = []; };
@@ -34,6 +63,13 @@ function segments(s) { // rozdělí na jednoduché příkazy mimo uvozovky; toke
     tok += c; had = true; }
   endSeg(); return out;
 }
+// A-023 AK4 fix (b): jednoduché "VAR=hodnota" přiřazení jako samostatný segment (před ';'/'&&'/novým řádkem) → mapa pro dosazení do -C/-c.
+function buildVarMap(cmd) {
+  const map = {};
+  for (const toks of segments(cmd)) { if (toks.length === 1) { const m = /^([A-Za-z_]\w*)=(.*)$/.exec(toks[0]); if (m) map[m[1]] = m[2]; } }
+  return map;
+}
+function subVars(s, map) { return String(s).replace(/\$\{?(\w+)\}?/g, (m, name) => (name in map ? map[name] : m)); }
 const baseW = x => (x || '').replace(/\\/g, '/').split('/').pop().toLowerCase().replace(/\.(exe|cmd|bat|ps1)$/, '');
 // jednoduché příkazy po obalech (npx, sudo, env, xargs…); shell -c / cmd /c / powershell -Command se rozbalí; interpret -e/-c vrátí kód
 function commands(cmd, depth = 0, out = []) {
@@ -87,10 +123,33 @@ function writeTargets(cmd, cwd0) {
 // v RŮZNÝCH segmentech a hlavní smyčka (c.w !== 'git' → continue) to nevidí. Fallback skenuje SYROVÝ text (jen když
 // obsahuje $(...) nebo zpětné apostrofy — běžný text zprávy commitu bez nich projde beze změny).
 const GIT_MUT_WORDS = new Set(['push', 'commit', 'merge', 'rebase', 'reset', 'tag', 'clean', 'am', 'cherry-pick', 'revert']);
-function looksLikeGitToken(tok) { return /(^|[/\\])git(\.exe)?$/i.test(tok) || /\$\([^)]*\bgit\b[^)]*\)/i.test(tok) || /`[^`]*\bgit\b[^`]*`/i.test(tok); }
+// A-023 AK4 fix (d): bare "git" ve vlastním tokenu je NORMÁLNÍ segment, který už vidí hlavní smyčka (c.w === 'git') — bral ho sem
+// jen zbytečně navíc (a K38 "git commit -m "$(date) push fix"" bez uvozovkově-citlivého dělení tokenů rozsekal citovanou zprávu
+// na "push" jako SAMOSTATNÝ token → falešný nález). looksLikeGitToken proto řeší jen obal přes $(...)/zpětné apostrofy.
+function looksLikeGitToken(tok) { return /\$\([^)]*\bgit\b[^)]*\)/i.test(tok) || /`[^`]*\bgit\b[^`]*`/i.test(tok); }
+// citově-vědomé dělení na tokeny: celý "…" nebo '…' řetězec (i s mezerami uvnitř) zůstává JEDEN token — jinak citovaný text
+// zprávy commitu ("$(date) push fix") rozseká mezera před "push" na samostatný token a fallback ho vyhodnotí jako push (K38).
+function quoteAwareWords(s) {
+  const out = []; let tok = '', q = null, had = false;
+  for (let i = 0; i < s.length; i++) { const c = s[i];
+    if (q) { tok += c; if (c === q) q = null; continue; }
+    if (c === '"' || c === "'") { q = c; tok += c; had = true; continue; }
+    if (/\s/.test(c)) { if (had) out.push(tok); tok = ''; had = false; continue; }
+    tok += c; had = true;
+  }
+  if (had) out.push(tok);
+  return out;
+}
+// GIT_MUT_RE: "git" a mutační slovo (push/commit/…) v LIBOVOLNÉM pořadí ve STEJNÉM $(...) nebo `...` úseku — nezávisle na
+// citování (doplněk k tokenovému lookaheadu níž, který citovaný úsek vidí jako jeden token a lookahead ho tak nenajde).
+const GIT_MUT_ALT = [...GIT_MUT_WORDS].join('|');
+const GIT_MUT_SPAN_RE = new RegExp(`\\bgit(\\.exe)?\\b[\\s\\S]*?\\b(${GIT_MUT_ALT})\\b|\\b(${GIT_MUT_ALT})\\b[\\s\\S]*?\\bgit(\\.exe)?\\b`, 'i');
 function fallbackPushScan(rawCmd) {
   if (!/\$\(|`/.test(rawCmd)) return false;
-  const toks = rawCmd.split(/\s+/);
+  const spans = rawCmd.match(/\$\([^)]*\)|`[^`]*`/g) || [];
+  if (spans.some(sp => GIT_MUT_SPAN_RE.test(sp))) return true;
+  // obal typu "$(which git) push origin main" — "git" a mutační slovo v RŮZNÝCH (necitovaných) tokenech
+  const toks = quoteAwareWords(rawCmd);
   for (let i = 0; i < toks.length; i++) {
     if (looksLikeGitToken(toks[i]) || /\$\(/.test(toks[i]) || /`/.test(toks[i])) {
       for (let j = i + 1; j < toks.length && j < i + 6; j++) {
@@ -152,16 +211,20 @@ process.stdin.on('end', () => {
     // přesměrování (2>&1, >, | tail) se nepočítá do refspeců; git-bash cesta (/c/Users/…) se před resolve převede na C:\Users\… (win32).
     const gitBashToWin = p => { if (process.platform !== 'win32' || !p) return p; const m = /^\/([A-Za-z])(\/.*)?$/.exec(p); return m ? `${m[1].toUpperCase()}:${(m[2] || '\\').replace(/\//g, '\\')}` : p; };
     const resolveDir = (base, t) => { const c = gitBashToWin(t); return path.isAbsolute(c) ? c : path.resolve(base, c); };
+    // A-023 AK4 fix (b): "W=<cesta>; git -C $W push origin HEAD" (KH13) — $W se dřív předalo resolveDir doslovně jako text '$W',
+    // takže se pracovalo s neexistujícím adresářem, branch vyšla 'UNKNOWN' a to se falešně vyhodnotilo jako produkční větev.
+    // buildVarMap přečte prostá přiřazení "VAR=hodnota" jako samostatný segment (typicky oddělený ';'/'&&' od zbytku příkazu).
+    const varMap = buildVarMap(cmd);
     let cur = cwdRaw, pushProd = false, pushDir = null, depMatch = null, depMatchDir = cwdRaw;
     for (const c of commands(cmd)) {
       if (['cd', 'pushd', 'set-location', 'sl', 'chdir'].includes(c.w)) { const t = c.a.find(x => !/^[-/]/.test(x) || /^\//.test(x) && x.length > 2); if (t) cur = resolveDir(cur, t); continue; }
-      if (!depMatch) { const text = c.inline || c.all.join(' '); const dm = DEPLOY.map(re => text.match(re)).find(Boolean); if (dm) { depMatch = dm; depMatchDir = cur; } }
+      if (!depMatch) { const text = c.inline || c.all.join(' '); const dm = DEPLOY.find(d => (c.inline || d.bin.test(c.w)) && d.re.test(text)); if (dm) { depMatch = dm.re.exec(text); depMatchDir = cur; } }
       if (c.w !== 'git') continue; // VŠECHNY git push segmenty v příkazu (ne jen první) — "git push a && git push origin main" musí vyhodnotit i druhý (kolo 2)
       // A-005 kolo 3: globální volby gitu v LIBOVOLNÉM pořadí (dřív jen pevné -C pak -c), vč. --git-dir/--work-tree/--no-pager/-P/--bare/--exec-path
       let i = 0, cDir = null;
       for (;;) {
         const t = c.a[i];
-        if (t === '-C' && c.a[i + 1] !== undefined) { cDir = c.a[i + 1]; i += 2; continue; }
+        if (t === '-C' && c.a[i + 1] !== undefined) { cDir = subVars(c.a[i + 1], varMap); i += 2; continue; }
         if (t === '-c' && c.a[i + 1] !== undefined) { i += 2; continue; }
         if ((t === '--git-dir' || t === '--work-tree') && c.a[i + 1] !== undefined) { i += 2; continue; }
         if (/^--git-dir=/.test(t || '') || /^--work-tree=/.test(t || '')) { i++; continue; }

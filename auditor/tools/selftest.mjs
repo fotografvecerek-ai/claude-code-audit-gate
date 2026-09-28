@@ -11,7 +11,7 @@ fs.mkdirSync(guardTmp, { recursive: true });
 const isWin = process.platform === 'win32'; const norm = p => p.replace(/\\/g, '/');
 const gitBash = p => isWin ? '/' + p[0].toLowerCase() + p.slice(2).replace(/\\/g, '/') : p; // Windows cesta → git-bash styl /c/Users/... (A-005 regrese)
 fs.mkdirSync(path.join(ws, 'AUDIT', 'bus'), { recursive: true }); fs.mkdirSync(path.join(ws, 'build'), { recursive: true }); fs.mkdirSync(path.join(repo, '.claude', 'hooks'), { recursive: true });
-for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'hygiene/hygiene-rules.js', 'hygiene/hygiene-rules.json', 'hygiene/pre-commit-check.mjs', 'hygiene/hooks-package.json']) fs.copyFileSync(path.join(pkg, 'kapitan-side', f), path.join(repo, '.claude', 'hooks', f === 'hygiene/hooks-package.json' ? 'package.json' : path.basename(f)));
+for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'pre-push-guard.mjs', 'hygiene/hygiene-rules.js', 'hygiene/hygiene-rules.json', 'hygiene/pre-commit-check.mjs', 'hygiene/hooks-package.json']) fs.copyFileSync(path.join(pkg, 'kapitan-side', f), path.join(repo, '.claude', 'hooks', f === 'hygiene/hooks-package.json' ? 'package.json' : path.basename(f)));
 const git = (c, cwd = repo) => execSync(`git ${c}`, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 git('init -q'); git('config user.email t@t'); git('config user.name t'); git('checkout -q -b main'); fs.writeFileSync(path.join(repo, 'README.md'), '# x'); fs.writeFileSync(path.join(repo, '.gitignore'), '.tmp/\n'); git('add -A'); git('-c user.name=t -c user.email=t@t commit -qm init');
 git(`init -q`, ws); git('config user.email t@t', ws); git('config user.name t', ws); git('add -A', ws); git('-c user.name=t -c user.email=t@t commit -qm init --allow-empty', ws);
@@ -502,6 +502,51 @@ fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate �
 T('K: vydání z čistého worktree s 🔴 blokováno', hook(KG, bash(wt, 'vercel --prod')), 2);
 // pád hooku = blok (rozbitý package.json v repu, vlastní package.json v hooks drží)
 fs.writeFileSync(path.join(repo, 'package.json'), '{broken'); T('K: rozbitý package.json v repu → hook běží (package.json v hooks)', hook(KG, bash(repo, 'ls')), 0); fs.unlinkSync(path.join(repo, 'package.json'));
+
+// --- A-023 AK4: falešné blokace — DEPLOY/pushM detekce se vyhodnocuje podle PRVNÍHO SLOVA segmentu (příkazu), ne regexem nad syrovým textem.
+// Případy KH11/KH12/KH13/KH15/K35/K38/K40 z tabulky AUDIT/build/verify-a004/table-k4-a005.md — dřív exp 0, new (chybně) 2.
+T('K: A-023 AK4 KH11 — echo textu se slovy "az projde gate: vercel --prod" není deploy', hook(KG, bash(repo, 'echo "az projde gate: vercel --prod"')), 0);
+T('K: A-023 AK4 KH12 — git commit -m "docs: po schvaleni npm publish" není publish', hook(KG, bash(repo, 'git commit -m "docs: po schvaleni npm publish"')), 0);
+T('K: A-023 AK4 KH13 — W=proměnná cesta; git -C $W push origin HEAD na feature větev povolen', hook(KG, bash(wt, `W=${gitBash(wt)}; git -C $W push origin HEAD`)), 0);
+T('K: A-023 AK4 KH15 — heredoc tělo s "git push origin main" (jen zapsaný text) není push', hook(KG, bash(repo, `cat <<'EOF' > .tmp/tasks/K-1/n.md\ngit push origin main az po gate\nEOF`)), 0);
+T('K: A-023 AK4 K35 — echo "gh pr merge pozdeji" není merge', hook(KG, bash(repo, 'echo "gh pr merge pozdeji"')), 0);
+T('K: A-023 AK4 K38 — git commit -m "$(date) push fix" není push', hook(KG, bash(repo, 'git commit -m "$(date) push fix"')), 0);
+T('K: A-023 AK4 K40 — grep -rn "gh release create" docs/ není vydání', hook(KG, bash(repo, 'grep -rn "gh release create" docs/')), 0);
+// regrese: skutečné DEPLOY/push případy z A-005 (K:) výš musí zůstat blokované — netestuje se tu znovu, jen se opírá o existující sadu nad KG.
+
+// --- A-023 AK3: pre-push guard (druhá linie) — git zavolá skript se stdin řádky "<local ref> <local sha> <remote ref> <remote sha>"
+{
+  const PG = path.join(repo, '.claude', 'hooks', 'pre-push-guard.mjs');
+  const prePush = (cwd, stdin, envExtra) => spawnSync(process.execPath, [PG], { cwd, input: stdin, env: { ...env, ...envExtra }, encoding: 'utf8' });
+  const shaMain = git('rev-parse HEAD'); const shaFeat = git('rev-parse HEAD', wt);
+
+  // bez zelené brány: push na main musí být blokován
+  fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES}\nAuditovaný commit: \`neexistujiciHash\`\nVerdikt: 🔴 NESMÍ VYDAT\n`);
+  const resMain = prePush(repo, `refs/heads/main ${shaMain} refs/heads/main ${shaMain}\n`, { AUDITOR_TARGET_REPO: norm(repo) });
+  T('A-023 AK3: pre-push na main bez zelené brány → blokován (exit≠0)', resMain.status !== 0, true);
+  T('A-023 AK3: pre-push blokace vypíše českou hlášku', /PRE-PUSH BLOKOVÁN/.test(resMain.stderr || ''), true);
+
+  // push na feature větev → projde bez ohledu na bránu
+  const resFeat = prePush(wt, `refs/heads/feat/a ${shaFeat} refs/heads/feat/a ${shaFeat}\n`, { AUDITOR_TARGET_REPO: norm(wt) });
+  T('A-023 AK3: pre-push na feature větev → povolen (exit 0)', resFeat.status, 0);
+
+  // se zelenou branou na aktuální commit main → push na main projde
+  fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES}\nAuditovaný commit: \`${git('rev-parse --short HEAD')}\`\nVerdikt: 🟢 SMÍ VYDAT\n`);
+  const resMainOk = prePush(repo, `refs/heads/main ${shaMain} refs/heads/main ${shaMain}\n`, { AUDITOR_TARGET_REPO: norm(repo) });
+  T('A-023 AK3: pre-push na main se zelenou bránou → povolen (exit 0)', resMainOk.status, 0);
+  fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES}\nAuditovaný commit: \`neexistujiciHash\`\nVerdikt: 🔴 NESMÍ VYDAT\n`);
+
+  // instalace: cizí pre-push hook (bez markeru) → zálohován, stejný instalátor jako pre-commit (A-023 AK3, generalizace A-007)
+  const IPC2 = path.join(pkg, 'tools/install-pre-commit-hook.mjs'); const srcPP = path.join(pkg, 'kapitan-side/pre-push-guard.sh');
+  const rpp = path.join(tmp, 'a023-pp-cizi'); fs.mkdirSync(path.join(rpp, '.git', 'hooks'), { recursive: true });
+  const cizíPP = '#!/bin/sh\necho CIZI_PRE_PUSH\n'; fs.writeFileSync(path.join(rpp, '.git', 'hooks', 'pre-push'), cizíPP);
+  const resInstPP = spawnSync(process.execPath, [IPC2, rpp, srcPP, 'pre-push'], { encoding: 'utf8' });
+  const bakPP = fs.readdirSync(path.join(rpp, '.git', 'hooks')).filter(f => f.startsWith('pre-push.bak-'));
+  T('A-023 AK3: cizí pre-push hook → vznikne záloha pre-push.bak-*', bakPP.length, 1);
+  T('A-023 AK3: záloha cizího pre-push obsahuje beze změny původní obsah', bakPP.length ? fs.readFileSync(path.join(rpp, '.git', 'hooks', bakPP[0]), 'utf8') : '', cizíPP);
+  T('A-023 AK3: nový pre-push obsahuje marker auditor-managed-hook: pre-push', /auditor-managed-hook:\s*pre-push/.test(fs.readFileSync(path.join(rpp, '.git', 'hooks', 'pre-push'), 'utf8')), true);
+  T('A-023 AK3: instalátor vypíše hlášku o záloze i u pre-push', resInstPP.status === 0 && /zalohovan/.test(resInstPP.stdout), true);
+}
 // --- PRE-COMMIT CHECK
 const pc = (files) => { for (const [f, c] of Object.entries(files)) { fs.mkdirSync(path.dirname(path.join(repo, f)), { recursive: true }); fs.writeFileSync(path.join(repo, f), c); } git('add -A'); const r = spawnSync(process.execPath, [path.join(repo, '.claude/hooks/pre-commit-check.mjs'), path.join(repo, '.claude/hooks/hygiene-rules.json')], { cwd: repo, env, encoding: 'utf8' }).status; git('reset -q'); for (const f of Object.keys(files)) fs.rmSync(path.join(repo, f), { force: true }); return r; };
 T('PC: čistý commit projde', pc({ 'scripts/deploy.sh': 'x', 'public/a.png': 'x', 'src/b.ts': 'x' }), 0);
@@ -538,14 +583,35 @@ T('PC: NUL v .dat2 odmítnut', pc({ 'scripts/t.dat2': Buffer.from([0, 65]) }), 1
   T('A-007: nový pre-commit obsahuje marker pre-commit-check', /pre-commit-check/.test(fs.readFileSync(path.join(r1, '.git', 'hooks', 'pre-commit'), 'utf8')), true);
   T('A-007: instalátor vypíše hlášku o záloze', res1.status === 0 && /zalohovan/.test(res1.stdout), true);
 
-  const r2 = mkRepo('a007-marker'); fs.writeFileSync(path.join(r2, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\n# stara verze — vola pre-commit-check.mjs\n');
-  const res2 = runInstall(r2);
-  T('A-007: vlastní starší hook (marker) → beze zálohy', bakFiles(r2).length, 0);
-  T('A-007: hook s markerem se přepíše na aktuální verzi balíku', fs.readFileSync(path.join(r2, '.git', 'hooks', 'pre-commit'), 'utf8'), fs.readFileSync(src, 'utf8'));
-  T('A-007: přepis s markerem beze hlášky o záloze', res2.status === 0 && !/zalohovan/.test(res2.stdout), true);
+  // A-007 kolo 2 (K1 bod 1): marker musí být jednoznačný ŘÁDEK, ne PODŘETĚZEC — cizí hook, který náhodou obsahuje text
+  // "pre-commit-check" (starší instalace bez markeru, nebo cizí "npm run pre-commit-check"), se dřív přepsal BEZE ZÁLOHY.
+  const r2 = mkRepo('a007-podretezec'); const substrObsah = '#!/bin/sh\n# stara verze — vola pre-commit-check.mjs (bez presneho markeru)\n';
+  fs.writeFileSync(path.join(r2, '.git', 'hooks', 'pre-commit'), substrObsah);
+  const res2 = runInstall(r2); const bak2 = bakFiles(r2);
+  T('A-007 kolo2: hook jen s PODŘETĚZCEM "pre-commit-check" (bez přesného markeru) → vznikne záloha', bak2.length, 1);
+  T('A-007 kolo2: záloha obsahuje beze změny původní (podřetězcový) obsah', bak2.length ? fs.readFileSync(path.join(r2, '.git', 'hooks', bak2[0]), 'utf8') : '', substrObsah);
+  T('A-007 kolo2: instalátor vypíše hlášku o záloze i u podřetězcového hooku', res2.status === 0 && /zalohovan/.test(res2.stdout), true);
+
+  // náš hook s PŘESNÝM markerem → přepíše se beze zálohy, byte-identicky s aktuální verzí balíku
+  const r2b = mkRepo('a007-marker'); fs.writeFileSync(path.join(r2b, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\n# auditor-managed-hook: pre-commit\n# stara verze nasi instalace\n');
+  const res2b = runInstall(r2b);
+  T('A-007: vlastní starší hook (přesný marker) → beze zálohy', bakFiles(r2b).length, 0);
+  T('A-007: hook s markerem se přepíše na aktuální verzi balíku', fs.readFileSync(path.join(r2b, '.git', 'hooks', 'pre-commit'), 'utf8'), fs.readFileSync(src, 'utf8'));
+  T('A-007: přepis s markerem beze hlášky o záloze', res2b.status === 0 && !/zalohovan/.test(res2b.stdout), true);
 
   const r3 = mkRepo('a007-zadny'); runInstall(r3);
   T('A-007: žádný existující hook → instalace beze zálohy', bakFiles(r3).length, 0);
+
+  // A-007 kolo 2 (K1 bod 3, statická kontrola zapojení): setup-auditor.ps1 i .sh musí volat install-pre-commit-hook.mjs
+  // pro pre-commit I pre-push, a už nekopírovat hook SOUBOR (.git/hooks/pre-commit resp. pre-push) přímo přes Copy-Item/cp.
+  const ps1 = fs.readFileSync(path.join(pkg, 'setup-auditor.ps1'), 'utf8');
+  const shsetup = fs.readFileSync(path.join(pkg, 'setup-auditor.sh'), 'utf8');
+  T('A-007 kolo2: setup-auditor.ps1 volá install-pre-commit-hook.mjs pro pre-commit', /install-pre-commit-hook\.mjs['")][^\n]*'pre-commit'/.test(ps1), true);
+  T('A-007 kolo2: setup-auditor.ps1 volá install-pre-commit-hook.mjs pro pre-push', /install-pre-commit-hook\.mjs['")][^\n]*'pre-push'/.test(ps1), true);
+  T('A-007 kolo2: setup-auditor.ps1 nekopíruje hook soubor přímo do .git/hooks', /\.git[\\/]hooks/.test(ps1), false);
+  T('A-007 kolo2: setup-auditor.sh volá install-pre-commit-hook.mjs pro pre-commit', /install-pre-commit-hook\.mjs"[^\n]*\bpre-commit\b/.test(shsetup), true);
+  T('A-007 kolo2: setup-auditor.sh volá install-pre-commit-hook.mjs pro pre-push', /install-pre-commit-hook\.mjs"[^\n]*\bpre-push\b/.test(shsetup), true);
+  T('A-007 kolo2: setup-auditor.sh nekopíruje hook soubor přímo do .git/hooks/pre-commit či pre-push', /\.git\/hooks\/pre-(commit|push)["']/.test(shsetup), false);
 }
 // --- BUS
 const bus = (...a) => spawnSync(process.execPath, [path.join(pkg, 'tools/bus.mjs'), ...a], { cwd: ws, env, encoding: 'utf8' });

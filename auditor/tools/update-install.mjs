@@ -79,7 +79,7 @@ const pre = new Set((tryRun('git', ['status', '--porcelain', '--untracked-files=
 const kapitan = fs.existsSync(path.join(H, 'kapitan-audit-guard.js')); const starter = fs.existsSync(path.join(H, 'projekt-guard.js'));
 if (kapitan && !fs.existsSync(path.join(ws, '.opravneni.json'))) { if (process.stdin.isTTY) { try { execFileSync(process.execPath, [path.join(pkg, 'tools', 'opravneni.mjs'), ws, repo, '--ask'], { stdio: 'inherit' }); } catch { } } else warn('samostatnost Kapitána zatím nevybrána (OPATRNÝ) — START → [7]'); }
 if (kapitan) {
-  for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'auditor-bus.mjs']) put(path.join(pkg, 'kapitan-side', f), `.claude/hooks/${f}`);
+  for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'auditor-bus.mjs', 'pre-push-guard.mjs']) put(path.join(pkg, 'kapitan-side', f), `.claude/hooks/${f}`);
   const sk = path.join(repo, '.claude', 'skills', 'audit-rezim', 'SKILL.md'); const before = rd(sk); fs.mkdirSync(path.dirname(sk), { recursive: true });
   fs.writeFileSync(sk, '---\nname: audit-rezim\ndescription: Závazný audit režim — stop-the-line při otevřených P0/P1 v AUDIT/02_HANDOFF.md, důkazy do AUDIT/03_dukazy, bus komunikace s auditorem, deploy jen po gate-check. Použij při startu každé dávky.\n---\n' + rd(path.join(pkg, 'kapitan-side', 'AUDIT_REZIM.md')));
   if (rd(sk) !== before) changed.push('.claude/skills/audit-rezim/SKILL.md');
@@ -98,10 +98,19 @@ if (starter) {
   put(path.join(pkg, 'tools', 'owner-report.mjs'), '.claude/tools/owner-report.mjs');
   ok('zdravý start projektu aktualizován (pojistky, kontrolor, příkazy, checklisty)');
 }
+// A-007 kolo 2: jednoznačný ŘÁDEK marker (ne podřetězec) — za náš hook počítáme i starší instalaci (podřetězec „pre-commit-check")
+// kvůli zpětné kompatibilitě při aktualizaci (nová instalace už podřetězec nepoužívá, viz install-pre-commit-hook.mjs).
+const hasMarker = (hookName, txt) => new RegExp(`^#\\s*auditor-managed-hook:\\s*${hookName}\\s*$`, 'm').test(txt);
 if (kapitan || starter) {
   for (const [f, t] of [['hygiene-rules.js'], ['hygiene-rules.json'], ['pre-commit-check.mjs'], ['hooks-package.json', 'package.json']]) put(path.join(HY, f), `.claude/hooks/${t || f}`);
-  const pc = path.join(repo, '.git', 'hooks', 'pre-commit'); if (/pre-commit-check/.test(rd(pc))) { fs.copyFileSync(path.join(HY, 'pre-commit-guard.sh'), pc); try { fs.chmodSync(pc, 0o755); } catch { } }
+  const pc = path.join(repo, '.git', 'hooks', 'pre-commit'); if (hasMarker('pre-commit', rd(pc)) || /pre-commit-check/.test(rd(pc))) { fs.copyFileSync(path.join(HY, 'pre-commit-guard.sh'), pc); try { fs.chmodSync(pc, 0o755); } catch { } }
   if (fs.existsSync(path.join(H, 'pre-commit-guard.sh'))) put(path.join(HY, 'pre-commit-guard.sh'), '.claude/hooks/pre-commit-guard.sh');
+  if (kapitan) {
+    // A-023 AK3: pre-push druhá linie — logika (pre-push-guard.mjs) už je v .claude/hooks/ vždy (viz výš); samotný git hook
+    // wrapper v .git/hooks/pre-push jen aktualizuj, pokud repo ho už má nainstalovaný (instaluje ho setup-auditor, ne update).
+    const pp = path.join(repo, '.git', 'hooks', 'pre-push'); if (hasMarker('pre-push', rd(pp))) { fs.copyFileSync(path.join(pkg, 'kapitan-side', 'pre-push-guard.sh'), pp); try { fs.chmodSync(pp, 0o755); } catch { } }
+    if (fs.existsSync(path.join(H, 'pre-push-guard.sh'))) put(path.join(pkg, 'kapitan-side', 'pre-push-guard.sh'), '.claude/hooks/pre-push-guard.sh');
+  }
   // KATALOG: aktivní položky na novou verzi (ručně upravené zůstanou); vlastníkovi jednou nabídnout doporučené (hooky smí aktivovat jen on)
   { const KM = path.join(ws, 'tools', 'katalog.mjs'); const st = d => { try { return JSON.parse(rd(path.join(repo, d, 'katalog.json'))); } catch { return null; } };
     if (fs.existsSync(KM)) { const r = tryRun(process.execPath, [KM, 'obnov', '--cil', repo], repo); if (r && r.trim()) say(r.trimEnd());

@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# auditor-managed-hook: pre-commit
 # PRE-COMMIT GUARD — wrapper git hooku; logika je v pre-commit-check.mjs (jediná implementace, sdílená pravidla hygiene-rules.json).
 # Instalace (dělá setup průvodce): kopie tohoto souboru + pre-commit-check.mjs + hygiene-rules.js + hygiene-rules.json do <repo>/.claude/hooks/ a tento wrapper do .git/hooks/pre-commit.
 DIR="$(git rev-parse --show-toplevel)/.claude/hooks"

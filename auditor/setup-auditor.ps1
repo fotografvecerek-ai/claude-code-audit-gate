@@ -64,10 +64,14 @@ if ($k -eq 'ano') {
   node (Join-Path $ws 'tools/kapitan-role.mjs') $ws --claude-md $repo; if ($LASTEXITCODE -ne 0) { Write-Host 'Zápis role Kapitána do CLAUDE.md selhal' -ForegroundColor Red }
   $h = if ($Yes) { $Hygiena } else { AskYN "Nainstalovat hygienu do repa (pre-commit guard, .gitattributes, .gitignore doplněk)?" "ano" }
   if ($h -eq 'ano') {
-    node (Join-Path $ws 'tools/install-pre-commit-hook.mjs') $repo (Join-Path $pkg 'kapitan-side/hygiene/pre-commit-guard.sh')
+    node (Join-Path $ws 'tools/install-pre-commit-hook.mjs') $repo (Join-Path $pkg 'kapitan-side/hygiene/pre-commit-guard.sh') 'pre-commit'
+    if ($LASTEXITCODE -ne 0) { throw "Instalace pre-commit hooku selhala (exit $LASTEXITCODE)" }
+    Copy-Item (Join-Path $pkg 'kapitan-side/pre-push-guard.mjs') $hk -Force
+    node (Join-Path $ws 'tools/install-pre-commit-hook.mjs') $repo (Join-Path $pkg 'kapitan-side/pre-push-guard.sh') 'pre-push'
+    if ($LASTEXITCODE -ne 0) { throw "Instalace pre-push hooku selhala (exit $LASTEXITCODE)" }
     if (-not (Test-Path (Join-Path $repo '.gitattributes'))) { Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/gitattributes.template') (Join-Path $repo '.gitattributes') }
     $gi = Join-Path $repo '.gitignore'; if (-not (Test-Path $gi) -or -not (Select-String -Path $gi -Pattern 'hygiena \(auditor\)' -Quiet)) { Get-Content (Join-Path $pkg 'kapitan-side/hygiene/gitignore.addendum') | Add-Content $gi -Encoding UTF8 }
-    Write-Host "Hygiena nainstalována (pre-commit guard běží přes Git Bash, který Git for Windows používá pro hooky)."
+    Write-Host "Hygiena nainstalována (pre-commit + pre-push guard běží přes Git Bash, který Git for Windows používá pro hooky)."
   }
   $c = if ($Yes) { $CI } else { AskYN "Nainstalovat GitHub Actions workflow auditor-gate (CI brána mimo agenta; vyžaduje chráněnou main + secrets)?" "ano" }
   if ($c -eq 'ano') { New-Item -ItemType Directory -Force -Path (Join-Path $repo '.github/workflows') | Out-Null; Copy-Item (Join-Path $pkg 'kapitan-side/ci/auditor-gate.yml') (Join-Path $repo '.github/workflows/auditor-gate.yml') -Force; if ($Yes) { Write-Host "CI brána (GitHub Actions) nainstalována." } else { Write-Host "CI workflow nainstalován → GitHub: Settings → Branches → protect main → required status check 'auditor-gate'; Secrets: AUDIT_REPO, AUDIT_REPO_TOKEN." -ForegroundColor Yellow } }
