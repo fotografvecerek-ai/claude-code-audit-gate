@@ -102,8 +102,11 @@ if (starter) {
   put(path.join(pkg, 'tools', 'owner-report.mjs'), '.claude/tools/owner-report.mjs');
   ok('zdravý start projektu aktualizován (pojistky, kontrolor, příkazy, checklisty)');
 }
-// A-007 kolo 2: jednoznačný ŘÁDEK marker (ne podřetězec) — za náš hook počítáme i starší instalaci (podřetězec „pre-commit-check")
-// kvůli zpětné kompatibilitě při aktualizaci (nová instalace už podřetězec nepoužívá, viz install-pre-commit-hook.mjs).
+// A-007 kolo 3 (K2 FAIL bod 1): jednoznačný ŘÁDEK marker (ne podřetězec). Dřívější „i podřetězec pre-commit-check"
+// zpětná kompatibilita byla přesně ta chyba, kterou K1 už jednou opravil v install-pre-commit-hook.mjs — cizí hook
+// (např. „npm run pre-commit-check && npx lint-staged"), který podřetězec jen náhodou obsahuje, se při AKTUALIZACI
+// přepsal beze zálohy a jeho obsah se ztratil. update-install.mjs teď pozná „náš" hook stejně jako prvoinstalace:
+// jen přesný řádkový marker. Cizí hook bez markeru se při aktualizaci nechává úplně netknutý (žádná ztráta dat).
 const hasMarker = (hookName, txt) => new RegExp(`^#\\s*auditor-managed-hook:\\s*${hookName}\\s*$`, 'm').test(txt);
 if (kapitan || starter) {
   for (const [f, t] of [['hygiene-rules.js'], ['hygiene-rules.json'], ['pre-commit-check.mjs'], ['hooks-package.json', 'package.json']]) put(path.join(HY, f), `.claude/hooks/${t || f}`);
@@ -112,7 +115,7 @@ if (kapitan || starter) {
   // (installGitHook z install-pre-commit-hook.mjs — stejná funkce, jakou volá i prvoinstalace, žádná duplicitní logika).
   const hygienaByla = fs.existsSync(path.join(repo, '.gitattributes')); const repaired = [];
   const pc = path.join(repo, '.git', 'hooks', 'pre-commit'), pcTxt = rd(pc);
-  if (hasMarker('pre-commit', pcTxt) || /pre-commit-check/.test(pcTxt)) { fs.copyFileSync(path.join(HY, 'pre-commit-guard.sh'), pc); try { fs.chmodSync(pc, 0o755); } catch { } }
+  if (hasMarker('pre-commit', pcTxt)) { fs.copyFileSync(path.join(HY, 'pre-commit-guard.sh'), pc); try { fs.chmodSync(pc, 0o755); } catch { } }
   else if (!fs.existsSync(pc) && hygienaByla) { installGitHook(repo, path.join(HY, 'pre-commit-guard.sh'), 'pre-commit'); repaired.push('pre-commit'); }
   if (fs.existsSync(path.join(H, 'pre-commit-guard.sh'))) put(path.join(HY, 'pre-commit-guard.sh'), '.claude/hooks/pre-commit-guard.sh');
   if (kapitan) {

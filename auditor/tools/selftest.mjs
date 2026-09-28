@@ -680,6 +680,42 @@ T('PC: NUL v .dat2 odmítnut', pc({ 'scripts/t.dat2': Buffer.from([0, 65]) }), 1
     T('A-007 kolo2: setup-auditor.sh volá install-pre-commit-hook.mjs pro pre-commit', /install-pre-commit-hook\.mjs"[^\n]*\bpre-commit\b/.test(shsetup), true);
     T('A-007 kolo2: setup-auditor.sh volá install-pre-commit-hook.mjs pro pre-push', /install-pre-commit-hook\.mjs"[^\n]*\bpre-push\b/.test(shsetup), true);
     T('A-007 kolo2: setup-auditor.sh nekopíruje hook soubor přímo do .git/hooks/pre-commit či pre-push', /\.git\/hooks\/pre-(commit|push)["']/.test(shsetup), false);
+
+    // A-007 kolo 3 (K2 FAIL bod 2, regresní pojistka): auditor mutací dokázal, že odstranění `throw` po `$LASTEXITCODE`
+    // (ps1) nebo přidání `|| true` za volání (sh) projde beze změny (601/601) — statické kontroly výš jen hlídají, že
+    // volání EXISTUJE, ne že chyba doopravdy zastaví skript. Tenhle test čte DOSLOVNÝ blok/řádek ze SKUTEČNÉHO souboru
+    // za běhu (regex nad aktuálním obsahem — budoucí mutace/smazání ho čtením znovu automaticky zachytí), spustí ho
+    // v izolovaném wrapperu proti SKUTEČNÉMU install-pre-commit-hook.mjs donucenému genuinně selhat (`.git` jako
+    // SOUBOR → ENOTDIR, stejný způsob jako v K1 testu výš) a čeká nenulový exit a ŽÁDNOU hlášku o dosažení konce.
+    // Žádný fake skript, žádná reimplementace — jen skutečná produkční slova, izolovaná od zbytku instalace.
+    const qp = s => `'${String(s).replace(/'/g, "''")}'`; // PowerShell single-quote literal
+    const qb = s => `'${String(s).replace(/'/g, "'\\''")}'`; // POSIX sh single-quote literal
+    {
+      const ps1Lines = ps1.split(/\r?\n/);
+      const anchorIdx = ps1Lines.findIndex(l => l.includes('install-pre-commit-hook.mjs') && l.includes("'pre-commit'"));
+      const nalezen = anchorIdx >= 0 && /LASTEXITCODE/.test(ps1Lines[anchorIdx + 1] || '');
+      const blok = nalezen ? `${ps1Lines[anchorIdx]}\n${ps1Lines[anchorIdx + 1]}` : '';
+      const rBroken = path.join(tmp, 'a007k3-ps1'); fs.mkdirSync(rBroken, { recursive: true });
+      fs.writeFileSync(path.join(rBroken, '.git'), 'ne-adresar');
+      const wrap = path.join(tmp, 'a007k3.ps1');
+      fs.writeFileSync(wrap, `$ws = ${qp(pkg)}\n$repo = ${qp(rBroken)}\n$pkg = ${qp(pkg)}\n${blok}\nWrite-Host 'SETUP_REACHED_END'\n`);
+      const res = nalezen ? spawnSync('pwsh', ['-NoProfile', '-File', wrap], { encoding: 'utf8', timeout: 30000 }) : { status: null, stdout: '' };
+      T('A-007 kolo3: doslovný blok setup-auditor.ps1 ($LASTEXITCODE) po skutečném selhání install-pre-commit-hook.mjs skončí chybou, nehlásí konec',
+        `nalezen=${nalezen},exit=${res.status !== 0},konec=${/SETUP_REACHED_END/.test(res.stdout || '')}`, 'nalezen=true,exit=true,konec=false');
+    }
+    {
+      const shLine = shsetup.split(/\r?\n/).find(l => l.includes('install-pre-commit-hook.mjs') && l.includes('pre-commit')) || '';
+      const anchor = 'node "$WS/tools/install-pre-commit-hook.mjs"';
+      const nalezen = shLine.includes(anchor);
+      const seg = nalezen ? shLine.slice(shLine.indexOf(anchor)) : '';
+      const rBroken = path.join(tmp, 'a007k3-sh'); fs.mkdirSync(rBroken, { recursive: true });
+      fs.writeFileSync(path.join(rBroken, '.git'), 'ne-adresar');
+      const wrap = path.join(tmp, 'a007k3.sh');
+      fs.writeFileSync(wrap, `set -euo pipefail\nWS=${qb(pkg)}\nREPO=${qb(rBroken)}\nPKG=${qb(pkg)}\n${seg}\necho SETUP_REACHED_END\n`);
+      const res = nalezen ? spawnSync('bash', [wrap], { encoding: 'utf8', timeout: 30000 }) : { status: null, stdout: '' };
+      T('A-007 kolo3: doslovný řádek setup-auditor.sh (set -euo pipefail) po skutečném selhání install-pre-commit-hook.mjs skončí chybou, nehlásí konec',
+        `nalezen=${nalezen},exit=${res.status !== 0},konec=${/SETUP_REACHED_END/.test(res.stdout || '')}`, 'nalezen=true,exit=true,konec=false');
+    }
   }
 }
 // --- BUS
@@ -1179,6 +1215,23 @@ if (!process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL) {
   T('UPDATE-INSTALL A-008: git hooky chybějící navzdory potvrzené hygieně (.gitattributes) se doplní (installGitHook)',
     `exit=${p3.status},pre-commit=${hookMarker(path.join(r3, '.git', 'hooks', 'pre-commit'), 'pre-commit')},pre-push=${hookMarker(path.join(r3, '.git', 'hooks', 'pre-push'), 'pre-push')}`,
     'exit=0,pre-commit=true,pre-push=true');
+
+  // 4) A-007 kolo 3 (K2 FAIL bod 1): cizí pre-commit hook BEZ přesného řádkového markeru, který jen NÁHODOU obsahuje
+  //    podřetězec „pre-commit-check" (dřívější chyba na ř.106: `hasMarker(...) || /pre-commit-check/.test(pcTxt)` ho
+  //    brala jako „náš" a AKTUALIZACE ho přepsala beze zálohy — obsah se ztratil). Oprava odstranila podřetězcovou
+  //    větev: update-install.mjs teď pozná „náš" hook stejně jako prvoinstalace (jen přesný marker) a cizí hook bez
+  //    něj nechává při aktualizaci úplně netknutý — žádný zápis, žádná záloha (nic se nesahá, nic se neztratí).
+  const r4 = path.join(tmp, 'ui-4'), w4 = path.join(tmp, 'ui-4-audit'); uiRepo(r4); uiWs(w4);
+  fs.mkdirSync(path.join(r4, '.claude', 'hooks'), { recursive: true });
+  fs.copyFileSync(path.join(pkg, 'kapitan-side', 'kapitan-audit-guard.js'), path.join(r4, '.claude', 'hooks', 'kapitan-audit-guard.js'));
+  fs.writeFileSync(path.join(r4, '.gitattributes'), '* text=auto\n');
+  const cizíObsahR4 = '#!/bin/sh\n# stara verze — vola pre-commit-check.mjs (bez presneho markeru)\n';
+  fs.writeFileSync(path.join(r4, '.git', 'hooks', 'pre-commit'), cizíObsahR4);
+  const p4 = runUI(r4, w4);
+  const bakR4 = fs.readdirSync(path.join(r4, '.git', 'hooks')).filter(f => f.startsWith('pre-commit.bak-'));
+  T('UPDATE-INSTALL A-007 kolo3: cizí pre-commit hook s podřetězcem „pre-commit-check" (bez markeru) zůstane při aktualizaci byte-identický, beze zálohy',
+    `exit=${p4.status},obsah=${fs.readFileSync(path.join(r4, '.git', 'hooks', 'pre-commit'), 'utf8') === cizíObsahR4},bak=${bakR4.length}`,
+    'exit=0,obsah=true,bak=0');
 }
 const slouc = results.filter(r => !r.ok && cekaNaSlouceni(r.nastroj)); const fails = results.filter(r => !r.ok && !slouc.includes(r));
 for (const r of results) console.log(`${r.ok ? 'PASS' : slouc.includes(r) ? 'SLOUČIT' : 'FAIL'}  ${r.name}${r.ok ? '' : `  (očekáváno ${r.exp}, bylo ${r.got})${slouc.includes(r) ? ` — běží tvoje upravená tools/${r.nastroj}, verze balíku čeká v tools/${r.nastroj}.new (úkol SLOUCIT v AUDIT/NOVE_CILE.md); pojistky to neovlivňuje` : ''}`}`);
