@@ -9,11 +9,39 @@ process.on('uncaughtException', e => { process.stderr.write('KAPITAN-AUDIT-GUARD
 const { execFileSync } = require('node:child_process'); const path = require('node:path');
 const norm = p => { if (!p) return ''; p = String(p).replace(/\\/g, '/'); p = p.replace(/(^|[\s"'=(])([A-Za-z]):\//g, (_, pre, d) => `${pre}/${d.toLowerCase()}/`); return p.toLowerCase().replace(/\/+$/, ''); };
 const ws = norm(process.env.AUDITOR_WORKSPACE || ''), repo = norm(process.env.AUDITOR_TARGET_REPO || '');
+const repoRaw = process.env.AUDITOR_TARGET_REPO || ''; // nenormalizovaná cesta — jen tahle jde použít jako cwd pro execFileSync git (repo výš je lowercase/forward-slash)
 // HYGIENA: pravidla z JEDINÉHO zdroje hygiene-rules.json (kopie v <repo>/.claude/hooks/, originál v <ws>/kapitan-side/hygiene/)
 const collapse = p => { const s = String(p || '').replace(/^\\\\[?.]\\/, '').replace(/\\/g, '/'); const lead = s.startsWith('/') ? '/' : ''; const o = []; for (const g of s.split('/')) { if (!g || g === '.') continue; if (g === '..') o.pop(); else o.push(g); } return lead + o.join('/'); };   // „a/../b", \\?\ → pojistku nejde obejít cestou
 const fsx = require('node:fs');
 let R = null; for (const c of [path.join(__dirname, 'hygiene-rules.js'), path.join(__dirname, 'hygiene', 'hygiene-rules.js'), path.join(process.env.AUDITOR_WORKSPACE || '', 'kapitan-side/hygiene/hygiene-rules.js')]) { try { R = require(c).load(); break; } catch { } }
-const PROD_BRANCH = new RegExp(process.env.PROD_BRANCHES || '^(main|master|production|prod|release)$', 'i');
+// A-023 kolo 3 (X14/X15/X17, konzistentně s pre-push-guard.mjs): PROD_BRANCHES se dřív dalo přebít přes process.env —
+// libovolný shell, který spouští Bash/PowerShell tool Kapitána, si ho nastaví předem a bránu pro TUHLE větev vypne.
+// Jediný důvěryhodný zdroj je COMMITNUTÝ .claude/settings.json (`git show HEAD:...`, ne fs.readFileSync working tree —
+// X26), env se pro tuhle hodnotu už nikdy nečte. main/master navíc chráníme VŽDY, bez ohledu na to, co config říká.
+function readTrustedSettings(dir) {
+  if (!dir) return null;
+  try { return JSON.parse(execFileSync('git', ['show', 'HEAD:.claude/settings.json'], { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).replace(/^\uFEFF/, '')); }
+  catch { return null; }
+}
+const trustedSettings = readTrustedSettings(repoRaw);
+const ALWAYS_PROD = /^(main|master)$/i;
+function trustedProdBranchRegex(settings) {
+  const custom = settings && settings.env && typeof settings.env.PROD_BRANCHES === 'string' ? settings.env.PROD_BRANCHES : '';
+  if (custom) { try { return new RegExp(custom, 'i'); } catch { /* neplatný regex v configu — ignorovat, použít default */ } }
+  return new RegExp('^(main|master|production|prod|release)$', 'i');
+}
+const PROD_BRANCH = trustedProdBranchRegex(trustedSettings);
+const isProdBranch = b => ALWAYS_PROD.test(b) || PROD_BRANCH.test(b);
+// X26 (A-023 kolo 3): důvěryhodná kopie gate-check.mjs se dřív hledala nejdřív v `${process.env.AUDITOR_WORKSPACE}/kapitan-side/`
+// (viz níže) — podvržená hodnota mohla ukázat na FALEŠNÝ workspace s vlastním gate-check.mjs, který vždy vrátí PASS, a ta
+// vyhrávala nad legitimní kopií vedle tohoto hooku (__dirname). Workspace teď bereme jen z COMMITNUTÉ konfigurace (stejný
+// zdroj/důvěra jako PROD_BRANCHES výš), s pádem na stejnou výchozí konvenci sourozenecké složky jako gate-check.mjs/pre-push-guard.mjs.
+function trustedWorkspace(settings, repoDir) {
+  const wsVal = settings && settings.env && typeof settings.env.AUDITOR_WORKSPACE === 'string' ? settings.env.AUDITOR_WORKSPACE : '';
+  if (wsVal && fsx.existsSync(wsVal)) return path.resolve(wsVal);
+  return repoDir ? path.resolve(repoDir, '..', path.basename(repoDir) + '-audit') : '';
+}
+const TRUSTED_WS = trustedWorkspace(trustedSettings, repoRaw);
 // A-023 AK4 fix (a): DEPLOY se vyhodnocuje jen když PRVNÍ SLOVO segmentu (c.w, případně skutečný interpret u -e/-c) odpovídá nástroji —
 // dřív regex běžel nad celým textem segmentu (včetně obsahu v uvozovkách), takže echo/grep/git commit -m se slovem „vercel --prod" apod. blokovaly (KH11, KH12, K35, K40).
 const DEPLOY = [
@@ -30,27 +58,33 @@ const DEPLOY = [
 // --- analýza příkazu (stejná jako v hooku auditora): rozhoduje CÍL zápisu, ne slova v příkazu — čtení s 2>/dev/null projde
 const WRAP = new Set(['sudo', 'env', 'nohup', 'time', 'exec', 'command', 'call', 'npx', 'bunx', 'xargs', '&', 'start', 'nice']);
 const KEYWORDS = new Set(['then', 'do', 'else', 'elif', '{', '}', '!']); // A-005 kolo 3: "if cond; then git push…; fi" — 'then' by jinak skryl 'git' jako c.w
-// A-023 AK4 fix (c): heredoc (`cat <<'EOF' ... EOF`) tělo je DATA zapisovaná do souboru/streamu, ne shellové příkazy —
-// naivní dělení na '\n' ho dřív rozsekalo na samostatné segmenty (KH15: "git push origin main" v těle heredocu se vyhodnotilo jako skutečný push).
-// Odstraní řádky mezi `<<[-]['"]?DELIM['"]?` a uzavírací řádkou DELIM (včetně), zbytek příkazu (před/po) zůstává beze změny.
-function stripHeredocs(s) {
-  const startRe = /<<-?\s*(['"]?)([A-Za-z_]\w*)\1/g; let out = s, guard = 0, m;
-  while ((m = startRe.exec(out)) && guard++ < 50) {
-    const delim = m[2]; const bodyStart = out.indexOf('\n', m.index + m[0].length);
-    if (bodyStart === -1) break; // heredoc bez těla na dalších řádcích v tomto textu — nic k odstranění
-    const endRe = new RegExp('\\n[ \\t]*' + delim.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?=\\n|$)');
-    const rest = out.slice(bodyStart); const endM = endRe.exec(rest);
-    if (!endM) break; // neukončený heredoc v tomto úseku — necháme beze změny (segments() to zpracuje jako dřív, fail-closed)
-    out = out.slice(0, bodyStart) + out.slice(bodyStart + endM.index + endM[0].length);
-    startRe.lastIndex = bodyStart;
+// A-023 AK4 fix (c) / kolo 3 (N08): heredoc (`cat <<'EOF' ... EOF`) tělo je DATA zapisovaná do souboru/streamu, ne
+// shellové příkazy — naivní dělení na '\n' ho dřív rozsekalo na samostatné segmenty (KH15: "git push origin main"
+// v těle heredocu se vyhodnotilo jako skutečný push). Kolo 2 tělo BLINDNĚ ODSTRAŇOVALO (stripHeredocs) — když bylo
+// napojené rourou na STDIN shell ("cat <<'EOF' | sh"), tělo se ztratilo úplně a nikdo ho neprověřil (N08, regrese).
+// Teď se tělo ULOŽÍ (bodies[]) a pro stdin shell (bez -c/-Command, čte příkazy ze svého stdin) se dohledá zdroj:
+// vlastní heredoc → sousední heredoc přes SKUTEČNOU rouru „|" (ne „||") → jinak neznámá roura/`< soubor` = fail-closed.
+// Stejný algoritmus jako auditor/.claude/hooks/auditor-guard.js (A-006 kolo 3) — port kvůli konzistenci obou hooků.
+function extractHeredocs(s) {
+  if (!s.includes('<<')) return { stripped: s, bodies: [] };
+  const lines = s.split('\n'); const out = []; const bodies = [];
+  for (let i = 0; i < lines.length; i++) {
+    out.push(lines[i]);
+    const m = /<<-?\s*(['"]?)([A-Za-z_]\w*)\1/.exec(lines[i]); if (!m) continue;
+    const term = m[2], strip = /<<-/.test(m[0]); let j = i + 1; const body = [];
+    while (j < lines.length && (strip ? lines[j].replace(/^\t+/, '') : lines[j]).replace(/\r$/, '') !== term) { body.push(strip ? lines[j].replace(/^\t+/, '') : lines[j]); j++; }
+    bodies.push(body.join('\n'));
+    i = j; // tělo i ukončovací řádek se do výstupu (stripped) nezapíší — jen do bodies[]
   }
-  return out;
+  return { stripped: out.join('\n'), bodies };
 }
 function segments(s) { // rozdělí na jednoduché příkazy mimo uvozovky; tokeny bez uvozovek; `2>&1`, `&>` zůstanou jedním tokenem
-  s = stripHeredocs(s);
-  const out = []; let tok = '', toks = [], q = null, had = false, quoted = false;
+  // heredoc se tady už NEODSTRAŇUJE (to dělá extractHeredocs v commands(), před voláním segments()) — navíc se pro
+  // každý vrácený segment hlásí, jestli byl uvozen SKUTEČNOU rourou (jedno '|', ne '||') — potřeba pro rozpoznání
+  // stdin shellu čteného rourou (`… | sh`, N08).
+  const out = [], piped = []; let tok = '', toks = [], q = null, had = false, quoted = false, pendingPipe = false;
   // citovaný token, který vypadá jako přesměrování (`grep ">" f`), dostane neviditelnou značku → není to přesměrování
-  const endTok = () => { if (had) toks.push(quoted && /^(\d|&)?>/.test(tok) ? '\u200b' + tok : tok); tok = ''; had = false; quoted = false; }; const endSeg = () => { endTok(); if (toks.length) out.push(toks); toks = []; };
+  const endTok = () => { if (had) toks.push(quoted && /^(\d|&)?>/.test(tok) ? '\u200b' + tok : tok); tok = ''; had = false; quoted = false; }; const endSeg = () => { endTok(); if (toks.length) { out.push(toks); piped.push(pendingPipe); } toks = []; };
   for (let i = 0; i < s.length; i++) { const c = s[i];
     if (q) { if (c === q) q = null; else if (c === '\\' && q === '"' && s[i + 1] === '"') { tok += '"'; i++; } else tok += c; continue; }
     if (c === '"' || c === "'") { q = c; had = true; quoted = true; continue; }
@@ -58,23 +92,46 @@ function segments(s) { // rozdělí na jednoduché příkazy mimo uvozovky; toke
     // '>' je VŽDY metaznak přesměrování — i BEZ mezery za předchozím slovem („slovo>cíl"). Dřív se takový token slepil
     // dohromady a writeTargets() ho neviděl jako zápis (A-006, fail-open). Zůstává slepený jen fd-prefix (holé číslo/„&").
     if (c === '>') { if (had && !/^(\d+|&)?>*$/.test(tok)) endTok(); tok += c; had = true; continue; }
-    if (c === '`' || c === '\n' || c === ';' || c === '|' || c === '&' || c === '(' || c === ')' || (c === '$' && s[i + 1] === '(')) { if (c === '&' && !had && !toks.length && s[i + 1] === ' ') { tok = '&'; had = true; endTok(); continue; } endSeg(); continue; }
+    if (c === '`' || c === '\n' || c === ';' || c === '|' || c === '&' || c === '(' || c === ')' || (c === '$' && s[i + 1] === '(')) {
+      if (c === '&' && !had && !toks.length && s[i + 1] === ' ') { tok = '&'; had = true; endTok(); continue; }
+      endSeg(); pendingPipe = c === '|' && s[i - 1] !== '|' && s[i + 1] !== '|'; continue; // '|' skutečné (ne '||') → další segment je rourou napojen na tento
+    }
     if (/\s/.test(c)) { endTok(); continue; }
     tok += c; had = true; }
-  endSeg(); return out;
+  endSeg(); return { segs: out, piped };
 }
 // A-023 AK4 fix (b): jednoduché "VAR=hodnota" přiřazení jako samostatný segment (před ';'/'&&'/novým řádkem) → mapa pro dosazení do -C/-c.
 function buildVarMap(cmd) {
   const map = {};
-  for (const toks of segments(cmd)) { if (toks.length === 1) { const m = /^([A-Za-z_]\w*)=(.*)$/.exec(toks[0]); if (m) map[m[1]] = m[2]; } }
+  for (const toks of segments(cmd).segs) { if (toks.length === 1) { const m = /^([A-Za-z_]\w*)=(.*)$/.exec(toks[0]); if (m) map[m[1]] = m[2]; } }
   return map;
 }
 function subVars(s, map) { return String(s).replace(/\$\{?(\w+)\}?/g, (m, name) => (name in map ? map[name] : m)); }
 const baseW = x => (x || '').replace(/\\/g, '/').split('/').pop().toLowerCase().replace(/\.(exe|cmd|bat|ps1)$/, '');
+// A-023 kolo 3 (N08): shellové interprety, které BEZ -c/-Command/skript-souboru čtou příkazy ze svého stdin (heredoc/roura/`<`)
+const STDIN_SHELLS = new Set(['bash', 'sh', 'zsh', 'dash', 'cmd', 'powershell', 'pwsh']);
+const STDIN_MARK = new Set(['-', '-s']); // pwsh/powershell „-" a posix shelly „-s" = výslovně čti příkazy ze stdin
+const STDIN_UNKNOWN = Symbol('stdin-unresolved'); // obsah stdin se nedá staticky zjistit (roura z jiného příkazu než heredoc, `< soubor`) → fail-closed
+function analyzeShellArgs(a) { // z argumentů PO -c/-Command (nebo všech, není-li -c/-Command) zjistí: má poziční skript-soubor? „-"/"-s"? `< soubor`?
+  const positional = []; let explicitStdin = false, redirectIn = null;
+  for (let i = 0; i < a.length; i++) { const t = a[i];
+    if (/^<<-?/.test(t)) continue; // značka heredocu patří tomuto příkazu — není to poziční argument
+    if (t === '<') { redirectIn = a[i + 1] || true; i++; continue; }
+    if (STDIN_MARK.has(t)) { explicitStdin = true; continue; }
+    if (/^-/.test(t)) continue; // ostatní přepínače nejsou zdroj/cíl stdin
+    positional.push(t);
+  }
+  return { positional, explicitStdin, redirectIn };
+}
 // jednoduché příkazy po obalech (npx, sudo, env, xargs…); shell -c / cmd /c / powershell -Command se rozbalí; interpret -e/-c vrátí kód
 function commands(cmd, depth = 0, out = []) {
   if (depth > 3) return out;
-  for (const toks of segments(cmd)) {
+  const heredocs = extractHeredocs(cmd); // N08: tělo heredocu se dřív zahazovalo — teď se (pro stdin shell) rekurzivně parsuje jako příkazy
+  const { segs, piped } = segments(heredocs.stripped);
+  let hIdx = 0;
+  const segHeredoc = segs.map(toks => toks.some(t => /^<<-?[A-Za-z_]/.test(t)) ? heredocs.bodies[hIdx++] : undefined);
+  for (let si = 0; si < segs.length; si++) {
+    const toks = segs[si];
     let i = 0;
     for (;;) { const w = baseW(toks[i]);
       if (/^\w+=/.test(toks[i] || '')) { i++; continue; }
@@ -83,10 +140,25 @@ function commands(cmd, depth = 0, out = []) {
       if (['npm', 'pnpm', 'yarn'].includes(w) && /^(exec|dlx|x)$/.test(toks[i + 1] || '')) { i += 2; while (toks[i] && /^-/.test(toks[i])) i++; continue; }
       break; }
     const w = baseW(toks[i]); if (!w) continue; const a = toks.slice(i + 1); const lower = a.map(x => x.toLowerCase());
-    if (['bash', 'sh', 'zsh', 'dash', 'cmd', 'powershell', 'pwsh'].includes(w)) {
+    if (STDIN_SHELLS.has(w)) {
       // A-005 kolo 3: "bash -lc", "sh -lc" apod. — krátké sloučené volby POSIX shellů končící na "c" (ne jen samotné -c)
       const isShellC = x => /^(-c|\/c|\/k|-command|-encodedcommand)$/i.test(x) || (['bash', 'sh', 'zsh', 'dash'].includes(w) && /^-[a-z]{1,3}c$/i.test(x));
-      const k = lower.findIndex(isShellC); if (k >= 0) { commands(a.slice(k + 1).join(' '), depth + 1, out); continue; }
+      const k = lower.findIndex(isShellC);
+      const lone = k >= 0 && a[k + 1] === '-'; // `-Command -` / `-c -` = čti PŘÍKAZY ze stdin, ne inline text
+      if (k >= 0 && !lone) { commands(a.slice(k + 1).join(' '), depth + 1, out); continue; }
+      // N08: bez -c/-Command (nebo jen "-c -"/"-Command -") — stdin shell: najdi zdroj (vlastní heredoc → sousední
+      // heredoc přes SKUTEČNOU rouru → jinak neznámá roura/`< soubor` = fail-closed).
+      const stdinArgs = k >= 0 ? a.slice(k + 1) : a;
+      const { positional, explicitStdin, redirectIn } = analyzeShellArgs(stdinArgs);
+      if (lone || explicitStdin || positional.length === 0) {
+        let feed = null;
+        if (segHeredoc[si] !== undefined) feed = segHeredoc[si];
+        else if (redirectIn) feed = STDIN_UNKNOWN;
+        else if (piped[si]) feed = segHeredoc[si - 1] !== undefined ? segHeredoc[si - 1] : STDIN_UNKNOWN;
+        if (feed === STDIN_UNKNOWN) { out.push({ w: '__stdin_unresolved__', a: [], lower: [], all: [`${w}${redirectIn ? ' < ' + redirectIn : ' (roura)'}`], inline: null }); continue; }
+        if (typeof feed === 'string') { commands(feed, depth + 1, out); continue; }
+        // feed === null → v tomto konstruktu není heredoc/roura/`<` vůbec (samotné „bash" bez kontextu) — beze změny
+      }
     }
     if (w === 'eval') { commands(a.join(' '), depth + 1, out); continue; } // eval "git push …" — obsah se rekurzivně tokenizuje jako u shell -c (kolo 2)
     const inline = ['node', 'python', 'python3', 'py', 'deno', 'bun', 'ruby', 'perl'].includes(w) && lower.some(x => /^(-e|-c|--eval|-p|--print)$/.test(x)) ? a.join(' ') : null;
@@ -196,6 +268,9 @@ process.stdin.on('end', () => {
   if (tool === 'Bash' || tool === 'PowerShell') {
     const cmd = String(ti.command || '');
     if (fallbackPushScan(cmd)) block('Podezřelý příkaz zmiňuje git (přes $(...) nebo zpětné apostrofy) a mutační slovo (push/commit/…) skrz nerozpoznaný obal — fail-closed (A-005 kolo 3).');
+    // N08 (A-023 kolo 3): stdin shellu (`… | sh`, `sh < soubor`) se nedá staticky ověřit zdroj příkazů (roura odjinud
+    // než z heredoc, nebo `< soubor`) — fail-closed, ať se nedá obejít push/deploy skrytý za neznámý stdin.
+    if (commands(cmd).some(c => c.w === '__stdin_unresolved__')) block('stdin shellového interpretu se nedá staticky ověřit (roura odjinud než z heredoc, nebo `< soubor`) — fail-closed (A-023 kolo 3, N08).');
     // destruktivní SQL přímo v příkazu (platí i pro úroveň SAMOSTATNÝ/PLNÝ): smazání tabulek/databáze, vyprázdnění, DELETE/UPDATE bez WHERE
     if (/\bdrop\s+(table|database|schema)\b|\btruncate\s+(table\s+)?["\w]|\bdelete\s+from\s+[\w."]+\s*(;|"|'|$)(?![^;]*\bwhere\b)|\bupdate\s+[\w."]+\s+set\b(?![^;]*\bwhere\b)|\bsupabase\s+db\s+reset\b/i.test(cmd)) block('DESTRUKTIVNÍ SQL (DROP/TRUNCATE/DELETE či UPDATE bez WHERE/db reset) — takový zásah dělá jen vlastník ručně, se zálohou.');
     // SELF-PROTECT i přes shell: zápis/mazání/přesun souborů hooků, settings, CI brány (rozhoduje cíl zápisu; git rm/mv/checkout a prettier --write taky)
@@ -244,13 +319,13 @@ process.stdin.on('end', () => {
       let segProd = rawArgs.some(a => /^--(all|mirror|tags|branches)$/.test(a));
       const stripPlus = r => r.replace(/^\+/, '');
       const args = rawArgs.filter(a => !a.startsWith('-')); const refspecs = args.slice(1); const targets = refspecs.map(stripPlus).map(r => r.includes(':') ? r.split(':')[1] : r).map(t => t.replace(/^refs\/heads\//, ''));
-      if (targets.some(t => t && t !== 'HEAD' && PROD_BRANCH.test(t))) segProd = true;
+      if (targets.some(t => t && t !== 'HEAD' && isProdBranch(t))) segProd = true;
       const refspec = stripPlus(refspecs[0] || ''); const target = refspecs.length > 1 ? '' : (refspec.includes(':') ? refspec.split(':')[1] : refspec);
       // skutečný adresář příkazu: -C <dir> > sledovaný cwd (cd/pushd/Set-Location před příkazem) > cwd hooku (worktree má vlastní HEAD!)
       const dir = cDir ? resolveDir(cwdRaw, cDir) : cur;
       let branch = (target && target !== 'HEAD') ? target : ''; if (!branch) { try { branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim(); } catch { branch = 'UNKNOWN'; } }
       if (branch === 'UNKNOWN' || branch === 'HEAD') segProd = true; // nelze určit → fail-closed (gate-check rozhodne)
-      segProd = segProd || PROD_BRANCH.test(branch.replace(/^refs\/heads\//, ''));
+      segProd = segProd || isProdBranch(branch.replace(/^refs\/heads\//, ''));
       if (segProd && !pushProd) { pushProd = true; pushDir = dir; } // první PROD segment rozhoduje o gate adresáři; další (i non-prod) segmenty dir nepřepisují
     }
     if (pushProd || depMatch) {
@@ -260,9 +335,14 @@ process.stdin.on('end', () => {
       const common = d => { try { return norm(fsx.realpathSync.native(path.resolve(d, execFileSync('git', ['rev-parse', '--git-common-dir'], { cwd: d, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim()))); } catch { return ''; } };   // realpath: krátké názvy 8.3 (RUNNER~1) a odkazy
       const target = process.env.AUDITOR_TARGET_REPO || process.cwd(); const cd0 = common(gdir);
       const gateDir = cd0 && cd0 === common(target) ? gdir : target;
-      // důvěryhodná kopie = workspace auditora (mimo repo); kopie v repu jen jako záloha, když workspace není dostupný
-      const gc = [path.join(process.env.AUDITOR_WORKSPACE, 'kapitan-side', 'gate-check.mjs'), path.join(__dirname, 'gate-check.mjs')].find(p => fsx.existsSync(p)) || path.join(__dirname, 'gate-check.mjs');
-      try { execFileSync(process.execPath, [gc, gateDir], { stdio: ['ignore', 'pipe', 'pipe'], env: process.env }); }
+      // důvěryhodná kopie = DŮVĚRYHODNÝ workspace (X26 výš, ne syrový env); kopie v repu (__dirname) jen jako záloha
+      const gc = [TRUSTED_WS ? path.join(TRUSTED_WS, 'kapitan-side', 'gate-check.mjs') : null, path.join(__dirname, 'gate-check.mjs')].filter(Boolean).find(p => fsx.existsSync(p)) || path.join(__dirname, 'gate-check.mjs');
+      // X26 (A-023 kolo 3, doplněk): i SPRÁVNĚ vybraný gate-check.mjs má vlastní interní čtení process.env.AUDITOR_WORKSPACE
+      // (nemá jinou možnost — cestu k workspace nedostává jako CLI argument). Kdyby se mu předal process.env beze změny,
+      // podvržený AUDITOR_WORKSPACE by mu i tak mohl podstrčit FALEŠNOU AUDIT/05_release_gate.md (i legitimní skript by
+      // pak četl útočníkova data). Proto dítěti explicitně přepíšeme AUDITOR_WORKSPACE na TRUSTED_WS — stejný vzor jako
+      // pre-push-guard.mjs → checkGateForSha().
+      try { execFileSync(process.execPath, [gc, gateDir], { stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, AUDITOR_WORKSPACE: TRUSTED_WS } }); }
       catch (e) { const err = String(e.stderr || e.message); const line = (err.match(/GATE-CHECK FAIL:.*/) || [])[0] || `gate-check nelze spustit (${(err.match(/ENOENT[^\n]*|Cannot find module[^\n]*/) || ['chyba'])[0]}) — fail-closed`; block(`DEPLOY BLOKOVÁN — ${line}`); }
     }
     process.exit(0);

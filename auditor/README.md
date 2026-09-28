@@ -192,7 +192,7 @@ Auditor nikdy nezapisuje mimo `AUDIT/` a `tools/`; Kapitán zapisuje jen do `03_
 
 ## Změny v1.8.8
 - Úspora tokenů ve výchozím nastavení: pomocníci obou rolí na sonnetu (jen záloha, model v definici má přednost), strop souběhu (auditor 5, Kapitán 3), stav práce se vloží po kompakci i `/clear` (`tools/stav-session.mjs`), skill `predani`, PDF nad 5 stran ne celé, hlášení konektorů (MCP) pro celý počítač.
-- Opravy z vlastního auditu balíku (A-001 až A-023): těsnější pojistky Kapitána a auditora (detekce git mutací/odeslání podle skutečně spouštěného příkazu, zápis přesměrováním mimo workspace fail-closed, allowlist `git`/`gh` i podle argumentů), opravená pre-push pojistka (refy ze stdin), bezpečné zámky mostu (`bus.mjs` pod zámkem, atomický zápis, retry na Windows), aktualizace instalace nikdy nepřepíše cizí hook beze zálohy a přerušenou instalaci sama doplní nebo zřetelně varuje, katalog zvládá frontmatter s CRLF, dokumentace (README/CONTRIBUTING) odpovídá realitě. Samotest 686.
+- Opravy z vlastního auditu balíku (A-001 až A-023): těsnější pojistky Kapitána a auditora (detekce git mutací/odeslání podle skutečně spouštěného příkazu, zápis přesměrováním mimo workspace fail-closed, allowlist `git`/`gh` i podle argumentů), opravená pre-push pojistka (refy ze stdin), bezpečné zámky mostu (`bus.mjs` pod zámkem, atomický zápis, retry na Windows), aktualizace instalace nikdy nepřepíše cizí hook beze zálohy a přerušenou instalaci sama doplní nebo zřetelně varuje, katalog zvládá frontmatter s CRLF, dokumentace (README/CONTRIBUTING) odpovídá realitě. Samotest 703.
 
 ## Změny v1.8.7
 - Pojistky a pluginy pro celý počítač (běží ve všech projektech): detekce, upozornění při startu, průvodce přesunem se zálohou. Kapitán pojistky neobchází. Samotest 225.

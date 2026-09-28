@@ -9,7 +9,18 @@ const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8', st
 const repo = path.resolve(process.argv[2] || process.env.AUDITOR_TARGET_REPO || '.');
 const ws = process.env.AUDITOR_WORKSPACE || path.resolve(repo, '..', path.basename(repo) + '-audit');
 const gate = path.join(ws, 'AUDIT', '05_release_gate.md');
-const maxAgeH = +(process.env.GATE_MAX_AGE_H || 72);
+// A-023 kolo 3 (X14): GATE_MAX_AGE_H se dřív dalo přebít přes process.env — kdokoliv, kdo spouští gate-check.mjs
+// (přímo, nebo shellem před `git push`), si nastaví GATE_MAX_AGE_H=999999 a starou/vypršenou bránu tím obnoví.
+// Jediný důvěryhodný zdroj je COMMITNUTÝ .claude/settings.json (`git show HEAD:...`, ne fs.readFileSync working
+// tree — X26), stejně jako AUDITOR_WORKSPACE/PROD_BRANCHES v pre-push-guard.mjs. Neplatná/chybějící hodnota = fail-safe na 72 h.
+const DEFAULT_MAX_AGE_H = 72;
+function readTrustedSettings(dir) {
+  try { return JSON.parse(git(['show', 'HEAD:.claude/settings.json'], dir).replace(/^﻿/, '')); }
+  catch { return null; }
+}
+const trustedSettings = readTrustedSettings(repo);
+const cfgMaxAge = trustedSettings && trustedSettings.env && +trustedSettings.env.GATE_MAX_AGE_H;
+const maxAgeH = Number.isFinite(cfgMaxAge) && cfgMaxAge > 0 ? cfgMaxAge : DEFAULT_MAX_AGE_H;
 const fail = m => { console.error(`GATE-CHECK FAIL: ${m}\n→ vydání zakázáno. Požádej auditora o release gate pro aktuální HEAD (bus: STATUS/EVIDENCE).`); process.exit(2); };
 if (!fs.existsSync(gate)) fail(`chybí ${gate}`);
 const txt = fs.readFileSync(gate, 'utf8');

@@ -348,4 +348,4 @@ Opravy z vlastního auditu balíku (nálezy A-001 až A-023, ověřeno auditorem
   vynucuje LF pro `auditor/katalog/**`.
 - **Dokumentace odpovídá realitě** (A-003): tvrzení o GitHub Release v README doloženo odkazem na `release.yml`; zastaralé pevné počty
   scénářů v CONTRIBUTING.md, README.md a NAVOD.txt nahrazeny popisem bez pevného čísla (mění se s každým PR).
-- Samotest 686.
+- Samotest 703.

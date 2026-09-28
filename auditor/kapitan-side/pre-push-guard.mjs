@@ -31,8 +31,13 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-// stejný vzor jako PROD_BRANCH v kapitan-audit-guard.js — nastavitelné přes stejnou env proměnnou, ať se chování nerozjede
-const PROD_BRANCH = new RegExp(process.env.PROD_BRANCHES || '^(main|master|production|prod|release)$', 'i');
+// A-023 kolo 3 (X14/X15/X17): PROD_BRANCHES/GATE_MAX_AGE_H se dřív daly přebít přes process.env — libovolný
+// shell, který spouští `git push`, si je nastaví předem (`PROD_BRANCHES=^zzz_x git push origin main`) a bránu
+// tím pro TUHLE větev vypne. Jediný důvěryhodný zdroj je stejná COMMITNUTÁ konfigurace jako u AUDITOR_WORKSPACE
+// (viz X26 níže) — env se pro tyhle dvě hodnoty už nikdy nečte. main/master navíc chráníme VŽDY, bez ohledu
+// na to, co config říká (i kdyby byl commitnutý config sám podvržený/chybný).
+const DEFAULT_PROD_BRANCH_SRC = '^(main|master|production|prod|release)$';
+const ALWAYS_PROD = /^(main|master)$/i;
 const ZERO_SHA = /^0{40}$|^0{64}$/; // "local sha" u smazání větve — git posílá samé nuly (SHA-1 i SHA-256 repo)
 
 function git(args, cwd) {
@@ -56,27 +61,44 @@ function mainWorktreeRoot(repo) {
   } catch { return null; }
 }
 
-function readTrustedWorkspaceFrom(dir) {
+// X26 (A-023 kolo 3): dřív se .claude/settings.json četlo přímo z pracovního stromu (fs.readFileSync) — necommitnutá
+// nebo podvržená úprava (bez `git add`/`commit`) se tak vydávala za důvěryhodnou konfiguraci a mohla ukázat na
+// FALEŠNÝ workspace bez červené brány. Jediný důvěryhodný obsah je to, co je SKUTEČNĚ COMMITNUTÉ na HEAD —
+// `git show HEAD:<cesta>` čte obsah objektu z gitu, ne soubor z disku, takže necommitnutá modifikace ve working
+// tree (i kdyby tam ležela) se do tohohle čtení vůbec nedostane. Nejjednodušší robustní řešení: žádná working
+// tree cesta se pro důvěryhodnou konfiguraci nikdy neotevírá.
+function readTrustedSettingsFrom(dir) {
   try {
-    const raw = fs.readFileSync(path.join(dir, '.claude', 'settings.json'), 'utf8').replace(/^﻿/, '');
-    const s = JSON.parse(raw);
-    const ws = s && s.env && typeof s.env.AUDITOR_WORKSPACE === 'string' ? s.env.AUDITOR_WORKSPACE : '';
-    return ws && fs.existsSync(ws) ? path.resolve(ws) : null;
+    const raw = git(['show', 'HEAD:.claude/settings.json'], dir).replace(/^﻿/, '');
+    return JSON.parse(raw);
   } catch { return null; }
 }
 
 // P21: workspace bereme jen z DŮVĚRYHODNÉ konfigurace instalace, nikdy z process.env (ten nastaví kdokoliv, kdo
 // spouští `git push`). Zdroj: <repo nebo hlavní worktree>/.claude/settings.json → env.AUDITOR_WORKSPACE (zapsal
-// merge-repo-settings.mjs při instalaci). Bez ní stejná výchozí konvence jako gate-check.mjs (sourozenecká složka).
-function trustedWorkspace(repo) {
-  const direct = readTrustedWorkspaceFrom(repo);
+// merge-repo-settings.mjs při instalaci), jen COMMITNUTÝ obsah (X26). Bez ní stejná výchozí konvence jako
+// gate-check.mjs (sourozenecká složka).
+function resolveTrustedSettings(repo) {
+  const direct = readTrustedSettingsFrom(repo);
   if (direct) return direct;
   const main = mainWorktreeRoot(repo);
   if (main && path.resolve(main) !== path.resolve(repo)) {
-    const viaMain = readTrustedWorkspaceFrom(main);
+    const viaMain = readTrustedSettingsFrom(main);
     if (viaMain) return viaMain;
   }
+  return null;
+}
+function trustedWorkspace(repo, settings) {
+  const wsVal = settings && settings.env && typeof settings.env.AUDITOR_WORKSPACE === 'string' ? settings.env.AUDITOR_WORKSPACE : '';
+  if (wsVal && fs.existsSync(wsVal)) return path.resolve(wsVal);
   return path.resolve(repo, '..', path.basename(repo) + '-audit');
+}
+// X14/X15/X17: PROD_BRANCHES jen z commitnuté konfigurace (stejný zdroj/důvěra jako workspace výš), env se
+// nečte vůbec. Neplatný regex v configu = fail-safe na výchozí vzor (nikdy nespadne, nikdy neotevře díru).
+function trustedProdBranchRegex(settings) {
+  const custom = settings && settings.env && typeof settings.env.PROD_BRANCHES === 'string' ? settings.env.PROD_BRANCHES : '';
+  if (custom) { try { return new RegExp(custom, 'i'); } catch { /* neplatný regex v configu — ignorovat, použít default */ } }
+  return new RegExp(DEFAULT_PROD_BRANCH_SRC, 'i');
 }
 
 // i umístění SAMOTNÉHO gate-check.mjs bereme jen z důvěryhodného ws (ne z process.env) — jinak by šlo podvrženým
@@ -113,7 +135,9 @@ function checkGateForSha(repo, ws, sha) {
 
 function main() {
   const repo = process.cwd(); // P21: git sem hook vždy postaví s cwd = kořen pracovního stromu — na rozdíl od env to volající nepodvrhne
-  const ws = trustedWorkspace(repo);
+  const settings = resolveTrustedSettings(repo);
+  const ws = trustedWorkspace(repo, settings);
+  const PROD_BRANCH = trustedProdBranchRegex(settings);
   const def = defaultBranch(repo);
   const lines = readStdin().split('\n').map(l => l.trim()).filter(Boolean);
 
@@ -122,7 +146,8 @@ function main() {
     if (parts.length < 4) continue; // neúplný řádek (git ho tak nikdy neposílá) — nevyhodnotitelný, přeskoč
     const [, localSha, remoteRefRaw, remoteSha] = parts;
     const branch = remoteRefRaw.replace(/^refs\/heads\//, '');
-    const protectedBranch = PROD_BRANCH.test(branch) || (def && branch === def);
+    // main/master jsou chráněné VŽDY (X14/X15/X17) — i kdyby PROD_BRANCH z configu (nebo jeho chybějící/podvržená verze) je vynechal.
+    const protectedBranch = ALWAYS_PROD.test(branch) || PROD_BRANCH.test(branch) || (def && branch === def);
     if (!protectedBranch) continue;
 
     if (ZERO_SHA.test(localSha)) {
