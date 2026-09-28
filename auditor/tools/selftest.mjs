@@ -96,6 +96,69 @@ T('A: shellový zápis do os.tmpdir() povolen (A-006 kolo 2)', hook(AG, bash(ws,
 T('A: echo x>1048576 s cwd v repu aplikace blokován i po povolení tmpdir (A-006 kolo 2)', hook(AG, bash(repo, 'echo x>1048576')), 2);
 T('A: echo "a>b" (uvozovky) není přesměrování — „b" se nebere jako cíl (A-006 kolo 2)', hook(AG, bash(repo, 'echo "a>b"')), 0);
 
+// --- A-006 kolo 2: case set z build/verify-a006/cases.json (auditor: quotedStart u cíle v uvozovkách slepeného s '>', >|, dd of=,
+// neřešitelný cíl ~/$VAR/${VAR}/%VAR%, junction pod build/ vedoucí ven, heredoc tělo se nečte jako příkazy, escapovaný \> v [ ])
+{
+  const OUT = path.join(tmp, 'outside'); fs.mkdirSync(OUT, { recursive: true });
+  const WSDATA = path.join(ws, 'AUDIT', '_data'); fs.mkdirSync(WSDATA, { recursive: true });
+  try { fs.symlinkSync(OUT, path.join(ws, 'build', 'lnk'), 'junction'); } catch (e) { console.error('VAROVÁNÍ: junction pro B24 se nevytvořila:', e.message); }
+  const toWin = p => norm(p).replace(/\//g, '\\');
+  const sub = t => t.replace(/\{OUTWIN\}/g, toWin(OUT)).replace(/\{OUT\}/g, norm(OUT)).replace(/\{WSWIN\}/g, toWin(ws))
+    .replace(/\{TMPWIN\}/g, toWin(guardTmp)).replace(/\{TMP\}/g, norm(guardTmp)).replace(/\{REPO\}/g, norm(repo)).replace(/\{WS\}/g, norm(ws)).replace(/\{BS\}/g, '\\');
+  const cwdOf = k => k === 'WS' ? ws : k === 'WSDATA' ? WSDATA : k === 'OUT' ? OUT : k === 'REPO' ? repo : ws;
+  const A006 = [
+    ['B01', 'WS', 2, 'echo x >{OUT}/f1'], ['B02', 'WS', 2, 'echo x>{OUT}/f2'], ['B03', 'WS', 2, 'echo x >>{OUT}/f3'],
+    ['B04', 'WS', 2, 'ls 2>{OUT}/f4'], ['B05', 'WS', 2, 'ls &>{OUT}/f5'], ['B06', 'WS', 2, 'echo x >|{OUT}/f6'],
+    ['B07', 'WS', 2, 'echo x 1>{OUT}/f7'], ['B08', 'WS', 2, 'echo x >"{OUT}/a b/f8"'], ['B09', 'WS', 2, 'echo x > "{OUT}/a b/f9"'],
+    ['B10', 'WS', 2, 'echo x | tee {OUT}/f10'], ['B11', 'WS', 2, 'echo x | tee -a {OUT}/f11'], ['B12', 'WS', 2, 'cp AUDIT/x {OUT}/f12'],
+    ['B13', 'WS', 2, 'mv AUDIT/x {OUT}/f13'], ['B14', 'WS', 2, 'touch {OUT}/f14'], ['B15', 'WS', 2, 'mkdir {OUT}/d15'],
+    ['B16', 'WS', 2, 'dd if=/dev/zero of={OUT}/f16 bs=1 count=1'], ['B17', 'WS', 2, 'sed -i s/a/b/ {OUT}/f17'],
+    ['B18', 'WS', 2, 'pwsh -c "Set-Content -Path {OUTWIN}{BS}f18 -Value x"'], ['B19', 'WS', 2, "powershell -Command \"'x' | Out-File {OUTWIN}{BS}f19\""],
+    ['B20', 'WSDATA', 2, 'echo x > ..{BS}..{BS}..{BS}f20'], ['B21', 'WSDATA', 2, 'echo x > ~/f21'], ['B22', 'WSDATA', 2, 'echo x > $HOME/f22'],
+    ['B23', 'WSDATA', 2, 'echo x > $UNKNOWNVAR/f23'], ['B24', 'WS', 2, 'echo x > build/lnk/f24'], ['B25', 'OUT', 2, 'echo x > f25'],
+    ['B26', 'WS', 2, 'cd {OUT} && >f26'], ['B27', 'WS', 2, 'cd {OUT} && echo x>f27'], ['B28', 'WS', 2, 'echo x>1048576'],
+    ['B29', 'WS', 2, 'echo x>{REPO}/f29'], ['B31', 'WS', 2, "echo x > '{OUT}/f31'"], ['B32', 'WS', 2, "echo x >'{OUT}/f32'"],
+    ['B33', 'WS', 2, 'cmd /c "echo x>{OUTWIN}{BS}f33"'], ['B34', 'WSDATA', 2, 'echo x > ${HOME}/f34'], ['B35', 'WSDATA', 2, 'echo x > %USERPROFILE%{BS}f35'],
+    ['B36', 'WSDATA', 2, 'echo x > "$HOME/f36"'], ['B37', 'WS', 2, 'cp -t {OUT} AUDIT/x'], ['B38', 'WS', 2, 'echo x 2>>{OUT}/f38'],
+    ['B39', 'WS', 2, 'echo x>"{OUT}/f39"'], ['B40', 'WS', 2, '[ 3 > 2 ]'],
+    ['L01', 'WS', 0, 'ls 2>&1'], ['L02', 'WS', 0, 'ls >/dev/null'], ['L03', 'WS', 0, 'ls 2>nul'], ['L04', 'WS', 0, 'dir >NUL'],
+    ['L05', 'WS', 0, 'echo x > AUDIT/_data/l5.txt'], ['L06', 'WS', 0, 'echo x>AUDIT/_data/l6.txt'], ['L07', 'WS', 0, 'echo x > build/l7.txt'],
+    ['L08', 'WS', 0, 'echo x > {TMP}/l8.txt'], ['L09', 'WS', 0, 'echo x > {TMPWIN}{BS}l9.txt'], ['L10', 'WS', 0, '[ 3 -gt 2 ] && echo ok'],
+    ['L11', 'WS', 0, 'test 3 -gt 2'], ['L12', 'WS', 0, "awk '$1>5' AUDIT/_data/x"], ['L13', 'WS', 0, "grep '>' AUDIT/x"],
+    ['L14', 'WS', 0, 'echo "a > b"'], ['L15', 'WS', 0, "cat <<'EOF' > AUDIT/_data/l15.txt\nhello\nEOF"], ['L16', 'WS', 0, 'node tools/x.mjs 2>&1 | tail -5'],
+    ['L17', 'WSDATA', 0, 'echo x > l17.txt'], ['L18', 'WS', 0, 'cd AUDIT/_data && echo x>l18.txt'], ['L19', 'WS', 0, 'echo x | tee AUDIT/_data/l19.txt'],
+    ['L20', 'WS', 0, '[ "$a" {BS}> "$b" ]'], ['L21', 'WS', 0, 'echo x > "AUDIT/_data/with space.txt"'],
+    ['L22', 'WS', 0, "cat <<'EOF' > AUDIT/_data/l22.md\nlimit > 1048576\nEOF"], ['L23', 'WS', 0, 'git -C build/x status 2>&1 | head'],
+    ['L24', 'WS', 0, 'echo x > {WSWIN}/AUDIT/_data/l24.txt'],
+  ];
+  for (const [id, cwdKey, exp, tpl] of A006) T(`A-006 kolo2 ${id}: ${tpl.replace(/\n/g, '\\n')}`, hook(AG, bash(cwdOf(cwdKey), sub(tpl))), exp);
+  T('A-006 kolo2 B30 (nástroj PowerShell): Set-Content -Path {OUTWIN}{BS}f30 -Value x blokován',
+    hook(AG, { cwd: ws, tool_name: 'PowerShell', tool_input: { command: sub('Set-Content -Path {OUTWIN}{BS}f30 -Value x') } }), 2);
+  T('A-006 kolo2 K01: echo x>.claude/hooks/evil.js blokován', hook(KG, bash(repo, 'echo x>.claude/hooks/evil.js')), 2);
+  T('A-006 kolo2 K02: echo x>{WS}/AUDIT/04_verdikty/a.md blokován', hook(KG, bash(repo, sub('echo x>{WS}/AUDIT/04_verdikty/a.md'))), 2);
+  T('A-006 kolo2 K03: npm test 2>&1 | tail -3 povolen', hook(KG, bash(repo, 'npm test 2>&1 | tail -3')), 0);
+  T('A-006 kolo2 K04: echo x>.tmp/tasks/K-1/out.txt povolen', hook(KG, bash(repo, 'echo x>.tmp/tasks/K-1/out.txt')), 0);
+  // doplňkové scénáře nad rámec cases.json — zadání výslovně žádá i $(...) a zpětný apostrof jako neřešitelný cíl; a symetrické „projde" pro dd/>| uvnitř workspace
+  T('A-006 kolo2: cíl přesměrování $(...) (příkazová substituce) blokován (fail-closed)', hook(AG, bash(ws, 'echo x > $(echo AUDIT)/x.txt')), 2);
+  T('A-006 kolo2: cíl přesměrování se zpětným apostrofem blokován (fail-closed)', hook(AG, bash(ws, 'echo x > `echo AUDIT`/x.txt')), 2);
+  T('A-006 kolo2: dd of= do povolené AUDIT/ složky projde', hook(AG, bash(ws, 'dd if=/dev/zero of=AUDIT/_data/dd1 bs=1 count=1')), 0);
+  T('A-006 kolo2: >| (noclobber) do povolené AUDIT/ složky projde', hook(AG, bash(ws, 'echo x >|AUDIT/_data/nc1')), 0);
+  // --- A-006 kolo 3: stdin shellového interpretu (heredoc/roura/`<`) se dřív vůbec neparsoval (fail-open) — díra
+  // ověřená auditorem: `bash <<EOF`, `cat <<EOF | sh`, `echo '...' | bash`, `sh -s </pwsh -Command -/powershell -/…`.
+  T('A-006 kolo3 H1: bash <<EOF s echem mimo repo blokován (heredoc do stdin shellu)', hook(AG, bash(ws, sub("bash <<EOF\necho x > {REPO}/h1.txt\nEOF"))), 2);
+  T('A-006 kolo3 H2: cat <<EOF | sh (heredoc přes rouru do stdin shellu) blokován', hook(AG, bash(ws, sub("cat <<EOF | sh\necho x > {REPO}/h2.txt\nEOF"))), 2);
+  T('A-006 kolo3 H3: echo \'…\' | bash (roura z jiného příkazu než heredoc) blokován fail-closed', hook(AG, bash(ws, sub("echo 'echo x > {REPO}/h3.txt' | bash"))), 2);
+  T('A-006 kolo3 H4: bash < skript.sh (`<` soubor = neznámý obsah) blokován fail-closed', hook(AG, bash(ws, 'bash < skript.sh')), 2);
+  T('A-006 kolo3 L25: bash <<EOF s neškodným echem povolen (heredoc tělo bez zápisu)', hook(AG, bash(ws, 'bash <<EOF\necho hello\nEOF')), 0);
+  T('A-006 kolo3 L26: cat <<EOF | bash s echem do povolené AUDIT/ složky povolen', hook(AG, bash(ws, 'cat <<EOF | bash\necho x > AUDIT/_data/h6.txt\nEOF')), 0);
+  T('A-006 kolo3 H7: sh -s < skript.sh blokován fail-closed', hook(AG, bash(ws, 'sh -s < skript.sh')), 2);
+  T('A-006 kolo3 H8: zsh <<EOF s echem mimo repo blokován', hook(AG, bash(ws, sub("zsh <<EOF\necho x > {REPO}/h9.txt\nEOF"))), 2);
+  T('A-006 kolo3 H9: dash <<EOF s echem mimo repo blokován', hook(AG, bash(ws, sub("dash <<EOF\necho x > {REPO}/h10.txt\nEOF"))), 2);
+  T('A-006 kolo3 H10: pwsh -Command - <<EOF (lone dash = čti ze stdin) blokován', hook(AG, bash(ws, sub("pwsh -Command - <<EOF\necho x > {REPO}/h11.txt\nEOF"))), 2);
+  T('A-006 kolo3 H11: powershell - <<EOF (poziční lone dash) blokován', hook(AG, bash(ws, sub("powershell - <<EOF\necho x > {REPO}/h12.txt\nEOF"))), 2);
+  T('A-006 kolo3 H12: cmd < skript.bat blokován fail-closed', hook(AG, bash(ws, 'cmd < skript.bat')), 2);
+}
+
 // --- KAPITÁN GUARD
 T('K: zápis do verdiktů blokován', hook(KG, write(repo, path.join(ws, 'AUDIT', '04_verdikty', 'A-1.md'))), 2);
 T('K: zápis do 03_dukazy povolen', hook(KG, write(repo, path.join(ws, 'AUDIT', '03_dukazy', 'A-1', 'commit.txt'))), 0);
