@@ -27,7 +27,8 @@ const loadState = h => { try { return JSON.parse(rd(stateFile(h))); } catch { re
 const saveState = (h, s) => { fs.mkdirSync(path.dirname(stateFile(h)), { recursive: true }); fs.writeFileSync(stateFile(h), JSON.stringify(s, null, 2) + '\n'); };
 
 // cena v kontextu (odhad): skill/agent = jméno + popis v každém kroku; pravidla = 1 řádek; hooky 0 (stav-kompakce jen po kompakci)
-const fm = t => { const m = t.match(/^---\n([\s\S]*?)\n---/); const o = {}; if (m) for (const l of m[1].split('\n')) { const x = l.match(/^([\w-]+):\s*(.*)$/); if (x) o[x[1]] = x[2].replace(/^["']|["']$/g, ''); } return o; };
+const norm = t => t.replace(/\r\n/g, '\n');  // normalize CRLF to LF for Windows autocrlf=true
+const fm = t => { const m = norm(t).match(/^---\n([\s\S]*?)\n---/); const o = {}; if (m) for (const l of m[1].split('\n')) { const x = l.match(/^([\w-]+):\s*(.*)$/); if (x) o[x[1]] = x[2].replace(/^["']|["']$/g, ''); } return o; };
 const srcMain = p => p.typ === 'skill' ? path.join(KAT, p.zdroj, 'SKILL.md') : path.join(KAT, p.zdroj);
 const cena = p => p.typ === 'skill' || p.typ === 'agent' ? Math.round(((fm(rd(srcMain(p))).description || '').length + p.id.length + 20) / 3) : p.typ === 'pravidla' ? Math.round((rd(path.join(KAT, 'pravidla', 'ZAKLAD.md')).length + 250) / 3.2) : 0;
 
@@ -87,6 +88,7 @@ const copyDir = (s, d) => { fs.mkdirSync(d, { recursive: true }); for (const e o
 const listFiles = d => { const o = []; const w = x => { for (const e of fs.readdirSync(x, { withFileTypes: true })) { const y = path.join(x, e.name); e.isDirectory() ? w(y) : o.push(y); } }; if (fs.existsSync(d)) w(d); return o; };
 const tomlStr = s => JSON.stringify(s);
 function agentToml(md) {
+  md = norm(md);  // normalize CRLF to LF
   const f = fm(md); const body = md.replace(/^---\n[\s\S]*?\n---\n/, '').replace(/<!--[\s\S]*?-->\n?/g, '').trim();
   const ro = !/Write|Edit/.test(f.tools || ''); const lit = body.includes("'''") ? `"""\n${body.replace(/\\/g, '\\\\').replace(/"""/g, '\\"\\"\\"')}\n"""` : `'''\n${body}\n'''`;
   return `# Z katalogu Auditoru (katalog.mjs). Model se nezadává — agent dědí model session (vybírá se podle dostupnosti).\nname = ${tomlStr(f.name)}\ndescription = ${tomlStr(f.description || '')}\nsandbox_mode = "${ro ? 'read-only' : 'workspace-write'}"\ndeveloper_instructions = ${lit}\n`;
