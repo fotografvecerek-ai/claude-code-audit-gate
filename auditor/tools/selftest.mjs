@@ -523,6 +523,30 @@ T('PC: úprava existujícího root souboru projde', (fs.writeFileSync(path.join(
   }
 }
 T('PC: NUL v .dat2 odmítnut', pc({ 'scripts/t.dat2': Buffer.from([0, 65]) }), 1);
+// --- A-007: instalace .git/hooks/pre-commit (tools/install-pre-commit-hook.mjs, volá ho setup-auditor.ps1 i .sh) nesmí přepsat cizí hook bez zálohy
+{
+  const IPC = path.join(pkg, 'tools/install-pre-commit-hook.mjs'); const src = path.join(pkg, 'kapitan-side/hygiene/pre-commit-guard.sh');
+  const mkRepo = name => { const r = path.join(tmp, name); fs.mkdirSync(path.join(r, '.git', 'hooks'), { recursive: true }); return r; };
+  const runInstall = r => spawnSync(process.execPath, [IPC, r, src], { encoding: 'utf8' });
+  const bakFiles = r => fs.readdirSync(path.join(r, '.git', 'hooks')).filter(f => f.startsWith('pre-commit.bak-'));
+
+  const r1 = mkRepo('a007-cizi'); const puvodniObsah = '#!/bin/sh\necho UNIKATNI_PUVODNI_HOOK_A007\n';
+  fs.writeFileSync(path.join(r1, '.git', 'hooks', 'pre-commit'), puvodniObsah);
+  const res1 = runInstall(r1); const bak1 = bakFiles(r1);
+  T('A-007: cizí pre-commit hook → vznikne záloha pre-commit.bak-*', bak1.length, 1);
+  T('A-007: záloha obsahuje beze změny původní obsah', bak1.length ? fs.readFileSync(path.join(r1, '.git', 'hooks', bak1[0]), 'utf8') : '', puvodniObsah);
+  T('A-007: nový pre-commit obsahuje marker pre-commit-check', /pre-commit-check/.test(fs.readFileSync(path.join(r1, '.git', 'hooks', 'pre-commit'), 'utf8')), true);
+  T('A-007: instalátor vypíše hlášku o záloze', res1.status === 0 && /zalohovan/.test(res1.stdout), true);
+
+  const r2 = mkRepo('a007-marker'); fs.writeFileSync(path.join(r2, '.git', 'hooks', 'pre-commit'), '#!/bin/sh\n# stara verze — vola pre-commit-check.mjs\n');
+  const res2 = runInstall(r2);
+  T('A-007: vlastní starší hook (marker) → beze zálohy', bakFiles(r2).length, 0);
+  T('A-007: hook s markerem se přepíše na aktuální verzi balíku', fs.readFileSync(path.join(r2, '.git', 'hooks', 'pre-commit'), 'utf8'), fs.readFileSync(src, 'utf8'));
+  T('A-007: přepis s markerem beze hlášky o záloze', res2.status === 0 && !/zalohovan/.test(res2.stdout), true);
+
+  const r3 = mkRepo('a007-zadny'); runInstall(r3);
+  T('A-007: žádný existující hook → instalace beze zálohy', bakFiles(r3).length, 0);
+}
 // --- BUS
 const bus = (...a) => spawnSync(process.execPath, [path.join(pkg, 'tools/bus.mjs'), ...a], { cwd: ws, env, encoding: 'utf8' });
 T('BUS: EVIDENCE bez --sha odmítnuta', bus('post', '--from', 'kapitan', '--type', 'EVIDENCE', '--id', 'A-1', '--ref', 'AUDIT/03_dukazy/A-1/').status, 1);

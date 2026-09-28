@@ -64,8 +64,7 @@ if ($k -eq 'ano') {
   node (Join-Path $ws 'tools/kapitan-role.mjs') $ws --claude-md $repo; if ($LASTEXITCODE -ne 0) { Write-Host 'Zápis role Kapitána do CLAUDE.md selhal' -ForegroundColor Red }
   $h = if ($Yes) { $Hygiena } else { AskYN "Nainstalovat hygienu do repa (pre-commit guard, .gitattributes, .gitignore doplněk)?" "ano" }
   if ($h -eq 'ano') {
-    New-Item -ItemType Directory -Force -Path (Join-Path $repo '.git/hooks') | Out-Null
-    Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/pre-commit-guard.sh') (Join-Path $repo '.git/hooks/pre-commit') -Force
+    node (Join-Path $ws 'tools/install-pre-commit-hook.mjs') $repo (Join-Path $pkg 'kapitan-side/hygiene/pre-commit-guard.sh')
     if (-not (Test-Path (Join-Path $repo '.gitattributes'))) { Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/gitattributes.template') (Join-Path $repo '.gitattributes') }
     $gi = Join-Path $repo '.gitignore'; if (-not (Test-Path $gi) -or -not (Select-String -Path $gi -Pattern 'hygiena \(auditor\)' -Quiet)) { Get-Content (Join-Path $pkg 'kapitan-side/hygiene/gitignore.addendum') | Add-Content $gi -Encoding UTF8 }
     Write-Host "Hygiena nainstalována (pre-commit guard běží přes Git Bash, který Git for Windows používá pro hooky)."

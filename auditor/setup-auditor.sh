@@ -36,7 +36,7 @@ if [ "$K" = "ano" ]; then
   node "$WS/tools/kapitan-role.mjs" "$WS" --claude-md "$REPO" || echo "Zápis role Kapitána do CLAUDE.md selhal"
   H=${AUDITOR_HYGIENA:-$(askyn "Nainstalovat hygienu do repa (pre-commit guard, .gitattributes, .gitignore doplněk)?" "ano")}
   if [ "$H" = "ano" ]; then
-    mkdir -p "$REPO/.git/hooks" && cp "$PKG/kapitan-side/hygiene/"{pre-commit-check.mjs,hygiene-rules.js,hygiene-rules.json} "$REPO/.claude/hooks/" && cp "$PKG/kapitan-side/hygiene/pre-commit-guard.sh" "$REPO/.git/hooks/pre-commit" && chmod +x "$REPO/.git/hooks/pre-commit"
+    mkdir -p "$REPO/.git/hooks" && cp "$PKG/kapitan-side/hygiene/"{pre-commit-check.mjs,hygiene-rules.js,hygiene-rules.json} "$REPO/.claude/hooks/" && node "$WS/tools/install-pre-commit-hook.mjs" "$REPO" "$PKG/kapitan-side/hygiene/pre-commit-guard.sh"
     [ -f "$REPO/.gitattributes" ] || cp "$PKG/kapitan-side/hygiene/gitattributes.template" "$REPO/.gitattributes"
     grep -q 'hygiena (auditor)' "$REPO/.gitignore" 2>/dev/null || cat "$PKG/kapitan-side/hygiene/gitignore.addendum" >> "$REPO/.gitignore"
     echo "Hygiena nainstalována (pre-commit guard aktivní; husky/lefthook: přidej volání skriptu do jejich configu)."
