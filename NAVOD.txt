@@ -289,7 +289,7 @@ Auditor ti píše netechnicky, jednou větou + odkaz na soubor. Technické QA na
 KDYŽ NĚCO NEJDE
 ---------------
 - „SAMOTEST NEPROŠEL" nebo „BRÁNA NEFUNGUJE" → auditora nespouštěj, zkopíruj celý výpis okna a pošli
-  ho Claude. (Samotest = kontrola, že pojistky opravdu blokují; na Windows 109/109, jinde 110/110.)
+  ho Claude. (Samotest = kontrola, že pojistky opravdu blokují; aktuální počet scénářů ukáže výstup.)
 - Agent hlásí „Blocked" → to je brána, ne chyba. Auditor nesmí psát do repa; Kapitán nesmí měnit
   hooky/settings/CI ani vydávat bez gate; nový soubor v rootu repa a provizoria mimo .tmp\tasks\<ID>\
   jsou zakázané. Pravidla se ladí zúžením, ne obcházením.

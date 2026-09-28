@@ -325,4 +325,27 @@ Podle zpětné vazby z provozu (auditor projektu, 24.–27. 9.): co balík jen p
   automaticky je nepřesouvá (soubor průběžně přepisují běžící okna).
 - Katalog: `stav-kompakce` se už nedoporučuje (je součástí výchozího nastavení).
 - NÁVOD: sekce ŠETŘENÍ TOKENŮ (co může udělat vlastník).
-- Samotest 233.
+
+Opravy z vlastního auditu balíku (nálezy A-001 až A-023, ověřeno auditorem přes bus a šest bran):
+- **Zálohovaná práce** (A-001): dosavadní necommitnutý stav balíku (verze 1.4.x–1.8.8) dostal se do gitu jako výchozí bod pro opravy —
+  práce jen na jednom disku (nezálohovaná) byl sám první nález.
+- **Pojistky Kapitána a auditora těsnější** (A-004, A-005, A-006, A-022): detekce git mutací a odeslání (push/deploy) podle skutečně
+  spouštěného podpříkazu, ne podle textu v uvozovkách — i přes `timeout`/`stdbuf`/`builtin`/`eval`, `$(which git)`, `ionice`, `watch`,
+  `find -exec`, `-c alias.X=`, `--git-dir`/`GIT_DIR=`. Zápis přesměrováním (`>`, `>>`, `tee`, `dd of=`, i slepené bez mezery nebo v
+  uvozovkách) mimo povolený workspace je fail-closed, včetně `node -e`/`python -c` a Edit/Write přes junction/symlink ven. Allowlist
+  auditora pro `git`/`gh` povoluje jen čtecí podpříkazy a kontroluje i jejich argumenty (fetch refspec, cíl clone/worktree, `-c
+  pager/editor`); allowlist Kapitána navíc hlídá refspec u push, sloučení PR do produkce přes `gh` vyžaduje gate, `bash -lc`, klíčová
+  slova shellu a globální volby gitu v libovolném pořadí.
+- **Pre-push pojistka opravena** (A-023): čte tlačené refy ze stdin (dřív šlo obejít přes prostředí), detekce odeslání podle prvního
+  slova příkazového segmentu, instalace hooku přes sdílenou funkci `installGitHook` — spolehlivá u prvoinstalace i aktualizace.
+- **Bezpečné zámky mostu** (A-010): `ack` v `bus.mjs` pod zámkem s atomickým zápisem (ověřeno 50 souběžných zápisů bez ztráty), bezpečný
+  stale lock, retry na Windows `EPERM`, čtenáři nikdy nevidí polovičatě zapsaný JSON.
+- **Aktualizace instalace úplná, cizí hooky se nepřepisují** (A-007, A-008): vlastní hook se pozná jen podle jednoznačného markeru
+  (dřív podle podřetězce, který mohl mít i cizí hook — ten se přepsal beze zálohy); cizí `pre-commit` hook se při instalaci zálohuje do
+  `.bak-<čas>` a nahlásí. Přerušená instalace (chybějící závislosti, git hooky chybějící navzdory potvrzené hygieně) se sama doplní,
+  nebo skončí zřetelným varováním — nikdy tiše „OK".
+- **Katalog: frontmatter s CRLF** (A-021): klon s `autocrlf=true` už nerozbije `name` v TOML (normalizace CRLF→LF); `.gitattributes`
+  vynucuje LF pro `auditor/katalog/**`.
+- **Dokumentace odpovídá realitě** (A-003): tvrzení o GitHub Release v README doloženo odkazem na `release.yml`; zastaralé pevné počty
+  scénářů v CONTRIBUTING.md, README.md a NAVOD.txt nahrazeny popisem bez pevného čísla (mění se s každým PR).
+- Samotest 686.
