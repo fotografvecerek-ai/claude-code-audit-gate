@@ -11,7 +11,18 @@
 // Pojistka při chybě adaptéru blokuje (fail-closed); kontextový režim nikdy neblokuje.
 import fs from 'node:fs'; import path from 'node:path'; import { spawnSync } from 'node:child_process';
 const a = process.argv.slice(2); const val = k => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : ''; };
-const ws = val('--ws'), repo = val('--repo'), guard = val('--guard'), ctxEv = val('--context');
+// A-027: kanonizace cesty — nejbližší EXISTUJÍCÍ předek přes realpath.native (+ zbytek beze změny). Řeší krátká 8.3
+// jména na Windows (RUNNER~1) a symlinky na macOS (/var → /private/var). MUSÍ se použít STEJNĚ na cíl zápisu (abs()
+// níže) i na kořeny workspace/repo (AUDITOR_WORKSPACE/AUDITOR_TARGET_REPO) — pojistka (kapitan-audit-guard.js/
+// auditor-guard.js) porovnává tyhle hodnoty prostým `fp.startsWith(repo + '/')` (bez realpath). Dřív se realpath
+// dělal jen na cíli zápisu → na 8.3/symlink prostředí se literální ws/repo s realpath-nutým fp rozešly, porovnání
+// nikdy nesedělo a pojistka fail-open PROPUSTILA i zápisy, které měla blokovat (nálezy auditora, .codex/hooks.json…).
+const canon = p => {
+  if (!p) return p;
+  let head = p, tail = ''; while (!fs.existsSync(head)) { const up = path.dirname(head); if (up === head) break; tail = path.join(path.basename(head), tail); head = up; }
+  try { return path.join(fs.realpathSync.native(head), tail); } catch { return p; }
+};
+const ws = canon(val('--ws')), repo = canon(val('--repo')), guard = val('--guard'), ctxEv = val('--context');
 const env = { ...process.env, AUDITOR_WORKSPACE: ws, AUDITOR_TARGET_REPO: repo };
 let raw = ''; try { raw = fs.readFileSync(0, 'utf8'); } catch { }
 let input = {}; try { input = JSON.parse(raw || '{}'); } catch { if (guard) { process.stderr.write('CODEX-HOOK Blocked: vstup hooku není JSON (fail-closed).\n'); process.exit(2); } }
@@ -22,9 +33,7 @@ const cwd = input.cwd || process.cwd(); env.CLAUDE_PROJECT_DIR = env.CLAUDE_PROJ
 const abs = (base, p) => {
   let r = path.resolve(base, String(p).trim().replace(/^\\\\[?.]\\/, ''));
   if (process.platform === 'win32') r = r.split(/[\\/]/).map((g, i) => i ? g.replace(/[. ]+$/, '') : g).join('\\');   // Windows ignoruje tečky/mezery na konci jmen
-  // krátká jména 8.3 (APP-AU~1) a odkazy: nejbližší existující předek přes realpath → skutečná cesta
-  let head = r, tail = ''; while (!fs.existsSync(head)) { const up = path.dirname(head); if (up === head) break; tail = path.join(path.basename(head), tail); head = up; }
-  try { return path.join(fs.realpathSync.native(head), tail); } catch { return r; }
+  return canon(r);   // krátká jména 8.3 (APP-AU~1) a odkazy: nejbližší existující předek přes realpath → skutečná cesta (stejná kanonizace jako u ws/repo výš)
 };
 function patchFiles(text, base) {
   const out = [];

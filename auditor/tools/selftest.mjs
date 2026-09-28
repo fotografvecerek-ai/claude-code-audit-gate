@@ -1143,6 +1143,22 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
   T('CODEX: cesta s „.." do nálezů auditora blokována', cx(KG, patch(repo, 'Update', path.join(repo, 'src', '..', '..', path.basename(ws), 'AUDIT', '05_release_gate.md'))), 2);
   T('CODEX: odsazená druhá hlavička patche se také kontroluje', cx(KG, { cwd: repo, tool_name: 'apply_patch', tool_input: { command: `*** Begin Patch\n*** Update File: src/a.ts\n+x\n   *** Add File: ${path.join(ws, 'AUDIT', '05_release_gate.md')}\n+y\n*** End Patch` } }), 2);
   T('CODEX: patch poslaný přes shell (apply_patch <<EOF) se kontroluje', cx(KG, { cwd: repo, tool_name: 'Bash', tool_input: { command: `apply_patch <<'EOF'\n*** Begin Patch\n*** Add File: ${path.join(ws, 'AUDIT', '02_HANDOFF.md')}\n+x\n*** End Patch\nEOF` } }), 2);
+  // A-027: pojistka musí blokovat i když agent vidí ws/repo jen přes symlink/junction (jiná LITERÁLNÍ cesta, stejný
+  // reálný adresář) — stejný mechanismus jako krátká 8.3 jména na Windows CI runnerech (C:\Users\RUNNER~1\…) nebo
+  // /var → /private/var na macOS. abs() dřív realpath-oval jen CÍL zápisu, ne ws/repo → literální ws/repo se s
+  // realpath-nutým fp nikdy neshodly a pojistka fail-open propustila zápis, který měla blokovat.
+  { const real27 = path.join(tmp, 'x027-real'), link27 = path.join(tmp, 'x027-link');
+    const ws27 = path.join(link27, 'x-audit'), repo27 = path.join(link27, 'x');
+    fs.mkdirSync(path.join(real27, 'x-audit', 'AUDIT', 'bus'), { recursive: true }); fs.mkdirSync(path.join(real27, 'x-audit', 'build'), { recursive: true });
+    fs.mkdirSync(path.join(real27, 'x', '.claude', 'hooks'), { recursive: true });
+    for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'pre-push-guard.mjs', 'hygiene/hygiene-rules.js', 'hygiene/hygiene-rules.json', 'hygiene/pre-commit-check.mjs', 'hygiene/hooks-package.json'])
+      fs.copyFileSync(path.join(pkg, 'kapitan-side', f), path.join(real27, 'x', '.claude', 'hooks', f === 'hygiene/hooks-package.json' ? 'package.json' : path.basename(f)));
+    git('init -q', path.join(real27, 'x')); git('config user.email t@t', path.join(real27, 'x')); git('config user.name t', path.join(real27, 'x'));
+    fs.writeFileSync(path.join(real27, 'x', 'README.md'), '# x'); git('add -A', path.join(real27, 'x')); git('-c user.name=t -c user.email=t@t commit -qm init', path.join(real27, 'x'));
+    fs.symlinkSync(real27, link27, isWin ? 'junction' : 'dir');
+    const KG27 = path.join(repo27, '.claude/hooks/kapitan-audit-guard.js');
+    const cx27 = (guard, input) => spawnSync(process.execPath, [CH, '--ws', ws27, '--repo', repo27, '--guard', guard], { input: JSON.stringify(input), encoding: 'utf8', env: { ...process.env, HYGIENE_RULES: env.HYGIENE_RULES } }).status;
+    T('CODEX: pojistka blokuje i přes symlink/junction ws/repo (literální cesta ≠ realpath — 8.3/macOS mount, A-027)', cx27(KG27, patch(repo27, 'Add', path.join(ws27, 'AUDIT', '01_nalezy', 'A-9.md'))), 2); }
   const ctx = spawnSync(process.execPath, [CH, '--context', 'SessionStart', '--', 'node', '-e', 'console.log("ahoj")'], { input: '{}', encoding: 'utf8' });
   T('CODEX: kontext pro model jako JSON (additionalContext)', /"additionalContext":"ahoj"/.test(ctx.stdout) ? 1 : 0, 1);
   // codex-setup na čistém páru workspace + repo
