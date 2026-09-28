@@ -667,14 +667,20 @@ T('PC: NUL v .dat2 odmítnut', pc({ 'scripts/t.dat2': Buffer.from([0, 65]) }), 1
 
   // A-007 kolo 2 (K1 bod 3, statická kontrola zapojení): setup-auditor.ps1 i .sh musí volat install-pre-commit-hook.mjs
   // pro pre-commit I pre-push, a už nekopírovat hook SOUBOR (.git/hooks/pre-commit resp. pre-push) přímo přes Copy-Item/cp.
-  const ps1 = fs.readFileSync(path.join(pkg, 'setup-auditor.ps1'), 'utf8');
-  const shsetup = fs.readFileSync(path.join(pkg, 'setup-auditor.sh'), 'utf8');
-  T('A-007 kolo2: setup-auditor.ps1 volá install-pre-commit-hook.mjs pro pre-commit', /install-pre-commit-hook\.mjs['")][^\n]*'pre-commit'/.test(ps1), true);
-  T('A-007 kolo2: setup-auditor.ps1 volá install-pre-commit-hook.mjs pro pre-push', /install-pre-commit-hook\.mjs['")][^\n]*'pre-push'/.test(ps1), true);
-  T('A-007 kolo2: setup-auditor.ps1 nekopíruje hook soubor přímo do .git/hooks', /\.git[\\/]hooks/.test(ps1), false);
-  T('A-007 kolo2: setup-auditor.sh volá install-pre-commit-hook.mjs pro pre-commit', /install-pre-commit-hook\.mjs"[^\n]*\bpre-commit\b/.test(shsetup), true);
-  T('A-007 kolo2: setup-auditor.sh volá install-pre-commit-hook.mjs pro pre-push', /install-pre-commit-hook\.mjs"[^\n]*\bpre-push\b/.test(shsetup), true);
-  T('A-007 kolo2: setup-auditor.sh nekopíruje hook soubor přímo do .git/hooks/pre-commit či pre-push', /\.git\/hooks\/pre-(commit|push)["']/.test(shsetup), false);
+  // Zjištěno při ověřování A-008: tenhle soubor běží i jako KOPIE v ws/tools/selftest.mjs (update-install.mjs krok 3, „závěrečná
+  // kontrola" po aktualizaci) — tam je „pkg" = workspace, a setup-auditor.ps1/.sh se do workspace nikdy nekopírují (instalátor je
+  // po instalaci nepotřebuje). Bez podmínky by fs.readFileSync spadlo na ENOENT a KAŽDÁ budoucí aktualizace by tvrdila
+  // „SAMOTEST NEPROŠEL" i na zdravém auditu — kontrola dává smysl jen ve skutečném balíku, tam běží beze změny.
+  if (fs.existsSync(path.join(pkg, 'setup-auditor.ps1')) && fs.existsSync(path.join(pkg, 'setup-auditor.sh'))) {
+    const ps1 = fs.readFileSync(path.join(pkg, 'setup-auditor.ps1'), 'utf8');
+    const shsetup = fs.readFileSync(path.join(pkg, 'setup-auditor.sh'), 'utf8');
+    T('A-007 kolo2: setup-auditor.ps1 volá install-pre-commit-hook.mjs pro pre-commit', /install-pre-commit-hook\.mjs['")][^\n]*'pre-commit'/.test(ps1), true);
+    T('A-007 kolo2: setup-auditor.ps1 volá install-pre-commit-hook.mjs pro pre-push', /install-pre-commit-hook\.mjs['")][^\n]*'pre-push'/.test(ps1), true);
+    T('A-007 kolo2: setup-auditor.ps1 nekopíruje hook soubor přímo do .git/hooks', /\.git[\\/]hooks/.test(ps1), false);
+    T('A-007 kolo2: setup-auditor.sh volá install-pre-commit-hook.mjs pro pre-commit', /install-pre-commit-hook\.mjs"[^\n]*\bpre-commit\b/.test(shsetup), true);
+    T('A-007 kolo2: setup-auditor.sh volá install-pre-commit-hook.mjs pro pre-push', /install-pre-commit-hook\.mjs"[^\n]*\bpre-push\b/.test(shsetup), true);
+    T('A-007 kolo2: setup-auditor.sh nekopíruje hook soubor přímo do .git/hooks/pre-commit či pre-push', /\.git\/hooks\/pre-(commit|push)["']/.test(shsetup), false);
+  }
 }
 // --- BUS
 const bus = (...a) => spawnSync(process.execPath, [path.join(pkg, 'tools/bus.mjs'), ...a], { cwd: ws, env, encoding: 'utf8' });
@@ -1122,6 +1128,57 @@ if (fs.existsSync(path.join(pkg, 'katalog', 'katalog.json'))) {
   // katalog je obecný: žádná osobní data, jména projektů ani cesty autora
   { const bad = []; const w = dd => { for (const e of fs.readdirSync(dd, { withFileTypes: true })) { const p = path.join(dd, e.name); if (e.isDirectory()) w(p); else if (/(\/home\/|C:\\Users\\|@gmail|\+420|\b\d{9,10}:[A-Za-z0-9_-]{30,})/i.test(fs.readFileSync(p, 'utf8'))) bad.push(e.name); } }; w(path.join(pkg, 'katalog'));
     T('KATALOG: bez osobních údajů a cest (obecný pro každého)', bad.join(','), ''); }
+}
+
+// --- UPDATE-INSTALL (A-008): přerušená instalace se nesmí tvářit jako OK — testy volají PRODUKČNÍ tools/update-install.mjs
+// přes child process (ne kopii/mock). AUDITOR_SELFTEST_NO_UPDATE_INSTALL: scénáře 2 a 3 níž doběhnou úspěšně až k závěrečnému
+// kroku, kde update-install.mjs sám spustí samotest svého cíle (ws/tools/selftest.mjs — kopie TOHOTO souboru); bez pojistky by
+// ta vnořená kopie spustila TUHLE sekci znovu (a její vlastní 2 úspěšné scénáře další vnořený samotest — exponenciální růst).
+// Proměnná v env dítěte (update-install.mjs) se nemění a dědí se dál do jeho vnořeného samotestu → rekurze se zastaví v hloubce 1.
+if (!process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL) {
+  const UI = path.join(pkg, 'tools', 'update-install.mjs');
+  const uiEnv = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t', AUDITOR_SELFTEST_NO_UPDATE_INSTALL: '1' };
+  const uiGit = (dir, c) => execSync(`git ${c}`, { cwd: dir, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  const uiRepo = dir => { fs.mkdirSync(dir, { recursive: true }); uiGit(dir, 'init -q'); uiGit(dir, 'config user.email t@t'); uiGit(dir, 'config user.name t'); uiGit(dir, 'checkout -q -b main');
+    fs.writeFileSync(path.join(dir, 'README.md'), '# x'); uiGit(dir, 'add -A'); uiGit(dir, '-c user.name=t -c user.email=t@t commit -qm init'); };
+  const uiWs = (dir, { deps = false, remote = false } = {}) => {
+    fs.mkdirSync(path.join(dir, '.claude'), { recursive: true }); fs.writeFileSync(path.join(dir, '.claude', 'settings.json'), '{"model":"opus"}\n');
+    // copyMissing (krok 1 update-install.mjs) kopíruje pkg/AUDIT/CHYBOVNIK.md přímo do AUDIT/ — bez té složky by padlo na ENOENT
+    // ještě před testovanou logikou (nesouvisející pád, ne to, co se tu testuje).
+    fs.mkdirSync(path.join(dir, 'AUDIT'), { recursive: true });
+    if (deps) fs.mkdirSync(path.join(dir, 'tools', 'node_modules'), { recursive: true });
+    if (remote) fs.writeFileSync(path.join(dir, 'AUDIT', '.remote.json'), '{}');
+  };
+  const runUI = (r, w) => spawnSync(process.execPath, [UI, r, w], { encoding: 'utf8', env: uiEnv, timeout: 240000 });
+  const hookMarker = (f, name) => { try { return new RegExp(`^#\\s*auditor-managed-hook:\\s*${name}\\s*$`, 'm').test(fs.readFileSync(f, 'utf8')); } catch { return false; } };
+
+  // 1) settings.json v cíli existuje, ale závislosti nikdy nedoběhly (otázka na Kapitána v instalátoru padne až PO nich, viz
+  //    setup-auditor.ps1/.sh) a repo nemá ani stranu Kapitána, ani zdravý start → NESMÍ se tvářit OK: musí skončit nenulovým
+  //    kódem s jasným varováním (jediný bezpečný postup — nedá se poznat, co přesně se nestihlo).
+  const r1 = path.join(tmp, 'ui-1'), w1 = path.join(tmp, 'ui-1-audit'); uiRepo(r1); uiWs(w1);
+  const p1 = runUI(r1, w1);
+  T('UPDATE-INSTALL A-008: přerušená instalace (bez závislostí, bez Kapitána/zdravého startu) nikdy tiché OK',
+    `exit=${p1.status !== 0},varovani=${/NEDOKONČ/.test(p1.stdout + p1.stderr)}`, 'exit=true,varovani=true');
+
+  // 2) stejný stav závislostí, ale s markerem legitimního profilu „jen audit z GitHubu" (AUDIT/.remote.json) → smí zůstat OK,
+  //    beze změn, exit 0 (remoteOrCombo pokrývá i AUDIT/.zdravy-start.json — stejná logika, netestováno zvlášť).
+  const r2 = path.join(tmp, 'ui-2'), w2 = path.join(tmp, 'ui-2-audit'); uiRepo(r2); uiWs(w2, { remote: true });
+  const p2 = runUI(r2, w2);
+  T('UPDATE-INSTALL A-008: legitimní profil „jen audit" (AUDIT/.remote.json) beze změn → OK',
+    `exit=${p2.status},aktualizovano=${/AKTUALIZOVÁNO/.test(p2.stdout)},varovani=${/NEDOKONČ/.test(p2.stdout + p2.stderr)}`, 'exit=0,aktualizovano=true,varovani=false');
+
+  // 3) třetí díra (vlastní zjištění): hygiena už jednou potvrzeně nainstalovaná (.gitattributes existuje — instalátor ho zapisuje
+  //    jako POSLEDNÍ krok, až PO obou git hoocích), ale .git/hooks/pre-commit i pre-push úplně chybí (instalace spadla přesně
+  //    mezi tím). Dřívější kód jen AKTUALIZOVAL hook, co už měl marker — takhle to zůstávalo navždy nedoplněné. installGitHook
+  //    (sdílená funkce z install-pre-commit-hook.mjs, stejná jako u prvoinstalace — žádná duplicitní logika) teď oba doplní.
+  const r3 = path.join(tmp, 'ui-3'), w3 = path.join(tmp, 'ui-3-audit'); uiRepo(r3); uiWs(w3);
+  fs.mkdirSync(path.join(r3, '.claude', 'hooks'), { recursive: true });
+  fs.copyFileSync(path.join(pkg, 'kapitan-side', 'kapitan-audit-guard.js'), path.join(r3, '.claude', 'hooks', 'kapitan-audit-guard.js'));
+  fs.writeFileSync(path.join(r3, '.gitattributes'), '* text=auto\n');
+  const p3 = runUI(r3, w3);
+  T('UPDATE-INSTALL A-008: git hooky chybějící navzdory potvrzené hygieně (.gitattributes) se doplní (installGitHook)',
+    `exit=${p3.status},pre-commit=${hookMarker(path.join(r3, '.git', 'hooks', 'pre-commit'), 'pre-commit')},pre-push=${hookMarker(path.join(r3, '.git', 'hooks', 'pre-push'), 'pre-push')}`,
+    'exit=0,pre-commit=true,pre-push=true');
 }
 const slouc = results.filter(r => !r.ok && cekaNaSlouceni(r.nastroj)); const fails = results.filter(r => !r.ok && !slouc.includes(r));
 for (const r of results) console.log(`${r.ok ? 'PASS' : slouc.includes(r) ? 'SLOUČIT' : 'FAIL'}  ${r.name}${r.ok ? '' : `  (očekáváno ${r.exp}, bylo ${r.got})${slouc.includes(r) ? ` — běží tvoje upravená tools/${r.nastroj}, verze balíku čeká v tools/${r.nastroj}.new (úkol SLOUCIT v AUDIT/NOVE_CILE.md); pojistky to neovlivňuje` : ''}`}`);

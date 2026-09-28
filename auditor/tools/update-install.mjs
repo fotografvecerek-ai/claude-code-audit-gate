@@ -4,7 +4,7 @@
 // node tools/update-install.mjs <repo> <workspace>      (volají INSTALL.cmd, install.sh a průvodce více projekty, když workspace už existuje)
 // Co mění: workspace (ústava, checklisty, šablony, nástroje, hooky auditora, settings se ZACHOVANÝM modelem, spouštěče);
 //          v repu jen to, co tam instalace už dřív dala (strana Kapitána / zdravý start / pre-commit / CI brána) + commit jen těchto souborů.
-import fs from 'node:fs'; import path from 'node:path'; import { execFileSync } from 'node:child_process'; import { createHash } from 'node:crypto'; import { copyTree } from './fs-bezpecne.mjs'; import { fileURLToPath } from 'node:url';
+import fs from 'node:fs'; import path from 'node:path'; import { execFileSync } from 'node:child_process'; import { createHash } from 'node:crypto'; import { copyTree } from './fs-bezpecne.mjs'; import { installGitHook } from './install-pre-commit-hook.mjs'; import { fileURLToPath } from 'node:url';
 const pkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repo = path.resolve(process.argv[2] || ''); const ws = path.resolve(process.argv[3] || `${repo}-audit`);
 const say = s => console.log(s); const ok = s => console.log(`  ✅ ${s}`); const warn = s => console.log(`  ⚠ ${s}`);
@@ -70,13 +70,17 @@ if (!tryRun(process.execPath, [path.join(ws, 'tools', 'write-auditor-settings.mj
 tryRun(process.execPath, [path.join(ws, 'tools', 'write-launchers.mjs'), ws, repo]);
 ok(`workspace auditora aktualizován (model ${model} zachován, AUDIT/ beze změny)`);
 { const r = tryRun(process.execPath, [path.join(ws, 'tools', 'katalog.mjs'), 'obnov', '--cil', ws], ws); if (r && /obnoveno [1-9]/.test(r)) ok('katalog v workspace auditora obnoven'); }
-if (!fs.existsSync(path.join(ws, 'tools', 'node_modules'))) warn('nástroje pro testy nejsou nainstalované (cd tools && npm install) — auditor si je doinstaluje, až je bude potřebovat');
+const toolsDepsInstalled = fs.existsSync(path.join(ws, 'tools', 'node_modules'));
+if (!toolsDepsInstalled) warn('nástroje pro testy nejsou nainstalované (cd tools && npm install) — auditor si je doinstaluje, až je bude potřebovat');
 
 // 2) repo: jen to, co tam už je
 const H = path.join(repo, '.claude', 'hooks'); const HY = path.join(pkg, 'kapitan-side', 'hygiene'); const changed = [];
 const put = (src, rel) => { const dst = path.join(repo, rel); fs.mkdirSync(path.dirname(dst), { recursive: true }); const before = rd(dst); fs.copyFileSync(src, dst); if (rd(dst) !== before) changed.push(rel); };
 const pre = new Set((tryRun('git', ['status', '--porcelain', '--untracked-files=all'], repo) || '').split('\n').filter(Boolean).map(l => l.slice(3).trim().replace(/^"|"$/g, '')));
 const kapitan = fs.existsSync(path.join(H, 'kapitan-audit-guard.js')); const starter = fs.existsSync(path.join(H, 'projekt-guard.js'));
+// A-008: legitimní „do repa se nesahá" profily mají vlastní marker (audit z GitHubu / kombinace zdravého startu) — použito
+// i níž u Telegramu (2b), ať se nepočítá dvakrát.
+const remoteOrCombo = fs.existsSync(path.join(ws, 'AUDIT', '.remote.json')) || fs.existsSync(path.join(ws, 'AUDIT', '.zdravy-start.json'));
 if (kapitan && !fs.existsSync(path.join(ws, '.opravneni.json'))) { if (process.stdin.isTTY) { try { execFileSync(process.execPath, [path.join(pkg, 'tools', 'opravneni.mjs'), ws, repo, '--ask'], { stdio: 'inherit' }); } catch { } } else warn('samostatnost Kapitána zatím nevybrána (OPATRNÝ) — START → [7]'); }
 if (kapitan) {
   for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'auditor-bus.mjs', 'pre-push-guard.mjs']) put(path.join(pkg, 'kapitan-side', f), `.claude/hooks/${f}`);
@@ -103,14 +107,24 @@ if (starter) {
 const hasMarker = (hookName, txt) => new RegExp(`^#\\s*auditor-managed-hook:\\s*${hookName}\\s*$`, 'm').test(txt);
 if (kapitan || starter) {
   for (const [f, t] of [['hygiene-rules.js'], ['hygiene-rules.json'], ['pre-commit-check.mjs'], ['hooks-package.json', 'package.json']]) put(path.join(HY, f), `.claude/hooks/${t || f}`);
-  const pc = path.join(repo, '.git', 'hooks', 'pre-commit'); if (hasMarker('pre-commit', rd(pc)) || /pre-commit-check/.test(rd(pc))) { fs.copyFileSync(path.join(HY, 'pre-commit-guard.sh'), pc); try { fs.chmodSync(pc, 0o755); } catch { } }
+  // A-008: hygiena už jednou nainstalovaná (repo/.gitattributes ji zapisuje jako POSLEDNÍ krok, až PO obou git hoocích) —
+  // git hook, který přesto úplně chybí, nikdy nevznikl kvůli přerušené instalaci (ne vlastníkovým „ne"). Bezpečně doplnit
+  // (installGitHook z install-pre-commit-hook.mjs — stejná funkce, jakou volá i prvoinstalace, žádná duplicitní logika).
+  const hygienaByla = fs.existsSync(path.join(repo, '.gitattributes')); const repaired = [];
+  const pc = path.join(repo, '.git', 'hooks', 'pre-commit'), pcTxt = rd(pc);
+  if (hasMarker('pre-commit', pcTxt) || /pre-commit-check/.test(pcTxt)) { fs.copyFileSync(path.join(HY, 'pre-commit-guard.sh'), pc); try { fs.chmodSync(pc, 0o755); } catch { } }
+  else if (!fs.existsSync(pc) && hygienaByla) { installGitHook(repo, path.join(HY, 'pre-commit-guard.sh'), 'pre-commit'); repaired.push('pre-commit'); }
   if (fs.existsSync(path.join(H, 'pre-commit-guard.sh'))) put(path.join(HY, 'pre-commit-guard.sh'), '.claude/hooks/pre-commit-guard.sh');
   if (kapitan) {
     // A-023 AK3: pre-push druhá linie — logika (pre-push-guard.mjs) už je v .claude/hooks/ vždy (viz výš); samotný git hook
     // wrapper v .git/hooks/pre-push jen aktualizuj, pokud repo ho už má nainstalovaný (instaluje ho setup-auditor, ne update).
-    const pp = path.join(repo, '.git', 'hooks', 'pre-push'); if (hasMarker('pre-push', rd(pp))) { fs.copyFileSync(path.join(pkg, 'kapitan-side', 'pre-push-guard.sh'), pp); try { fs.chmodSync(pp, 0o755); } catch { } }
+    // A-008: úplně chybějící wrapper při potvrzené hygieně (.gitattributes) doplní stejně jako pre-commit výš.
+    const pp = path.join(repo, '.git', 'hooks', 'pre-push'), ppTxt = rd(pp);
+    if (hasMarker('pre-push', ppTxt)) { fs.copyFileSync(path.join(pkg, 'kapitan-side', 'pre-push-guard.sh'), pp); try { fs.chmodSync(pp, 0o755); } catch { } }
+    else if (!fs.existsSync(pp) && hygienaByla) { installGitHook(repo, path.join(pkg, 'kapitan-side', 'pre-push-guard.sh'), 'pre-push'); repaired.push('pre-push'); }
     if (fs.existsSync(path.join(H, 'pre-push-guard.sh'))) put(path.join(pkg, 'kapitan-side', 'pre-push-guard.sh'), '.claude/hooks/pre-push-guard.sh');
   }
+  if (repaired.length) warn(`git hooky chyběly úplně (přerušená dřívější instalace) — doplněny: ${repaired.join(', ')}`);
   // KATALOG: aktivní položky na novou verzi (ručně upravené zůstanou); vlastníkovi jednou nabídnout doporučené (hooky smí aktivovat jen on)
   { const KM = path.join(ws, 'tools', 'katalog.mjs'); const st = d => { try { return JSON.parse(rd(path.join(repo, d, 'katalog.json'))); } catch { return null; } };
     if (fs.existsSync(KM)) { const r = tryRun(process.execPath, [KM, 'obnov', '--cil', repo], repo); if (r && r.trim()) say(r.trimEnd());
@@ -136,11 +150,23 @@ if (kapitan || starter) {
     ok(`do gitu uloženo ${ours.length} aktualizovaných souborů pojistek`);
   } else ok('pojistky v repu už byly aktuální');
   if (left.length) warn(`neuloženo (měl jsi v nich rozdělané změny, nechávám je tobě): ${left.join(', ')}`);
-} else ok('do repa se nesahá (profil jen audit / audit z GitHubu)');
+} else {
+  // A-008: „kapitan" i „starter" false je legitimní (jen audit / audit z GitHubu / vlastník vědomě odmítl Kapitána), ALE
+  // stejně vypadá i instalace přerušená PŘED otázkou na Kapitána (setup-auditor spadl/zavřel se dřív, než se vůbec zeptal).
+  // remoteOrCombo pokrývá GitHub audit a kombinaci zdravého startu (vlastní marker). Zbylý případ (vědomé „ne" u čistého
+  // repo-auditu) nemá marker — ale k otázce na Kapitána se dojde až PO instalaci závislostí (krok 4), takže chybějící
+  // tools/node_modules bezpečně znamená „otázka nikdy nepadla" → přerušeno, ne odmítnuto.
+  const looksIncomplete = !remoteOrCombo && !toolsDepsInstalled;
+  if (looksIncomplete) {
+    console.error('  ❌ instalace vypadá NEDOKONČENÁ: v repu chybí strana Kapitána i zdravého startu A ve workspace nejsou nainstalované závislosti (tools/node_modules) — instalace se zřejmě přerušila ještě PŘED otázkou na Kapitána.');
+    console.error('     Spusť znovu setup-auditor.ps1 (Windows) / setup-auditor.sh (Linux, macOS) — doplní, co chybí. Je-li „jen audit" záměr, spusť ho jednou s -Kapitan ne (resp. AUDITOR_KAPITAN=ne), ať se to příště nehlásí.');
+    process.exit(1);
+  }
+  ok('do repa se nesahá (profil jen audit / audit z GitHubu)');
+}
 
 // 2b) Telegram: jen když ho některá role ještě nemá a někdo sedí u počítače (založení bota potřebuje člověka v Telegramu); odmítnutí se pamatuje
 { let tc = {}; try { tc = JSON.parse(rd(path.join(ws, '.telegram.json'))); } catch { }
-  const remoteOrCombo = fs.existsSync(path.join(ws, 'AUDIT', '.remote.json')) || fs.existsSync(path.join(ws, 'AUDIT', '.zdravy-start.json'));
   const roles = remoteOrCombo ? ['auditor'] : ['auditor', 'kapitan']; let det = {}; try { det = JSON.parse(execFileSync(process.execPath, [path.join(pkg, 'tools', 'telegram-setup.mjs'), '--ws', ws, '--repo', repo, '--detect'], { encoding: 'utf8' })); } catch { }   // skutečný stav na TOMTO počítači (token existuje?)
   const missing = roles.filter(r => tc[r]?.mode !== 'odmitnuto' && !(det[r]?.mode === 'channel' || (det[r]?.mode === 'vlastni' && det[r].volba)));   // vlastní most bez volby → jednou nabídnout standardního bota
   if (missing.length && process.stdin.isTTY) { try { execFileSync(process.execPath, [path.join(pkg, 'tools', 'telegram-setup.mjs'), '--ws', ws, '--repo', repo, '--role', missing.length === 2 ? 'obe' : missing[0]], { stdio: 'inherit' }); } catch { warn('nastavení Telegramu se nedokončilo — kdykoliv znovu: START → [6]'); } }
