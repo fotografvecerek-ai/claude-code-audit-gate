@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SELFTEST — regresní sada pro brány balíku. Spouští oba hooky, gate-check, pre-commit check a bus v dočasném prostředí.
 // node tools/selftest.mjs        → tabulka PASS/FAIL, exit 1 při jakémkoliv FAIL. Spouštěj po instalaci a po každé změně hooků.
-import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync, execSync } from 'node:child_process'; import { fileURLToPath, pathToFileURL } from 'node:url';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync, execSync, spawn } from 'node:child_process'; import { fileURLToPath, pathToFileURL } from 'node:url';
 const pkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-selftest-')); const ws = path.join(tmp, 'x-audit'); const repo = path.join(tmp, 'x'); const wt = path.join(tmp, 'wt-a');
 // A-006 kolo 2: guardTmp simuluje „os.tmpdir()" tak, jak ho uvidí SPUŠTĚNÝ hook (přes TMPDIR/TEMP/TMP v env níže) —
@@ -693,6 +693,19 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
   T('BUS: doslovné ZADANI přijato, dostane ID K-###', /^K-\d{3}$/.test(zid), true);
   T('BUS: ZADANI od Kapitána odmítnuto', bus('post', '--from', 'kapitan', '--type', 'ZADANI', '--citace', 'x').status, 1);
   T('A: zápis zprávy na most mimo bus.mjs blokován (i vlastní)', [hook(AG, write(ws, path.join(ws, 'AUDIT', 'bus', '2026_auditor_HANDOFF_X-1.json'))), hook(AG, bash(ws, `echo {} > ${norm(ws)}/AUDIT/bus/2026_auditor_HANDOFF_X-1.json`))].join(','), '2,2');
+}
+{ // A-010: 50 souběžných `ack` na TUTÉŽ zprávu (skuteční child procesi produkčního bus.mjs) → zámek + atomický zápis, žádné ztracené potvrzení
+  const post010 = bus('post', '--from', 'auditor', '--type', 'NOTE', '--id', 'A-010', '--text', 'zprava pro test souběžných ack');
+  const msg010 = JSON.parse(post010.stdout).posted;
+  const N010 = 50;
+  const ackOne = by => new Promise(resolve => { const cp = spawn(process.execPath, [path.join(pkg, 'tools/bus.mjs'), 'ack', '--msg', msg010, '--by', by], { cwd: ws, env }); cp.on('close', code => resolve(code)); });
+  const codes010 = await Promise.all(Array.from({ length: N010 }, (_, i) => ackOne(`worker-${i}`)));
+  T('BUS A-010: 50 souběžných ack — všechny procesy skončí bez chyby', codes010.every(c => c === 0), true);
+  let msgObj010 = null, validJson010 = true;
+  try { msgObj010 = JSON.parse(fs.readFileSync(path.join(ws, 'AUDIT', 'bus', msg010), 'utf8')); } catch { validJson010 = false; }
+  T('BUS A-010: zpráva po 50 souběžných ack zůstává validní JSON', validJson010, true);
+  T('BUS A-010: 50 souběžných ack → 50/50 záznamů (žádná ztráta)', msgObj010 ? (msgObj010.ack || []).length : -1, N010);
+  T('BUS A-010: 50 souběžných ack → 50 unikátních "by"', msgObj010 ? new Set((msgObj010.ack || []).map(a => a.by)).size : -1, N010);
 }
 // --- GATE-CHECK přímo
 T('GATE: chybí gate → FAIL', (fs.unlinkSync(path.join(ws, 'AUDIT', '05_release_gate.md')), spawnSync(process.execPath, [path.join(pkg, 'kapitan-side/gate-check.mjs'), repo], { env, encoding: 'utf8' }).status), 2);

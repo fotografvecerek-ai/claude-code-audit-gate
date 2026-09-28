@@ -39,11 +39,29 @@ function git(c) { try { return execSync(`git ${c}`, { cwd: ROOT, encoding: 'utf8
 function ledger() {
   const rows = all(); const lines = ['# BUS ledger (generováno bus.mjs — needitovat)', '', '| čas | od | typ | ID | text | ref | ack |', '|---|---|---|---|---|---|---|'];
   for (const r of rows.slice(-200)) lines.push(`| ${r.ts.slice(0, 16)} | ${r.from} | ${r.type} | ${r.id || ''} | ${(r.text || '').replace(/\|/g, '/').slice(0, 80)} | ${r.ref || ''} | ${(r.ack || []).map(a => a.by).join(',')} |`);
-  fs.writeFileSync(path.join(BUS, 'LEDGER.md'), lines.join('\n') + '\n');
+  atomicWrite(path.join(BUS, 'LEDGER.md'), lines.join('\n') + '\n');
 }
 const out = o => console.log(typeof o === 'string' ? o : JSON.stringify(o, null, 2));
 
 function nextId(pre) { const n = all().map(r => String(r.id || '')).map(i => (i.match(new RegExp(`^${pre}-(\\d+)$`)) || [])[1]).filter(Boolean).map(Number); return `${pre}-${String((n.length ? Math.max(...n) : 0) + 1).padStart(3, '0')}`; }
+
+// A-010: souběžné `ack` (50 agentů potvrzuje tutéž zprávu naráz) dělaly read-modify-write bez zámku → ztracená potvrzení.
+// Zámek po vzoru tools/preflight.mjs (wx lock soubor, stáří přes mtimeMs, Atomics.wait místo busy-loop); zápis vždy atomicky (temp + rename),
+// aby pád procesu uprostřed writeFileSync nenechal poškozený JSON zprávy.
+function withLock(file, fn, staleMs = 10000) {
+  const lock = `${file}.lock`;
+  const age = () => { try { return Date.now() - fs.statSync(lock).mtimeMs; } catch { return Infinity; } };
+  for (; ;) {
+    try { fs.writeFileSync(lock, String(process.pid), { flag: 'wx' }); break; }
+    catch (e) {
+      if (e.code !== 'EEXIST') throw e;
+      if (age() > staleMs) { try { fs.unlinkSync(lock); } catch { } continue; }   // zámek po pádu procesu — po staleMs se uvolní sám
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10 + Math.floor(Math.random() * 20));   // krátký backoff, ne busy-loop
+    }
+  }
+  try { return fn(); } finally { try { fs.unlinkSync(lock); } catch { } }
+}
+function atomicWrite(file, data) { const tmp = `${file}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`; fs.writeFileSync(tmp, data); fs.renameSync(tmp, file); }
 
 switch (cmd) {
   case 'post': {
@@ -79,7 +97,9 @@ switch (cmd) {
     if (args.brief && total > limit) console.log(`(${total - limit} starších zpráv skryto — bus.mjs inbox --for ${role} --limit ${total})`);
     out(args.brief ? rows.map(r => `${r.ts.slice(0, 16)} ${r.from}→${role} ${r.type} ${r.id} ${r.verdict || r.status || ''} ${r.text.slice(0, 90)} ${r.ref ? '→ ' + r.ref : ''}`).join('\n') || '(inbox prázdný)' : rows); break;
   }
-  case 'ack': { const p = path.join(BUS, path.basename(args.msg || '')); if (!fs.existsSync(p)) die('zpráva nenalezena'); const m = JSON.parse(fs.readFileSync(p, 'utf8')); (m.ack ||= []).push({ by: args.by, ts: new Date().toISOString() }); fs.writeFileSync(p, JSON.stringify(m, null, 2) + '\n'); ledger(); out({ acked: p }); break; }
+  case 'ack': { const p = path.join(BUS, path.basename(args.msg || '')); if (!fs.existsSync(p)) die('zpráva nenalezena');
+    withLock(p, () => { const m = JSON.parse(fs.readFileSync(p, 'utf8')); (m.ack ||= []).push({ by: args.by, ts: new Date().toISOString() }); atomicWrite(p, JSON.stringify(m, null, 2) + '\n'); ledger(); });
+    out({ acked: p }); break; }
   case 'thread': out(all().filter(r => r.id === args.id)); break;
   case 'status': {
     const last = {}, rowsBy = {}; for (const r of all()) if (r.id && r.id !== '-') { (rowsBy[r.id] ||= []).push(r); last[r.id] = { ts: r.ts, from: r.from, type: r.type, verdict: r.verdict, status: r.status, round: r.round, ref: r.ref }; }
