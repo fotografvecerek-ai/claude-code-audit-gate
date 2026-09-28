@@ -27,8 +27,18 @@ if (!exact) {
 }
 if (!/Verdikt:\s*🟢/.test(txt)) fail('verdikt není 🟢');
 // datum: ISO (2026-09-24[T10:00]) nebo české (24. 9. 2026); bez rozpoznatelného data = mtime souboru
-let when = NaN; const iso = txt.match(/(\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?)/); const cz = txt.match(/(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
-if (iso) when = Date.parse(iso[1]); else if (cz) when = new Date(+cz[3], +cz[2] - 1, +cz[1], +(cz[4] || 12), +(cz[5] || 0)).getTime();
+// P3: datum BEZ ČASU je jen den, ne okamžik. Bereme NEJSTARŠÍ možný výklad (lokální 00:00), a to pro OBĚ kontroly:
+// - stáří (age): 00:00 = nejvíc hodin uplynulo = fail-closed (nejpřísnější odhad, nikdy gate neomladí).
+// - „je v budoucnosti": 00:00 je vždy ≤ „teď" ve stejný den → dnešní datum bez času nikdy nevypadá jako budoucí
+//   (dřív ISO bez času padalo na UTC půlnoc a CZ bez hodiny na poledne → ráno/dopoledne falešně „z budoucnosti").
+let when = NaN; const iso = txt.match(/(\d{4}-\d{2}-\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/); const cz = txt.match(/(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+if (iso) {
+  if (iso[2] !== undefined) { when = new Date(+iso[1].slice(0, 4), +iso[1].slice(5, 7) - 1, +iso[1].slice(8, 10), +iso[2], +iso[3], +(iso[4] || 0)).getTime(); }
+  else { when = new Date(+iso[1].slice(0, 4), +iso[1].slice(5, 7) - 1, +iso[1].slice(8, 10), 0, 0, 0, 0).getTime(); }
+} else if (cz) {
+  if (cz[4] !== undefined) { when = new Date(+cz[3], +cz[2] - 1, +cz[1], +cz[4], +cz[5], 0).getTime(); }
+  else { when = new Date(+cz[3], +cz[2] - 1, +cz[1], 0, 0, 0, 0).getTime(); }
+}
 if (isNaN(when)) when = fs.statSync(gate).mtimeMs;
 const age = (Date.now() - when) / 36e5;
 if (age > maxAgeH) fail(`gate je ${Math.round(age)} h starý (limit ${maxAgeH} h; GATE_MAX_AGE_H)`);

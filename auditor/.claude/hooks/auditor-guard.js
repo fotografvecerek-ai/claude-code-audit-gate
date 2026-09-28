@@ -149,7 +149,13 @@ function commands(cmd, depth = 0, out = [], vars = {}) {
       const isShellC = x => /^(-c|\/c|\/k|-command|-encodedcommand)$/.test(x) || (['bash', 'sh', 'zsh', 'dash', 'ksh'].includes(w) && /^-[a-z]*c$/i.test(x));
       const k = lower.findIndex(isShellC);
       const lone = k >= 0 && a[k + 1] === '-'; // `-Command -` / `-c -` = čti PŘÍKAZY ze stdin, ne inline text
-      if (k >= 0 && !lone) { commands(a.slice(k + 1).join(' '), depth + 1, out, vars); continue; }
+      if (k >= 0 && !lone) {
+        const cContent = a.slice(k + 1).join(' ');
+        // A-022: „sh -c "$(printf 'git push')"" — obsah -c dynamicky složený příkazovou substitucí/zpětnými apostrofy,
+        // který zmiňuje git, se nedá staticky rozřešit na konkrétní podpříkaz → fail-closed (stejně jako STDIN_UNKNOWN).
+        if (/\$\(|`/.test(cContent) && /\bgit(\.exe)?\b/i.test(cContent)) { out.push({ w: '__stdin_unresolved__', a: [], lower: [], all: [`${w} -c obsahuje $(...)/zpětné apostrofy zmiňující git — nelze staticky rozpoznat (A-022)`], inline: null, envs: {} }); continue; }
+        commands(cContent, depth + 1, out, vars); continue;
+      }
       // bez -c/-Command (nebo s ním, ale jen jako „-"): stdin shell — najdi zdroj (vlastní heredoc → sousední heredoc
       // přes rouru → jinak neznámá roura/`< soubor` = fail-closed; A-006 kolo 3)
       const stdinArgs = k >= 0 ? a.slice(k + 1) : a;
@@ -228,7 +234,35 @@ function mutatingRemoteHttp(cmd) {
   }
   return false;
 }
-const GIT_MUT_SUBCMDS = new Set(['push', 'commit', 'merge', 'rebase', 'reset', 'checkout', 'switch', 'restore', 'tag', 'stash', 'clean', 'am', 'cherry-pick', 'revert']);
+const GIT_MUT_SUBCMDS = new Set(['push', 'commit', 'merge', 'rebase', 'reset', 'checkout', 'switch', 'restore', 'tag', 'stash', 'clean', 'am', 'cherry-pick', 'revert', 'add', 'pull']);
+// A-022: ALLOWLIST místo blocklistu — git je auditorovi povolen jen se ČTECÍMI podpříkazy (kdekoliv) nebo s rozpoznanou
+// mutací OMEZENOU na workspace (GIT_MUT_SUBCMDS + branch/tag/remote/worktree/clone v nečtecím tvaru). Cokoli jiné
+// (update-ref, notes, gc, config --set, submodule, filter-branch, init, …) BLOKUJE VŽDY — nebylo výslovně povoleno.
+const GIT_RO_PLAIN = new Set(['status', 'log', 'show', 'diff', 'blame', 'grep', 'ls-files', 'ls-tree', 'ls-remote', 'rev-parse', 'rev-list', 'cat-file', 'describe', 'shortlog', 'for-each-ref', 'name-rev', 'merge-base', 'version', 'help', 'archive', 'fetch']);
+const GIT_RO_LISTY = /^(-l|--list|-a|--all|-r|--remotes|-v|--verbose|list)$/i;
+function isGitReadonly(sub, subArgs) {
+  if (GIT_RO_PLAIN.has(sub)) return true;
+  if (sub === 'reflog') return !(subArgs[0] && /^(expire|delete)$/i.test(subArgs[0])); // reflog OK, expire/delete ne
+  if (sub === 'config') { // jen --get*/--list/-l a nic zapisujícího
+    const hasWrite = subArgs.some(x => /^(--add|--replace-all|--unset(-all)?|--edit|-e|--remove-section|--rename-section)$/i.test(x));
+    const hasRead = subArgs.some(x => /^(--get(-all|-regexp)?|--list|-l)$/i.test(x));
+    return hasRead && !hasWrite;
+  }
+  if (['branch', 'tag', 'remote', 'worktree'].includes(sub)) return subArgs.length === 0 || subArgs.every(x => GIT_RO_LISTY.test(x)); // jen výpis
+  if (sub === 'stash') return subArgs.length > 0 && (subArgs[0] === 'list' || /^(-l|--list)$/i.test(subArgs[0])); // „stash" samo mutuje (push) — jen list je čtecí
+  return false;
+}
+const GH_RO = { pr: /^(view|list|diff|checks|status)$/i, issue: /^(view|list)$/i, run: /^(view|list|watch)$/i, release: /^(view|list)$/i, repo: /^(view)$/i };
+function isGhReadonly(a) {
+  const sub = (a[0] || '').toLowerCase();
+  if (sub === 'api') {
+    let method = 'GET';
+    for (let k = 0; k < a.length; k++) { if (/^(-X|--method)$/i.test(a[k])) method = (a[k + 1] || 'GET').toUpperCase(); else if (/^(-X|--method)=/i.test(a[k])) method = a[k].split('=')[1].toUpperCase(); }
+    const hasBody = a.some(x => /^(-f|-F|--input)$/i.test(x));
+    return method === 'GET' && !hasBody;
+  }
+  return !!(GH_RO[sub] && a[1] && GH_RO[sub].test(a[1]));
+}
 // A-004 kolo 3: podpříkaz gitu a cíl (-C) se čtou POZIČNĚ z už tokenizovaných argumentů (c.a), NE regexem nad
 // spojeným textem (starý GIT_MUT nad c.all.join(' ')) — hodnota přepínače (-m "text", -c "text") je v c.a JEDEN
 // token, takže text uvnitř (byť zmiňuje „git push") se už nikdy neparsuje jako by šlo o další podpříkaz
@@ -316,6 +350,7 @@ process.stdin.on('end', () => {
     for (const c of commands(cmd)) {
       if (['cd', 'pushd', 'set-location', 'sl', 'chdir'].includes(c.w)) { const t = c.a.find(x => !/^[-/]/.test(x) || /^\//.test(x) && x.length > 2); if (t) cur = absTarget(t); continue; }
       if (fallbackGitMutationScan(c)) block(`Podezřelý příkaz zmiňuje git a mutační podpříkaz skrz nerozpoznaný obal ("${c.w}") — fail-closed (A-004 kolo 4).`);
+      if (c.w === 'gh') { if (!isGhReadonly(c.a)) block(`gh ${c.a[0] || ''} není na seznamu povolených příkazů auditora (jen read: pr view/list/diff/checks/status, issue view/list, run view/list/watch, release view/list, repo view, api bez -X/--method jiné než GET a bez -f/-F/--input) — fail-closed allowlist (A-022).`); continue; }
       if (c.w !== 'git') continue;
       const envTarget = (c.envs && (c.envs.GIT_DIR || c.envs.GIT_WORK_TREE)) || cur; // A-004 kolo 4: GIT_DIR=/GIT_WORK_TREE= (i přes env obal) určuje cíl místo cwd
       const { target: rawTarget, sub, subArgs, aliasRisk } = gitInvocation(c.a, envTarget);
@@ -326,15 +361,16 @@ process.stdin.on('end', () => {
       const isForce = sub === 'push' && subArgs.some(x => x === '--force' || x === '-f' || x === '--force-with-lease' || /^--force-with-lease=/.test(x) ||
         /^\+/.test(x) || (/^-[A-Za-z]{2,}$/.test(x) && /f/.test(x.slice(1))));
       if (isForce) block('force push zakázán i ve workspace.');
-      const isMutating = GIT_MUT_SUBCMDS.has(sub) || (sub === 'branch' && subArgs[0] && /^-[dDm]/.test(subArgs[0]));
-      if (!isMutating) continue;
+      if (isGitReadonly(sub, subArgs)) continue; // A-022: povolené čtecí podpříkazy — kdekoliv (allowlist)
+      const isMutating = GIT_MUT_SUBCMDS.has(sub) || ['branch', 'tag', 'remote', 'worktree', 'clone'].includes(sub);
+      if (!isMutating) block(`git ${sub} není na seznamu povolených příkazů auditora (ani čtecí, ani rozpoznaná mutace) — fail-closed allowlist (A-022).`);
       const inRepo = repo && (target === repo || target.startsWith(repo + '/'));
       // build/ klon může být junction/symlink jinam (disk mimo produkci) → skutečné cesty položek build/ se berou jako build/
       let buildReal = []; try { const fsg = require('node:fs'), pg = require('node:path'); const bd = pg.join(WORKSPACE, 'build'); buildReal = fsg.readdirSync(bd).map(n => { try { return norm(fsg.realpathSync.native(pg.join(bd, n))); } catch { return ''; } }).filter(Boolean); } catch { }
       const inBuild = target.startsWith(ws + '/build/') || buildReal.some(r => target === r || target.startsWith(r + '/'));
       const inWs = target === ws || target.startsWith(ws + '/') || inBuild;
       if (inRepo || !inWs) block(`git ${sub} mimo workspace auditora zakázán (cíl: ${target}). Auditor commituje jen svůj AUDIT repozitář.`);
-      if (inBuild && !/^(checkout|switch|restore|stash)$/i.test(sub)) block(`git ${sub} v build/ klonu zakázán — klon slouží jen ke čtení a spuštění testů (povoleno: clone, fetch, pull, checkout, switch).`);
+      if (inBuild && !/^(checkout|switch|restore|stash|pull)$/i.test(sub)) block(`git ${sub} v build/ klonu zakázán — klon slouží jen ke čtení a spuštění testů (povoleno: clone, fetch, pull, checkout, switch).`);
     }
     // zápis shellem: rozhoduje CÍL zápisu (přesměrování, cp/mv/copy/Set-Content…), ne slova v příkazu — `grep x <repo> 2>/dev/null` projde
     const wt = writeTargets(cmd, cwd); const inRepo = p => repo && (p === repo || p.startsWith(repo + '/'));

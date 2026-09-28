@@ -14,9 +14,10 @@ const collapse = p => { const s = String(p || '').replace(/^\\\\[?.]\\/, '').rep
 const fsx = require('node:fs');
 let R = null; for (const c of [path.join(__dirname, 'hygiene-rules.js'), path.join(__dirname, 'hygiene', 'hygiene-rules.js'), path.join(process.env.AUDITOR_WORKSPACE || '', 'kapitan-side/hygiene/hygiene-rules.js')]) { try { R = require(c).load(); break; } catch { } }
 const PROD_BRANCH = new RegExp(process.env.PROD_BRANCHES || '^(main|master|production|prod|release)$', 'i');
-const DEPLOY = [/\bvercel\s+(deploy|--prod|alias|promote)|\bvercel\b.*--prod/i, /\b(npm|pnpm|yarn)\s+publish\b/i, /\bprisma\s+migrate\s+deploy\b/i, /\bsupabase\s+(db\s+push|functions\s+deploy)\b/i, /\bcapgo\b.*(upload|bundle)/i, /\bbuild_ota\.py\b/i, /\b(eas|fastlane)\s+(submit|build)\b/i, /\bgh\s+release\s+create\b/i];
+const DEPLOY = [/\bvercel\s+(deploy|--prod|alias|promote)|\bvercel\b.*--prod/i, /\b(npm|pnpm|yarn)\s+publish\b/i, /\bprisma\s+migrate\s+deploy\b/i, /\bsupabase\s+(db\s+push|functions\s+deploy)\b/i, /\bcapgo\b.*(upload|bundle)/i, /\bbuild_ota\.py\b/i, /\b(eas|fastlane)\s+(submit|build)\b/i, /\bgh\s+release\s+create\b/i, /\bgh\s+pr\s+merge\b/i];
 // --- analýza příkazu (stejná jako v hooku auditora): rozhoduje CÍL zápisu, ne slova v příkazu — čtení s 2>/dev/null projde
 const WRAP = new Set(['sudo', 'env', 'nohup', 'time', 'exec', 'command', 'call', 'npx', 'bunx', 'xargs', '&', 'start', 'nice']);
+const KEYWORDS = new Set(['then', 'do', 'else', 'elif', '{', '}', '!']); // A-005 kolo 3: "if cond; then git push…; fi" — 'then' by jinak skryl 'git' jako c.w
 function segments(s) { // rozdělí na jednoduché příkazy mimo uvozovky; tokeny bez uvozovek; `2>&1`, `&>` zůstanou jedním tokenem
   const out = []; let tok = '', toks = [], q = null, had = false, quoted = false;
   // citovaný token, který vypadá jako přesměrování (`grep ">" f`), dostane neviditelnou značku → není to přesměrování
@@ -41,11 +42,16 @@ function commands(cmd, depth = 0, out = []) {
     let i = 0;
     for (;;) { const w = baseW(toks[i]);
       if (/^\w+=/.test(toks[i] || '')) { i++; continue; }
+      if (KEYWORDS.has(w)) { i++; continue; } // A-005 kolo 3: then/do/else/elif/{/}/! nejsou příkaz — přeskočit a dál rozbalovat obaly/hledat "git"
       if (WRAP.has(w)) { i++; if (w === 'start' && toks[i] !== undefined && (toks[i] === '' || /\s/.test(toks[i]))) i++; while (toks[i] && (/^-/.test(toks[i]) || (w === 'start' && /^\//.test(toks[i])))) i++; continue; }
       if (['npm', 'pnpm', 'yarn'].includes(w) && /^(exec|dlx|x)$/.test(toks[i + 1] || '')) { i += 2; while (toks[i] && /^-/.test(toks[i])) i++; continue; }
       break; }
     const w = baseW(toks[i]); if (!w) continue; const a = toks.slice(i + 1); const lower = a.map(x => x.toLowerCase());
-    if (['bash', 'sh', 'zsh', 'dash', 'cmd', 'powershell', 'pwsh'].includes(w)) { const k = lower.findIndex(x => /^(-c|\/c|\/k|-command|-encodedcommand)$/.test(x)); if (k >= 0) { commands(a.slice(k + 1).join(' '), depth + 1, out); continue; } }
+    if (['bash', 'sh', 'zsh', 'dash', 'cmd', 'powershell', 'pwsh'].includes(w)) {
+      // A-005 kolo 3: "bash -lc", "sh -lc" apod. — krátké sloučené volby POSIX shellů končící na "c" (ne jen samotné -c)
+      const isShellC = x => /^(-c|\/c|\/k|-command|-encodedcommand)$/i.test(x) || (['bash', 'sh', 'zsh', 'dash'].includes(w) && /^-[a-z]{1,3}c$/i.test(x));
+      const k = lower.findIndex(isShellC); if (k >= 0) { commands(a.slice(k + 1).join(' '), depth + 1, out); continue; }
+    }
     if (w === 'eval') { commands(a.join(' '), depth + 1, out); continue; } // eval "git push …" — obsah se rekurzivně tokenizuje jako u shell -c (kolo 2)
     const inline = ['node', 'python', 'python3', 'py', 'deno', 'bun', 'ruby', 'perl'].includes(w) && lower.some(x => /^(-e|-c|--eval|-p|--print)$/.test(x)) ? a.join(' ') : null;
     out.push({ w, a, lower, all: toks.slice(i), inline });
@@ -76,6 +82,24 @@ function writeTargets(cmd, cwd0) {
       add(W_PS[c.w] === 1 ? (named(/^-dest/) || pos[1]) : (named(/^-(path|literalpath|filepath)$/) || pos[0])); }
   }
   return res;
+}
+// A-005 kolo 3: "$(which git) push origin main" — $(...) je v segments() dělicí metaznak, takže "git" a "push" skončí
+// v RŮZNÝCH segmentech a hlavní smyčka (c.w !== 'git' → continue) to nevidí. Fallback skenuje SYROVÝ text (jen když
+// obsahuje $(...) nebo zpětné apostrofy — běžný text zprávy commitu bez nich projde beze změny).
+const GIT_MUT_WORDS = new Set(['push', 'commit', 'merge', 'rebase', 'reset', 'tag', 'clean', 'am', 'cherry-pick', 'revert']);
+function looksLikeGitToken(tok) { return /(^|[/\\])git(\.exe)?$/i.test(tok) || /\$\([^)]*\bgit\b[^)]*\)/i.test(tok) || /`[^`]*\bgit\b[^`]*`/i.test(tok); }
+function fallbackPushScan(rawCmd) {
+  if (!/\$\(|`/.test(rawCmd)) return false;
+  const toks = rawCmd.split(/\s+/);
+  for (let i = 0; i < toks.length; i++) {
+    if (looksLikeGitToken(toks[i]) || /\$\(/.test(toks[i]) || /`/.test(toks[i])) {
+      for (let j = i + 1; j < toks.length && j < i + 6; j++) {
+        const w = toks[j].replace(/^-+/, '').toLowerCase();
+        if (GIT_MUT_WORDS.has(w)) return true;
+      }
+    }
+  }
+  return false;
 }
 let raw = ''; process.stdin.on('data', d => raw += d);
 process.stdin.on('end', () => {
@@ -112,7 +136,7 @@ process.stdin.on('end', () => {
   }
   if (tool === 'Bash' || tool === 'PowerShell') {
     const cmd = String(ti.command || '');
-    if (/\bgit\s+(-C\s+\S+\s+)?push\b.*(--force|-f\b)/i.test(cmd)) block('force push zakázán.');
+    if (fallbackPushScan(cmd)) block('Podezřelý příkaz zmiňuje git (přes $(...) nebo zpětné apostrofy) a mutační slovo (push/commit/…) skrz nerozpoznaný obal — fail-closed (A-005 kolo 3).');
     // destruktivní SQL přímo v příkazu (platí i pro úroveň SAMOSTATNÝ/PLNÝ): smazání tabulek/databáze, vyprázdnění, DELETE/UPDATE bez WHERE
     if (/\bdrop\s+(table|database|schema)\b|\btruncate\s+(table\s+)?["\w]|\bdelete\s+from\s+[\w."]+\s*(;|"|'|$)(?![^;]*\bwhere\b)|\bupdate\s+[\w."]+\s+set\b(?![^;]*\bwhere\b)|\bsupabase\s+db\s+reset\b/i.test(cmd)) block('DESTRUKTIVNÍ SQL (DROP/TRUNCATE/DELETE či UPDATE bez WHERE/db reset) — takový zásah dělá jen vlastník ručně, se zálohou.');
     // SELF-PROTECT i přes shell: zápis/mazání/přesun souborů hooků, settings, CI brány (rozhoduje cíl zápisu; git rm/mv/checkout a prettier --write taky)
@@ -133,17 +157,32 @@ process.stdin.on('end', () => {
       if (['cd', 'pushd', 'set-location', 'sl', 'chdir'].includes(c.w)) { const t = c.a.find(x => !/^[-/]/.test(x) || /^\//.test(x) && x.length > 2); if (t) cur = resolveDir(cur, t); continue; }
       if (!depMatch) { const text = c.inline || c.all.join(' '); const dm = DEPLOY.map(re => text.match(re)).find(Boolean); if (dm) { depMatch = dm; depMatchDir = cur; } }
       if (c.w !== 'git') continue; // VŠECHNY git push segmenty v příkazu (ne jen první) — "git push a && git push origin main" musí vyhodnotit i druhý (kolo 2)
+      // A-005 kolo 3: globální volby gitu v LIBOVOLNÉM pořadí (dřív jen pevné -C pak -c), vč. --git-dir/--work-tree/--no-pager/-P/--bare/--exec-path
       let i = 0, cDir = null;
-      while (c.a[i] === '-C' && c.a[i + 1] !== undefined) { cDir = c.a[i + 1]; i += 2; }
-      while (c.a[i] === '-c' && c.a[i + 1] !== undefined) i += 2;
+      for (;;) {
+        const t = c.a[i];
+        if (t === '-C' && c.a[i + 1] !== undefined) { cDir = c.a[i + 1]; i += 2; continue; }
+        if (t === '-c' && c.a[i + 1] !== undefined) { i += 2; continue; }
+        if ((t === '--git-dir' || t === '--work-tree') && c.a[i + 1] !== undefined) { i += 2; continue; }
+        if (/^--git-dir=/.test(t || '') || /^--work-tree=/.test(t || '')) { i++; continue; }
+        if (t === '--no-pager' || t === '-p' || t === '-P' || t === '--bare') { i++; continue; }
+        if (t === '--exec-path') { i++; if (c.a[i] !== undefined && !/^-/.test(c.a[i])) i++; continue; }
+        if (/^--exec-path=/.test(t || '')) { i++; continue; }
+        break;
+      }
       if ((c.a[i] || '').toLowerCase() !== 'push') continue;
       // přesměrování (2>&1, >, | tail se do samostatného segmentu už nedostane) se nepočítá do refspeců
       const rest = c.a.slice(i + 1); const rawArgs = [];
       for (let k = 0; k < rest.length; k++) { const m = /^(\d|&)?>>?(.*)$/.exec(rest[k]); if (m) { if (!m[2]) k++; continue; } rawArgs.push(rest[k]); }
+      // force push: --force/-f/--force-with-lease, „+refspec" a sloučené krátké volby (-uf/-fu) — nikdy text zprávy commitu
+      const isForce = rawArgs.some(x => x === '--force' || x === '-f' || x === '--force-with-lease' || /^--force-with-lease=/.test(x) ||
+        /^\+/.test(x) || (/^-[A-Za-z]{2,}$/.test(x) && /f/.test(x.slice(1))));
+      if (isForce) block('force push zakázán i ve workspace.');
       let segProd = rawArgs.some(a => /^--(all|mirror|tags|branches)$/.test(a));
-      const args = rawArgs.filter(a => !a.startsWith('-')); const refspecs = args.slice(1); const targets = refspecs.map(r => r.includes(':') ? r.split(':')[1] : r).map(t => t.replace(/^refs\/heads\//, ''));
+      const stripPlus = r => r.replace(/^\+/, '');
+      const args = rawArgs.filter(a => !a.startsWith('-')); const refspecs = args.slice(1); const targets = refspecs.map(stripPlus).map(r => r.includes(':') ? r.split(':')[1] : r).map(t => t.replace(/^refs\/heads\//, ''));
       if (targets.some(t => t && t !== 'HEAD' && PROD_BRANCH.test(t))) segProd = true;
-      const refspec = refspecs[0] || ''; const target = refspecs.length > 1 ? '' : (refspec.includes(':') ? refspec.split(':')[1] : refspec);
+      const refspec = stripPlus(refspecs[0] || ''); const target = refspecs.length > 1 ? '' : (refspec.includes(':') ? refspec.split(':')[1] : refspec);
       // skutečný adresář příkazu: -C <dir> > sledovaný cwd (cd/pushd/Set-Location před příkazem) > cwd hooku (worktree má vlastní HEAD!)
       const dir = cDir ? resolveDir(cwdRaw, cDir) : cur;
       let branch = (target && target !== 'HEAD') ? target : ''; if (!branch) { try { branch = execFileSync('git', ['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: dir, encoding: 'utf8' }).trim(); } catch { branch = 'UNKNOWN'; } }

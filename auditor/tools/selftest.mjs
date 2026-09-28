@@ -213,6 +213,74 @@ T('A: eval "vercel --prod" blokován (A-004 kolo 2, WORD_DENY)', hook(AG, bash(w
   ];
   for (const [id, cwd, cmd, exp] of [...XM, ...XH]) T(`A-004 kolo4 ${id}: ${cmd.split('\n')[0].slice(0, 60)}`, hook(AG, bash(cwd, cmd)), exp);
 }
+{ // A-022: ALLOWLIST git/gh u auditora (fail-closed) — jen výslovně povolené čtecí podpříkazy projdou, cokoli jiné blokuje
+  const W = norm(ws);
+  const AM22 = [ // propustky uzavřené v tomto kole + neznámé/nepovolené podpříkazy — musí být blokováno
+    ['AM22-01', repo, 'git update-ref refs/heads/main HEAD', 2],
+    ['AM22-02', repo, 'git branch -f main HEAD', 2],
+    ['AM22-03', ws, `GIT_WORK_TREE=${norm(repo)} git add -A`, 2],
+    ['AM22-04', repo, 'git notes add -m x HEAD', 2],
+    ['AM22-05', repo, 'git gc', 2],
+    ['AM22-06', repo, 'git gc --prune=now', 2],
+    ['AM22-07', repo, 'gh pr merge 1', 2],
+    ['AM22-08', repo, 'gh release create v1.0.0', 2],
+    ['AM22-09', repo, 'gh workflow run ci.yml', 2],
+    ['AM22-10', repo, 'gh api repos/x/y/issues -X POST -f title=x', 2],
+    ['AM22-11', repo, `sh -c "$(printf 'git push')"`, 2],
+    ['AM22-12', repo, 'git reflog expire --expire=now --all', 2],
+    ['AM22-13', repo, 'git reflog delete HEAD@{0}', 2],
+    ['AM22-14', repo, 'git config user.name evil', 2],
+    ['AM22-15', repo, 'git stash drop', 2],
+    ['AM22-16', repo, 'git submodule update --remote', 2],
+    ['AM22-17', repo, 'git filter-branch --force', 2],
+  ];
+  const AH22 = [ // povolené čtecí podpříkazy — musí projít, i přímo v repu
+    ['AH22-01', repo, 'git status', 0],
+    ['AH22-02', repo, 'git log -1', 0],
+    ['AH22-03', repo, 'git show HEAD', 0],
+    ['AH22-04', repo, 'git diff HEAD', 0],
+    ['AH22-05', repo, 'git blame README.md', 0],
+    ['AH22-06', repo, 'git grep push', 0],
+    ['AH22-07', repo, 'git ls-files', 0],
+    ['AH22-08', repo, 'git ls-tree HEAD', 0],
+    ['AH22-09', repo, 'git ls-remote', 0],
+    ['AH22-10', repo, 'git rev-parse HEAD', 0],
+    ['AH22-11', repo, 'git rev-list HEAD', 0],
+    ['AH22-12', repo, 'git cat-file -p HEAD', 0],
+    ['AH22-13', repo, 'git describe --tags', 0],
+    ['AH22-14', repo, 'git shortlog -sn', 0],
+    ['AH22-15', repo, 'git reflog show', 0],
+    ['AH22-16', repo, 'git for-each-ref', 0],
+    ['AH22-17', repo, 'git name-rev HEAD', 0],
+    ['AH22-18', repo, 'git merge-base HEAD HEAD', 0],
+    ['AH22-19', repo, 'git config --get user.name', 0],
+    ['AH22-20', repo, 'git config --list', 0],
+    ['AH22-21', repo, 'git branch -l', 0],
+    ['AH22-22', repo, 'git branch', 0],
+    ['AH22-23', repo, 'git tag -l', 0],
+    ['AH22-24', repo, 'git remote -v', 0],
+    ['AH22-25', repo, 'git worktree list', 0],
+    ['AH22-26', repo, 'git stash list', 0],
+    ['AH22-27', ws, 'git fetch', 0],
+    ['AH22-28', repo, 'git version', 0],
+    ['AH22-29', repo, 'git help', 0],
+    ['AH22-30', ws, `git -C ${W}/build/x pull`, 0],
+    ['AH22-31', repo, 'gh pr view 1', 0],
+    ['AH22-32', repo, 'gh pr list', 0],
+    ['AH22-33', repo, 'gh pr diff 1', 0],
+    ['AH22-34', repo, 'gh pr checks 1', 0],
+    ['AH22-35', repo, 'gh pr status', 0],
+    ['AH22-36', repo, 'gh issue view 1', 0],
+    ['AH22-37', repo, 'gh issue list', 0],
+    ['AH22-38', repo, 'gh run view 1', 0],
+    ['AH22-39', repo, 'gh run list', 0],
+    ['AH22-40', repo, 'gh release view v1.0.0', 0],
+    ['AH22-41', repo, 'gh release list', 0],
+    ['AH22-42', repo, 'gh repo view', 0],
+    ['AH22-43', repo, 'gh api repos/x/y/issues', 0],
+  ];
+  for (const [id, cwd, cmd, exp] of [...AM22, ...AH22]) T(`A-022 ${id}: ${cmd.split('\n')[0].slice(0, 60)}`, hook(AG, bash(cwd, cmd)), exp);
+}
 // A-006: '>' slepené k předchozímu slovu (bez mezery, „slovo>cíl") — segments() ho neviděl jako přesměrování (fail-open, reálný nález)
 T('A: echo x>REPO/README.md slepené (bez mezery) blokován (A-006)', hook(AG, bash(ws, `echo x>${norm(repo)}/README.md`)), 2);
 T('A: echo x>1048576 slepené mimo repo i workspace blokován (A-006, repro nálezu)', hook(AG, bash(tmp, 'echo x>1048576')), 2);
@@ -353,6 +421,17 @@ T('K: `git push origin main` (backtick) blokován (A-005 kolo 2)', hook(KG, bash
 T('K: eval "git push origin main" blokován (A-005 kolo 2)', hook(KG, bash(repo, 'eval "git push origin main"')), 2);
 T('K: powershell -c "git push origin main" blokován (A-005 kolo 2)', hook(KG, bash(repo, 'powershell -c "git push origin main"')), 2);
 T('K: eval "vercel --prod" blokován (A-005 kolo 2, DEPLOY)', hook(KG, bash(repo, 'eval "vercel --prod"')), 2);
+// A-005 kolo 3 (POSLEDNÍ): sloučený force flag, '+' refspec, gh pr merge do produkce, bash -lc obal, klíčová slova (then/do/…), $(which git), libovolné pořadí globálních voleb gitu
+T('K: git push -uf origin main (sloučený force flag) blokován (A-005 kolo 3)', hook(KG, bash(repo, 'git push -uf origin main')), 2);
+T('K: git push origin +main (refspec force) blokován (A-005 kolo 3, oprava)', hook(KG, bash(repo, 'git push origin +main')), 2);
+T('K: gh pr merge 1 (bez gate) blokován jako merge do produkce (A-005 kolo 3)', hook(KG, bash(repo, 'gh pr merge 1')), 2);
+T('K: bash -lc "git push origin main" blokován (A-005 kolo 3, clusterovaný obal)', hook(KG, bash(repo, 'bash -lc "git push origin main"')), 2);
+T('K: bash -lc "git push origin audit/A-1" (feature větev) povolen (A-005 kolo 3, kontrola)', hook(KG, bash(repo, 'bash -lc "git push origin audit/A-1"')), 0);
+T('K: if true; then git push origin main; fi (klíčové slovo then) blokován (A-005 kolo 3)', hook(KG, bash(repo, 'if true; then git push origin main; fi')), 2);
+T('K: if true; then git push origin audit/A-1; fi (feature větev) povolen (A-005 kolo 3, kontrola)', hook(KG, bash(repo, 'if true; then git push origin audit/A-1; fi')), 0);
+T('K: $(which git) push origin main blokován (A-005 kolo 3)', hook(KG, bash(repo, '$(which git) push origin main')), 2);
+T('K: git -c x=y -C REPO --no-pager push origin main (libovolné pořadí globálních voleb) blokován (A-005 kolo 3)', hook(KG, bash(wt, `git -c x=y -C ${norm(repo)} --no-pager push origin main`)), 2);
+T('K: git --git-dir=REPO/.git --work-tree=REPO push origin main (git-dir/work-tree) blokován (A-005 kolo 3)', hook(KG, bash(wt, `git --git-dir=${norm(repo)}/.git --work-tree=${norm(repo)} push origin main`)), 2);
 // A-006: shellový zápis slepený k '>' (bez mezery) nesmí obejít SELF-PROTECT ani AUDIT-scope (sdílený tokenizer bug s auditor-guard.js)
 T('K: echo x>.claude/hooks/evil.js slepené blokován (A-006)', hook(KG, bash(repo, 'echo x>.claude/hooks/evil.js')), 2);
 T('K: echo x>WS/AUDIT/04_verdikty/a.md slepené (mimo 03_dukazy) blokován (A-006)', hook(KG, bash(repo, `echo x>${norm(ws)}/AUDIT/04_verdikty/a.md`)), 2);
@@ -436,6 +515,23 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
 }
 // --- GATE-CHECK přímo
 T('GATE: chybí gate → FAIL', (fs.unlinkSync(path.join(ws, 'AUDIT', '05_release_gate.md')), spawnSync(process.execPath, [path.join(pkg, 'kapitan-side/gate-check.mjs'), repo], { env, encoding: 'utf8' }).status), 2);
+{ // P3: gate zapsaný jen DATEM (bez času) se nesmí kdykoliv během dne odmítnout jako „z budoucnosti" (dřív CZ bez hodiny
+  // padalo na poledne, ISO bez času na UTC půlnoc) — stáří i budoucnost se teď počítají od lokální 00:00 daného dne.
+  const headP3 = git('rev-parse --short HEAD');
+  const fmtCZ = d => `${d.getDate()}. ${d.getMonth() + 1}. ${d.getFullYear()}`;
+  const fmtISO = d => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  const dnes = new Date(), zitra = new Date(Date.now() + 86400000), pred4dny = new Date(Date.now() - 4 * 86400000);
+  const gc = () => spawnSync(process.execPath, [path.join(pkg, 'kapitan-side/gate-check.mjs'), repo], { env, encoding: 'utf8' }).status;
+  fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${fmtCZ(dnes)} — commit ${headP3}\nVerdikt: 🟢 SMÍ VYDAT\n`);
+  T('GATE P3: CZ datum bez času (dnes) → PASS kdykoliv během dne', gc(), 0);
+  fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${fmtISO(dnes)} — commit ${headP3}\nVerdikt: 🟢 SMÍ VYDAT\n`);
+  T('GATE P3: ISO datum bez času (dnes) → PASS kdykoliv během dne', gc(), 0);
+  fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${fmtCZ(zitra)} — commit ${headP3}\nVerdikt: 🟢 SMÍ VYDAT\n`);
+  T('GATE P3: CZ datum bez času (zítra) → FAIL, budoucnost stále detekována', gc(), 2);
+  fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${fmtCZ(pred4dny)} — commit ${headP3}\nVerdikt: 🟢 SMÍ VYDAT\n`);
+  T('GATE P3: datum bez času 4 dny zpět (> 72 h) → FAIL, stáří stále detekováno', gc(), 2);
+  fs.unlinkSync(path.join(ws, 'AUDIT', '05_release_gate.md'));
+}
 
 // --- NOVÝ PROJEKT (zdravý start bez auditora): založení, projekt-guard, kontrolor, release-check
 const np = path.join(tmp, 'novy'); const npr = spawnSync(process.execPath, [path.join(pkg, 'tools/new-project.mjs'), np, '--yes', '--bez-auditora', '--no-launch', '--no-shortcut', '--no-github', '--no-trust'], { encoding: 'utf8', env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' } });
