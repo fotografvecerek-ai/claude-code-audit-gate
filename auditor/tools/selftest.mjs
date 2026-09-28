@@ -720,6 +720,8 @@ T('PC: NUL v .dat2 odmítnut', pc({ 'scripts/t.dat2': Buffer.from([0, 65]) }), 1
 }
 // --- BUS
 const bus = (...a) => spawnSync(process.execPath, [path.join(pkg, 'tools/bus.mjs'), ...a], { cwd: ws, env, encoding: 'utf8' });
+const busDir = path.join(ws, 'AUDIT', 'bus');
+const ackOne = (msg, by) => new Promise(resolve => { const cp = spawn(process.execPath, [path.join(pkg, 'tools/bus.mjs'), 'ack', '--msg', msg, '--by', by], { cwd: ws, env }); cp.on('close', code => resolve(code)); });
 T('BUS: EVIDENCE bez --sha odmítnuta', bus('post', '--from', 'kapitan', '--type', 'EVIDENCE', '--id', 'A-1', '--ref', 'AUDIT/03_dukazy/A-1/').status, 1);
 T('BUS: EVIDENCE se sha přijata', bus('post', '--from', 'kapitan', '--type', 'EVIDENCE', '--id', 'A-1', '--ref', 'AUDIT/03_dukazy/A-1/', '--sha', head).status, 0);
 T('BUS: VERDICT bez --verdict odmítnut', bus('post', '--from', 'auditor', '--type', 'VERDICT', '--id', 'A-1').status, 1);
@@ -740,14 +742,76 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
   const post010 = bus('post', '--from', 'auditor', '--type', 'NOTE', '--id', 'A-010', '--text', 'zprava pro test souběžných ack');
   const msg010 = JSON.parse(post010.stdout).posted;
   const N010 = 50;
-  const ackOne = by => new Promise(resolve => { const cp = spawn(process.execPath, [path.join(pkg, 'tools/bus.mjs'), 'ack', '--msg', msg010, '--by', by], { cwd: ws, env }); cp.on('close', code => resolve(code)); });
-  const codes010 = await Promise.all(Array.from({ length: N010 }, (_, i) => ackOne(`worker-${i}`)));
+  const codes010 = await Promise.all(Array.from({ length: N010 }, (_, i) => ackOne(msg010, `worker-${i}`)));
   T('BUS A-010: 50 souběžných ack — všechny procesy skončí bez chyby', codes010.every(c => c === 0), true);
   let msgObj010 = null, validJson010 = true;
   try { msgObj010 = JSON.parse(fs.readFileSync(path.join(ws, 'AUDIT', 'bus', msg010), 'utf8')); } catch { validJson010 = false; }
   T('BUS A-010: zpráva po 50 souběžných ack zůstává validní JSON', validJson010, true);
   T('BUS A-010: 50 souběžných ack → 50/50 záznamů (žádná ztráta)', msgObj010 ? (msgObj010.ack || []).length : -1, N010);
   T('BUS A-010: 50 souběžných ack → 50 unikátních "by"', msgObj010 ? new Set((msgObj010.ack || []).map(a => a.by)).size : -1, N010);
+}
+{ // A-010 kolo2 bod 1 (verdikt AUDIT/04_verdikty/A-010.md): stale-lock race — age() při ENOENT vracelo Infinity, takže
+  // stará withLock v tom zmatku smazala i PRÁVĚ vzniklý CIZÍ zámek → dva procesy naráz v kritické sekci → ztracené ack.
+  // Zámek uměle "zestárneme" (mtime do minulosti), aby VŠECHNY souběžné procesy narazily na stejné rozhodovací okno
+  // najednou (bez čekání na reálných 10 s staleMs) — víc opakování, aby test spolehlivě chytil i řídký race.
+  const REPS_A = 4, N_A = 60; let badExitA = false, totalAckA = 0, expectAckA = 0;
+  for (let rep = 0; rep < REPS_A; rep++) {
+    const postA = bus('post', '--from', 'auditor', '--type', 'NOTE', '--id', `A-010K2A-${rep}`, '--text', 'stale-lock race');
+    const msgA = JSON.parse(postA.stdout).posted;
+    const lockA = path.join(busDir, `${msgA}.lock`); const staleT = new Date(Date.now() - 11000);
+    fs.writeFileSync(lockA, 'orphan'); fs.utimesSync(lockA, staleT, staleT);
+    const codes = await Promise.all(Array.from({ length: N_A }, (_, i) => ackOne(msgA, `raceworker-${rep}-${i}`)));
+    if (codes.some(c => c !== 0)) badExitA = true;
+    let obj = null; try { obj = JSON.parse(fs.readFileSync(path.join(busDir, msgA), 'utf8')); } catch { }
+    totalAckA += obj ? (obj.ack || []).length : 0; expectAckA += N_A;
+  }
+  T('BUS A-010 kolo2: uměle zestárlý zámek + N souběžných ack — všechny procesy bez chyby', badExitA, false);
+  T('BUS A-010 kolo2: uměle zestárlý zámek + N souběžných ack — 0 ztracených potvrzení napříč běhy', totalAckA, expectAckA);
+}
+{ // A-010 kolo2 bod 3: `post` regeneruje LEDGER.md — stará verze to dělala BEZ zámku, takže souběžné posty na sobě
+  // navzájem shazovaly renameSync (Windows EPERM/EBUSY) a celý `post` skončil exit 1, i když zprávu už trvale zapsal
+  // (riziko duplicitního resendu od agenta). Zpráva i po zátěži musí zůstat 1:1 a exit vždy 0.
+  const REPS_B = 3, N_B = 60; let badExitB = false, missingMsgB = false;
+  const postOne = id => new Promise(resolve => { const cp = spawn(process.execPath, [path.join(pkg, 'tools/bus.mjs'), 'post', '--from', 'auditor', '--type', 'NOTE', '--id', id, '--text', 'ledger stress'], { cwd: ws, env }); cp.on('close', code => resolve(code)); });
+  for (let rep = 0; rep < REPS_B; rep++) {
+    const codes = await Promise.all(Array.from({ length: N_B }, (_, i) => postOne(`A-010K2B-${rep}-${i}`)));
+    if (codes.some(c => c !== 0)) badExitB = true;
+    const files = fs.readdirSync(busDir).filter(f => f.includes(`_A-010K2B-${rep}-`) && f.endsWith('.json'));
+    if (files.length !== N_B) missingMsgB = true;
+  }
+  T('BUS A-010 kolo2: N souběžných post s tlakem na LEDGER.md — všechny bez chyby (exit 0)', badExitB, false);
+  T('BUS A-010 kolo2: N souběžných post — žádná ztracená/přepsaná zpráva', missingMsgB, false);
+  const leftovers = fs.readdirSync(busDir).filter(f => /\.tmp-/.test(f) || f.endsWith('.lock'));
+  T('BUS A-010 kolo2: po zátěži (A+B) nezůstal žádný .tmp/.lock artefakt', leftovers.join(','), '');
+}
+{ // A-010 kolo2 bod 4: zámek omylem ADRESÁŘ (pozůstatek dřívějšího pádu/bugu) — stará verze ho nikdy neuměla smazat
+  // (unlinkSync na adresář vždy selže) → věčná smyčka. Nová musí adresář po staleMs bezpečně odklidit (rename+rmSync).
+  // Bezpečnostní timeout na úrovni spawnSync (6 s) — stará verze se tu jinak zacyklí navždy a test by nikdy neskončil.
+  const postC = bus('post', '--from', 'auditor', '--type', 'NOTE', '--id', 'A-010K2C', '--text', 'adresar misto zamku');
+  const msgC = JSON.parse(postC.stdout).posted;
+  const lockC = path.join(busDir, `${msgC}.lock`); fs.mkdirSync(lockC, { recursive: true });
+  const staleT = new Date(Date.now() - 11000); fs.utimesSync(lockC, staleT, staleT);
+  const rC = spawnSync(process.execPath, [path.join(pkg, 'tools/bus.mjs'), 'ack', '--msg', msgC, '--by', 'dirworker'], { cwd: ws, env: { ...env, AUDITOR_BUS_LOCK_TIMEOUT_MS: '4000' }, encoding: 'utf8', timeout: 6000 });
+  T('BUS A-010 kolo2: zámek jako adresář se bezpečně odklidí, ne věčná smyčka (exit 0 do 6s)', rC.status, 0);
+  let ackedC = false; try { ackedC = (JSON.parse(fs.readFileSync(path.join(busDir, msgC), 'utf8')).ack || []).some(a => a.by === 'dirworker'); } catch { }
+  T('BUS A-010 kolo2: ack po odklizení adresářového zámku je opravdu zapsané', ackedC, true);
+}
+{ // A-010 kolo2 bod 2: souběžný ČTENÁŘ (inbox) při N souběžných ack — Windows EPERM/EBUSY na rename/open bez retry
+  // (verdikt: 241/250, horší než bez zámku). Čtenář nesmí spadnout a zapisovatel nesmí ztratit potvrzení.
+  const REPS_D = 3, N_D = 50, R_D = 10; let badAckExitD = false, badReaderExitD = false, totalAckD = 0, expectAckD = 0;
+  const readerOne = () => new Promise(resolve => { const cp = spawn(process.execPath, [path.join(pkg, 'tools/bus.mjs'), 'inbox', '--for', 'kapitan'], { cwd: ws, env }); cp.on('close', code => resolve(code)); });
+  for (let rep = 0; rep < REPS_D; rep++) {
+    const postD = bus('post', '--from', 'auditor', '--type', 'NOTE', '--id', `A-010K2D-${rep}`, '--text', 'ack+reader stress');
+    const msgD = JSON.parse(postD.stdout).posted;
+    const codes = await Promise.all([...Array.from({ length: N_D }, (_, i) => ackOne(msgD, `readworker-${rep}-${i}`)), ...Array.from({ length: R_D }, () => readerOne())]);
+    if (codes.slice(0, N_D).some(c => c !== 0)) badAckExitD = true;
+    if (codes.slice(N_D).some(c => c !== 0)) badReaderExitD = true;
+    let obj = null; try { obj = JSON.parse(fs.readFileSync(path.join(busDir, msgD), 'utf8')); } catch { }
+    totalAckD += obj ? (obj.ack || []).length : 0; expectAckD += N_D;
+  }
+  T('BUS A-010 kolo2: souběžný čtenář + N ack — čtenář nikdy nespadne (exit 0)', badReaderExitD, false);
+  T('BUS A-010 kolo2: souběžný čtenář + N ack — zapisovatelé nikdy nespadnou (exit 0)', badAckExitD, false);
+  T('BUS A-010 kolo2: souběžný čtenář + N ack — 0 ztracených potvrzení napříč běhy', totalAckD, expectAckD);
 }
 // --- GATE-CHECK přímo
 T('GATE: chybí gate → FAIL', (fs.unlinkSync(path.join(ws, 'AUDIT', '05_release_gate.md')), spawnSync(process.execPath, [path.join(pkg, 'kapitan-side/gate-check.mjs'), repo], { env, encoding: 'utf8' }).status), 2);
