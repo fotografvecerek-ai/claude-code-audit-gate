@@ -214,7 +214,7 @@ T('A: eval "vercel --prod" blokován (A-004 kolo 2, WORD_DENY)', hook(AG, bash(w
   for (const [id, cwd, cmd, exp] of [...XM, ...XH]) T(`A-004 kolo4 ${id}: ${cmd.split('\n')[0].slice(0, 60)}`, hook(AG, bash(cwd, cmd)), exp);
 }
 { // A-022: ALLOWLIST git/gh u auditora (fail-closed) — jen výslovně povolené čtecí podpříkazy projdou, cokoli jiné blokuje
-  const W = norm(ws);
+  const W = norm(ws), R = norm(repo), BX = `${W}/build/x`;
   const AM22 = [ // propustky uzavřené v tomto kole + neznámé/nepovolené podpříkazy — musí být blokováno
     ['AM22-01', repo, 'git update-ref refs/heads/main HEAD', 2],
     ['AM22-02', repo, 'git branch -f main HEAD', 2],
@@ -279,7 +279,35 @@ T('A: eval "vercel --prod" blokován (A-004 kolo 2, WORD_DENY)', hook(AG, bash(w
     ['AH22-42', repo, 'gh repo view', 0],
     ['AH22-43', repo, 'gh api repos/x/y/issues', 0],
   ];
-  for (const [id, cwd, cmd, exp] of [...AM22, ...AH22]) T(`A-022 ${id}: ${cmd.split('\n')[0].slice(0, 60)}`, hook(AG, bash(cwd, cmd)), exp);
+  // A-022 kolo 2 (k4-extra, table-k1.md): 13 propustků z verdiktu K1 — allowlist teď kontroluje i argumenty, musí blokovat.
+  const AM22K2 = [
+    ['B05', repo, 'gh api -XPOST repos/o/r/issues', 2],
+    ['B06', repo, 'gh api repos/o/r/issues --field title=x', 2],
+    ['B07', repo, 'gh api repos/o/r/issues --raw-field title=x', 2],
+    ['B08', repo, 'gh api repos/o/r/issues -ftitle=x', 2],
+    ['B42', ws, `git -C ${R} fetch . HEAD:refs/heads/evil`, 2],
+    ['B43', ws, `git -C ${R} fetch origin +main:main`, 2],
+    ['B44', ws, `git -C ${R} archive -o ${R}/x.tar HEAD`, 2],
+    ['B45', ws, `git -C ${R} diff --output=${R}/x.txt`, 2],
+    ['B46', ws, `git clone https://github.com/o/r ${R}/sub`, 2],
+    ['B47', ws, `git -C ${W} worktree add ${R}/wt-evil`, 2],
+    ['B48', ws, `git -C ${R} fetch --upload-pack="touch ${R}/pwn" origin`, 2],
+    ['B61', ws, `git -C ${R} ls-remote --upload-pack="touch ${R}/pwn" origin`, 2],
+    ['B62', ws, `git -C ${R} -c core.pager="touch ${R}/pwn" log`, 2],
+  ];
+  // A-022 kolo 2: 9 falešných blokací z K1 (7× v build/ klonu + Y26/Y27) — musí dál procházet po rozšíření read-only seznamu.
+  const AH22K2 = [
+    ['L25', ws, `git -C ${BX} tag -l "v1.*"`, 0],
+    ['L26', ws, `git -C ${BX} branch -vv`, 0],
+    ['L27', ws, `git -C ${BX} remote get-url origin`, 0],
+    ['L28', ws, `git -C ${BX} worktree list --porcelain`, 0],
+    ['L29', ws, `git -C ${BX} show-ref`, 0],
+    ['L30', ws, `git -C ${BX} branch --contains HEAD`, 0],
+    ['L31', ws, `git -C ${BX} check-ignore -v x`, 0],
+    ['Y26', ws, 'ag git commit AUDIT/', 0],
+    ['Y27', ws, 'man git push', 0],
+  ];
+  for (const [id, cwd, cmd, exp] of [...AM22, ...AH22, ...AM22K2, ...AH22K2]) T(`A-022 ${id}: ${cmd.split('\n')[0].slice(0, 60)}`, hook(AG, bash(cwd, cmd)), exp);
 }
 // A-006: '>' slepené k předchozímu slovu (bez mezery, „slovo>cíl") — segments() ho neviděl jako přesměrování (fail-open, reálný nález)
 T('A: echo x>REPO/README.md slepené (bez mezery) blokován (A-006)', hook(AG, bash(ws, `echo x>${norm(repo)}/README.md`)), 2);

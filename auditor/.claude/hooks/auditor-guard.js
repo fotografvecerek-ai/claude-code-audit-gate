@@ -238,9 +238,25 @@ const GIT_MUT_SUBCMDS = new Set(['push', 'commit', 'merge', 'rebase', 'reset', '
 // A-022: ALLOWLIST místo blocklistu — git je auditorovi povolen jen se ČTECÍMI podpříkazy (kdekoliv) nebo s rozpoznanou
 // mutací OMEZENOU na workspace (GIT_MUT_SUBCMDS + branch/tag/remote/worktree/clone v nečtecím tvaru). Cokoli jiné
 // (update-ref, notes, gc, config --set, submodule, filter-branch, init, …) BLOKUJE VŽDY — nebylo výslovně povoleno.
-const GIT_RO_PLAIN = new Set(['status', 'log', 'show', 'diff', 'blame', 'grep', 'ls-files', 'ls-tree', 'ls-remote', 'rev-parse', 'rev-list', 'cat-file', 'describe', 'shortlog', 'for-each-ref', 'name-rev', 'merge-base', 'version', 'help', 'archive', 'fetch']);
-const GIT_RO_LISTY = /^(-l|--list|-a|--all|-r|--remotes|-v|--verbose|list)$/i;
+const GIT_RO_PLAIN = new Set(['status', 'log', 'show', 'diff', 'blame', 'grep', 'ls-files', 'ls-tree', 'ls-remote', 'rev-parse', 'rev-list', 'cat-file', 'describe', 'shortlog', 'for-each-ref', 'name-rev', 'merge-base', 'version', 'help', 'archive', 'fetch', 'show-ref', 'check-ignore']);
+const GIT_RO_LISTY = /^(-l|--list|-a|--all|-r|--remotes|-v+|--verbose|list)$/i;
+// A-022 kolo 2: --output/-o u diff/archive je ZÁPIS na libovolnou cestu mimo kontrolu allowlistu (B44/B45) — zakázáno
+// vždy, bez ohledu na cíl (chce-li auditor výstup do souboru, použije shellové přesměrování `> AUDIT/x`, to writeTargets() hlídá).
+const GIT_OUTPUT_OPT = { diff: /^--output(=.*)?$/i, archive: /^(-o|--output)(=.*)?$/i };
+function gitHasOutputOpt(sub, subArgs) { const re = GIT_OUTPUT_OPT[sub]; return !!re && subArgs.some(x => re.test(x)); }
+// A-022 kolo 2: fetch s refspecem obsahujícím „:" (mimo první poziční token = remote) zapisuje LIBOVOLNOU ref (B42/B43) — zakázáno vždy.
+function gitFetchHasColonRefspec(subArgs) { const positional = subArgs.filter(x => !/^-/.test(x)); return positional.slice(1).some(x => x.includes(':')); }
+// A-022 kolo 2: --upload-pack/--receive-pack/--exec spustí LIBOVOLNÝ program jako transportní helper (B48/B61) — zakázáno vždy;
+// „-u" jen u fetch/ls-remote (u push znamená --set-upstream, tam riziko nehrozí).
+function gitHasPackExecRisk(sub, subArgs) {
+  if (subArgs.some(x => /^(--upload-pack|--receive-pack|--exec)(=.*)?$/i.test(x))) return true;
+  if ((sub === 'fetch' || sub === 'ls-remote') && subArgs.includes('-u')) return true;
+  return false;
+}
 function isGitReadonly(sub, subArgs) {
+  if (sub === 'diff' || sub === 'archive') return !gitHasOutputOpt(sub, subArgs);
+  if (sub === 'fetch') return !gitFetchHasColonRefspec(subArgs) && !gitHasPackExecRisk(sub, subArgs);
+  if (sub === 'ls-remote') return !gitHasPackExecRisk(sub, subArgs);
   if (GIT_RO_PLAIN.has(sub)) return true;
   if (sub === 'reflog') return !(subArgs[0] && /^(expire|delete)$/i.test(subArgs[0])); // reflog OK, expire/delete ne
   if (sub === 'config') { // jen --get*/--list/-l a nic zapisujícího
@@ -248,7 +264,38 @@ function isGitReadonly(sub, subArgs) {
     const hasRead = subArgs.some(x => /^(--get(-all|-regexp)?|--list|-l)$/i.test(x));
     return hasRead && !hasWrite;
   }
-  if (['branch', 'tag', 'remote', 'worktree'].includes(sub)) return subArgs.length === 0 || subArgs.every(x => GIT_RO_LISTY.test(x)); // jen výpis
+  // A-022 kolo 2: branch mělo jen doslovné list-flagy (L26/L30 falešně blokovaly) — teď navíc -vv/-vvv a hodnotové
+  // čtecí volby (--contains/--no-contains/--merged/--no-merged/--points-at); cokoli jiné (holé jméno větve = create) zůstává mutací.
+  if (sub === 'branch') {
+    if (subArgs.length === 0) return true;
+    const GIT_BRANCH_RO_VAL = /^(--contains|--no-contains|--merged|--no-merged|--points-at)$/i;
+    for (let i = 0; i < subArgs.length; i++) {
+      const t = subArgs[i];
+      if (GIT_RO_LISTY.test(t)) continue;
+      if (GIT_BRANCH_RO_VAL.test(t)) { i++; continue; } // přeskočí hodnotu (commit-ish), je-li přítomná
+      return false;
+    }
+    return true;
+  }
+  // remote get-url/show jsou čtecí podpříkazy remote, ne jen výpis (L27)
+  if (sub === 'remote') {
+    if (subArgs.length === 0 || subArgs.every(x => GIT_RO_LISTY.test(x))) return true;
+    if (/^(get-url|show)$/i.test(subArgs[0] || '')) return subArgs.slice(1).every(x => !/^-/.test(x) || /^(--push|--all)$/i.test(x));
+    return false;
+  }
+  if (sub === 'tag') {
+    if (subArgs.length === 0) return true;
+    const hasList = subArgs.some(x => /^(-l|--list)$/i.test(x));
+    if (!hasList) return subArgs.every(x => GIT_RO_LISTY.test(x));
+    return subArgs.every(x => GIT_RO_LISTY.test(x) || !/^-/.test(x)); // s -l/--list jsou další nepřepínačové tokeny glob patterny (L25), ne mutace
+  }
+  // worktree: „list" (i --porcelain); add/remove/prune/lock/move jsou mutace → dál přes isMutating + cílová kontrola (kolo 2: i pro pozici destinace)
+  if (sub === 'worktree') {
+    if (subArgs.length === 0) return true;
+    if ((subArgs[0] || '').toLowerCase() === 'list') return subArgs.slice(1).every(x => GIT_RO_LISTY.test(x) || /^(--porcelain|-z)$/i.test(x));
+    if (subArgs.every(x => GIT_RO_LISTY.test(x))) return true;
+    return false;
+  }
   if (sub === 'stash') return subArgs.length > 0 && (subArgs[0] === 'list' || /^(-l|--list)$/i.test(subArgs[0])); // „stash" samo mutuje (push) — jen list je čtecí
   return false;
 }
@@ -257,8 +304,14 @@ function isGhReadonly(a) {
   const sub = (a[0] || '').toLowerCase();
   if (sub === 'api') {
     let method = 'GET';
-    for (let k = 0; k < a.length; k++) { if (/^(-X|--method)$/i.test(a[k])) method = (a[k + 1] || 'GET').toUpperCase(); else if (/^(-X|--method)=/i.test(a[k])) method = a[k].split('=')[1].toUpperCase(); }
-    const hasBody = a.some(x => /^(-f|-F|--input)$/i.test(x));
+    for (let k = 0; k < a.length; k++) {
+      const t = a[k];
+      if (/^(-X|--method)$/i.test(t)) method = (a[k + 1] || 'GET').toUpperCase();
+      else if (/^(--method)=/i.test(t)) method = t.split('=')[1].toUpperCase();
+      else if (/^-X(.+)$/i.test(t)) method = t.slice(2).toUpperCase(); // A-022 kolo 2: „-XPOST" přilepené (B05)
+    }
+    // A-022 kolo 2: --field/--raw-field chyběly a „-ftitle=x"/"-Fx=y" přilepené krátké volby taky (B06/B07/B08)
+    const hasBody = a.some(x => /^(-f|-F|--field|--raw-field|--input)(=.*)?$/i.test(x) || /^-[fF].+/.test(x));
     return method === 'GET' && !hasBody;
   }
   return !!(GH_RO[sub] && a[1] && GH_RO[sub].test(a[1]));
@@ -278,6 +331,8 @@ function gitInvocation(a, cwd0) {
       if (val !== undefined) {
         const eq = val.indexOf('='); const name = eq >= 0 ? val.slice(0, eq) : val; const value = eq >= 0 ? val.slice(eq + 1) : '';
         if (/^alias\./i.test(name)) aliasRisk = `-c ${val}`; // git -c alias.X=… → alias může schovat cokoliv, blok bez ohledu na hodnotu
+        // A-022 kolo 2: core.pager/core.editor/core.sshCommand/core.hooksPath spustí libovolný příkaz (B62) — blok bez ohledu na hodnotu
+        else if (/^core\.(pager|editor|sshcommand|hookspath)$/i.test(name)) aliasRisk = `-c ${val}`;
         else if (/!/.test(value) || value.split(/\s+/).some(w => GIT_MUT_SUBCMDS.has(w.toLowerCase()))) aliasRisk = `-c ${val}`;
       }
       continue;
@@ -290,6 +345,22 @@ function gitInvocation(a, cwd0) {
   }
   return { target, sub, subArgs: a.slice(i), aliasRisk };
 }
+// A-022 kolo 2: „worktree add <cesta>" a „clone <url> [<cesta>]" zapisují na POZIČNÍ argument, ne na -C/cwd cíl
+// (B46/B47) — gitInvocation() ten cíl vůbec neviděl. Vrací relativní/absolutní cestu k dodatečné kontrole workspace hranice, nebo null.
+function gitExtraWriteTarget(sub, subArgs) {
+  if (sub === 'worktree' && (subArgs[0] || '').toLowerCase() === 'add') {
+    const VAL = /^(-b|-B|--reason)$/i;
+    for (let i = 1; i < subArgs.length; i++) { const t = subArgs[i]; if (/^-/.test(t)) { if (VAL.test(t)) i++; continue; } return t; }
+    return null;
+  }
+  if (sub === 'clone') {
+    const VAL = /^(-b|--branch|-o|--origin|--depth|--shallow-since|--shallow-exclude|--separate-git-dir|--reference|--reference-if-able|--server-option|--filter|--template|--bundle-uri|-c|--config|--jobs|-j)$/i;
+    const pos = [];
+    for (let i = 0; i < subArgs.length; i++) { const t = subArgs[i]; if (/^-/.test(t)) { if (VAL.test(t)) i++; continue; } pos.push(t); }
+    return pos[1] || null; // pos[0] = repository (zdroj), pos[1] = cílový adresář (jen je-li výslovně zadaný)
+  }
+  return null;
+}
 // A-004 kolo 4: fail-closed síť pro NEROZPOZNANÉ obaly (ionice, watch, find -exec, „$(which git)"…) — místo vyjmenovávání
 // každého možného obalu se prohlíží SUROVÝ obsah segmentu (c.all): objeví-li se kdekoli token vypadající jako spuštění
 // gitu (přímo „git"/„git.exe", i skrz $(...)/zpětné apostrofy) a KDEKOLI ZA NÍM mutační podpříkaz, blokuje se — POKUD
@@ -297,7 +368,7 @@ function gitInvocation(a, cwd0) {
 // řeší přesná poziční logika výše (gitInvocation) — sem se vůbec nedostane (c.w === 'git' je vyloučeno na vstupu).
 // „#" zahajuje (jen pro tuhle síť, ne pro sdílený tokenizer) komentář jako v reálném shellu, aby se neblokovaly
 // poznámky/texty typu „ls # pak git push" (AH03/AH04).
-const SAFE_FIRST_WORD = new Set(['echo', 'printf', 'grep', 'rg', 'cat', 'head', 'tail', 'less', 'wc', 'sort']);
+const SAFE_FIRST_WORD = new Set(['echo', 'printf', 'grep', 'rg', 'cat', 'head', 'tail', 'less', 'wc', 'sort', 'ag', 'man']); // A-022 kolo 2: Y26/Y27
 function looksLikeGitToken(tok) {
   const s = String(tok || '');
   if (/(^|[\\/])git(\.exe)?$/i.test(s)) return true;
@@ -361,6 +432,9 @@ process.stdin.on('end', () => {
       const isForce = sub === 'push' && subArgs.some(x => x === '--force' || x === '-f' || x === '--force-with-lease' || /^--force-with-lease=/.test(x) ||
         /^\+/.test(x) || (/^-[A-Za-z]{2,}$/.test(x) && /f/.test(x.slice(1))));
       if (isForce) block('force push zakázán i ve workspace.');
+      // A-022 kolo 2: --upload-pack/--receive-pack/--exec u JAKÉHOKOLIV podpříkazu (i clone/push, ne jen fetch/ls-remote
+      // uvnitř isGitReadonly) spouští libovolný program jako transportní helper — blok bez ohledu na cíl.
+      if (subArgs.some(x => /^(--upload-pack|--receive-pack|--exec)(=.*)?$/i.test(x))) block(`git ${sub} s --upload-pack/--receive-pack/--exec zakázán — spouští libovolný program (A-022 kolo 2).`);
       if (isGitReadonly(sub, subArgs)) continue; // A-022: povolené čtecí podpříkazy — kdekoliv (allowlist)
       const isMutating = GIT_MUT_SUBCMDS.has(sub) || ['branch', 'tag', 'remote', 'worktree', 'clone'].includes(sub);
       if (!isMutating) block(`git ${sub} není na seznamu povolených příkazů auditora (ani čtecí, ani rozpoznaná mutace) — fail-closed allowlist (A-022).`);
@@ -371,6 +445,20 @@ process.stdin.on('end', () => {
       const inWs = target === ws || target.startsWith(ws + '/') || inBuild;
       if (inRepo || !inWs) block(`git ${sub} mimo workspace auditora zakázán (cíl: ${target}). Auditor commituje jen svůj AUDIT repozitář.`);
       if (inBuild && !/^(checkout|switch|restore|stash|pull)$/i.test(sub)) block(`git ${sub} v build/ klonu zakázán — klon slouží jen ke čtení a spuštění testů (povoleno: clone, fetch, pull, checkout, switch).`);
+      // A-022 kolo 2: cíl „worktree add"/„clone" je poziční argument, ne -C/cwd (B46/B47) — kontroluje se stejnou
+      // hranicí workspace/repo jako `target` výše, včetně reálné cesty (junction/symlink pod build/, A-006 kolo 2).
+      const extraDest = gitExtraWriteTarget(sub, subArgs);
+      if (extraDest) {
+        if (UNRESOLVABLE.test(extraDest)) block(`git ${sub} cíl se nedá bezpečně rozřešit ("${extraDest}") — fail-closed (A-022 kolo 2).`);
+        // relativní cesta se řeší vůči EFEKTIVNÍMU adresáři gitu (target, tedy po -C), ne vůči shellovému cwd (cur) —
+        // git worktree/clone poziční cíl je relativní ke stejnému adresáři, ze kterého se git spouští.
+        const destN = norm(String(extraDest).replace(/\\/g, '/'));
+        const destAbs = /^\//.test(destN) ? norm(collapse(destN)) : norm(collapse(target + '/' + extraDest));
+        const destReal = realOf(destAbs);
+        const destInRepo = (repo && (destAbs === repo || destAbs.startsWith(repo + '/'))) || (repoReal && (destReal === repoReal || destReal.startsWith(repoReal + '/')));
+        const destInWs = destAbs === ws || destAbs.startsWith(ws + '/') || destAbs.startsWith(ws + '/build/') || (wsReal && (destReal === wsReal || destReal.startsWith(wsReal + '/')));
+        if (destInRepo || !destInWs) block(`git ${sub} cíl mimo workspace auditora zakázán (cíl: ${destAbs}). Auditor commituje jen svůj AUDIT repozitář.`);
+      }
     }
     // zápis shellem: rozhoduje CÍL zápisu (přesměrování, cp/mv/copy/Set-Content…), ne slova v příkazu — `grep x <repo> 2>/dev/null` projde
     const wt = writeTargets(cmd, cwd); const inRepo = p => repo && (p === repo || p.startsWith(repo + '/'));
