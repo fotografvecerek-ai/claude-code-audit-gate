@@ -886,14 +886,43 @@ if (fs.existsSync(path.join(pkg, 'katalog', 'katalog.json'))) {
   const kc = path.join(tmp, 'kat-codex'); fs.mkdirSync(path.join(kc, '.codex'), { recursive: true }); fs.writeFileSync(path.join(kc, 'app.py'), 'print(1)\n');
   kat('aktivuj', 'python-reviewer', 'uzavrena-smycka', 'pravidla', '--cil', kc); const toml = fs.existsSync(path.join(kc, '.codex/agents/python-reviewer.toml')) ? fs.readFileSync(path.join(kc, '.codex/agents/python-reviewer.toml'), 'utf8') : '';
   T('KATALOG Codex: agent jako TOML, skill v .agents/skills, pravidla v AGENTS.md', [/^name = "python-reviewer"/m.test(toml) && /developer_instructions = /.test(toml) && /sandbox_mode = "read-only"/.test(toml), fs.existsSync(path.join(kc, '.agents/skills/uzavrena-smycka/SKILL.md')), /katalog:pravidla/.test(fs.existsSync(path.join(kc, 'AGENTS.md')) ? fs.readFileSync(path.join(kc, 'AGENTS.md'), 'utf8') : '')].join(','), 'true,true,true');
-  // A-021: test — katalog s CRLF konci (Windows autocrlf=true) — s normalizací
-  { const norm = t => t.replace(/\r\n/g, '\n');
-    const fm = t => { const m = norm(t).match(/^---\n([\s\S]*?)\n---/); const o = {}; if (m) for (const l of m[1].split('\n')) { const x = l.match(/^([\w-]+):\s*(.*)$/); if (x) o[x[1]] = x[2].replace(/^["']|["']$/g, ''); } return o; };
-    const agentTomlTest = md => { const f = fm(md); const body = md.replace(/^---\n[\s\S]*?\n---\n/, '').replace(/<!--[\s\S]*?-->\n?/g, '').trim(); const ro = !/Write|Edit/.test(f.tools || ''); const lit = body.includes("'''") ? `"""\n${body.replace(/\\/g, '\\\\').replace(/"""/g, '\\"\\"\\"')}\n"""` : `'''\n${body}\n'''`; return `# Z katalogu\nname = ${JSON.stringify(f.name)}\ndescription = ${JSON.stringify(f.description || '')}\nsandbox_mode = "${ro ? 'read-only' : 'workspace-write'}"\ndeveloper_instructions = ${lit}\n`; };
-    const origMd = fs.readFileSync(path.join(pkg, 'katalog', 'agenti', 'python-reviewer.md'), 'utf8');
-    const crlfMd = origMd.replace(/\n/g, '\r\n');
-    const tomlWithCrlf = agentTomlTest(crlfMd);
-    T('KATALOG Codex: agent s CRLF (.md ze Windows autocrlf=true) — name není undefined', [/^name = "python-reviewer"/m.test(tomlWithCrlf), !/name = undefined/.test(tomlWithCrlf), /developer_instructions = /.test(tomlWithCrlf)].join(','), 'true,true,true');
+  // A-021 kolo 2: test — katalog s CRLF konci (Windows autocrlf=true) — volá skutečný katalog.mjs, ne lokální kopii funkcí
+  {
+    const ka_crlftest = path.join(tmp, 'ka-crlftest'); fs.mkdirSync(ka_crlftest, { recursive: true });
+
+    // Rekurzivní kopírování katalog/ se CRLF konverzí .md souborů
+    function cpWithCrlf(src, dest) {
+      const stat = fs.statSync(src);
+      if (stat.isDirectory()) {
+        fs.mkdirSync(dest, { recursive: true });
+        for (const e of fs.readdirSync(src, { withFileTypes: true })) {
+          cpWithCrlf(path.join(src, e.name), path.join(dest, e.name));
+        }
+      } else {
+        let content = fs.readFileSync(src, 'utf8');
+        if (src.endsWith('.md')) content = content.replace(/\n/g, '\r\n');
+        fs.writeFileSync(dest, content, 'utf8');
+      }
+    }
+    cpWithCrlf(path.join(pkg, 'katalog'), path.join(ka_crlftest, 'katalog'));
+
+    // Zkopíruj katalog.mjs do temp (bude hledat ../katalog → <temp>/katalog ✓)
+    fs.mkdirSync(path.join(ka_crlftest, 'tools'), { recursive: true });
+    fs.copyFileSync(path.join(pkg, 'tools', 'katalog.mjs'), path.join(ka_crlftest, 'tools', 'katalog.mjs'));
+
+    // Cílový projekt s .codex
+    const ka_target = path.join(ka_crlftest, 'target');
+    fs.mkdirSync(path.join(ka_target, '.codex'), { recursive: true });
+    fs.writeFileSync(path.join(ka_target, 'app.py'), 'print(1)\n');
+
+    // Spusť katalog.mjs ze temp s CRLF katalogem
+    const katEnv = { ...process.env, HOME: ka_crlftest, USERPROFILE: ka_crlftest, XDG_CONFIG_HOME: path.join(ka_crlftest, '.config'), XDG_CACHE_HOME: path.join(ka_crlftest, '.cache'), LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', TMPDIR: ka_crlftest, TEMP: ka_crlftest, TMP: ka_crlftest };
+    const kat_crlftest = (...args) => spawnSync(process.execPath, [path.join(ka_crlftest, 'tools', 'katalog.mjs'), ...args], { encoding: 'utf8', env: katEnv });
+
+    kat_crlftest('aktivuj', 'python-reviewer', '--cil', ka_target);
+    const toml = fs.existsSync(path.join(ka_target, '.codex/agents/python-reviewer.toml')) ? fs.readFileSync(path.join(ka_target, '.codex/agents/python-reviewer.toml'), 'utf8') : '';
+
+    T('KATALOG Codex: agent s CRLF (.md ze Windows autocrlf=true) — name není undefined', [/^name = "python-reviewer"/m.test(toml), !/name = undefined/.test(toml), /developer_instructions = /.test(toml)].join(','), 'true,true,true');
   }
   T('KATALOG Codex: hook z katalogu se do Codexu neinstaluje', kat('aktivuj', 'sdileny-strom', '--cil', kc).status !== 0 || !fs.existsSync(path.join(kc, '.claude')), true);
   // katalog je obecný: žádná osobní data, jména projektů ani cesty autora
