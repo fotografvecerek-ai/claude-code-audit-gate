@@ -536,6 +536,22 @@ T('K: bus post --from auditor blokován', hook(KG, bash(repo, 'node tools/bus.mj
   const zle = [...projde.filter(c => hook(KG, bash(repo, c)) !== 0).map(c => 'projít: ' + c), ...blok.filter(c => hook(KG, bash(repo, c)) !== 2).map(c => 'blok: ' + c)];
   T(`K: přesnost hooku (${projde.length} projde, ${blok.length} blok)`, zle.join(' | '), '');
 }
+{ // A-029: fail-closed ALLOWLIST zápisu Kapitána do workspace auditora — povoleno jen AUDIT/03_dukazy/** a bus.mjs post|ack|inbox|wait|nove-id
+  const W = norm(ws), wsBase = path.basename(ws);
+  const repro = [`node ${W}/tools/prisnost.mjs --ws ${W} nastav prototyp`, `cd ${W} && node tools/prisnost.mjs nastav osobni`, `echo {"prisnost":"prototyp"} > ${W}/.rezim.json`, `echo {} > ${W}/.opravneni.json`];
+  T('K: A-029 reprodukce auditora (prisnost nastav abs/relativně, shell do .rezim.json/.opravneni.json) → blok', repro.map(c => hook(KG, bash(repo, c))).join(','), '2,2,2,2');
+  T('K: A-029 Write/Edit/shell do .opravneni.json → blok', [hook(KG, write(repo, path.join(ws, '.opravneni.json'))), hook(KG, { cwd: repo, tool_name: 'Edit', tool_input: { file_path: path.join(ws, '.opravneni.json'), old_string: 'a', new_string: 'b' } }), hook(KG, bash(repo, `cp a.json ${W}/.opravneni.json`))].join(','), '2,2,2');
+  const blok = [`sed -i s/bezny/prototyp/ ${W}/.rezim.json`, `mv ${W}/.rezim.json ${W}/AUDIT/03_dukazy/x.json`, `echo {} | tee ${W}/.rezim.json`, `node -e "require('fs').writeFileSync('${W}/.rezim.json','{}')"`, `python -c "open('${W}/.opravneni.json','w').write('{}')"`,
+    `powershell -c "Set-Content -Path ${W}/.rezim.json -Value x"`, `echo {} > ../${wsBase}/.rezim.json`, 'echo {} > "$AUDITOR_WORKSPACE/.rezim.json"', `node ${W}/tools/opravneni.mjs --ws ${W} nastav plny`, `git -C ${W} commit -qam x`,
+    `node ${norm(pkg)}/tools/prisnost.mjs --ws ../${wsBase} nastav prototyp`, `bash -c "echo {} > ${W}/.rezim.json"`, `rm ${W}/tools/bus.mjs`, `node ./bus.mjs post ${W}`, `find ${W} -name x -delete`];
+  const projde = [`echo x > ${W}/AUDIT/03_dukazy/A-1/x.md`, `node ${W}/tools/bus.mjs post --from kapitan --type STATUS --id A-1 --status DONE`, `node ${W}/tools/bus.mjs ack --by kapitan --msg a.json`, `node ${W}/tools/bus.mjs nove-id`, `node ${W}/tools/bus.mjs inbox --for kapitan --unacked --brief`,
+    `cat ${W}/.rezim.json`, `grep -n x ${W}/AUDIT/02_HANDOFF.md | head -3`, `node ${W}/tools/prisnost.mjs --ws ${W} stav`, `cd ${W} && node tools/prisnost.mjs kontext`, `node ${W}/kapitan-side/gate-check.mjs ${norm(repo)}`, 'node .claude/hooks/auditor-bus.mjs post --type STATUS --id A-1 --status STARTED',
+    `echo x > ${norm(repo)}/docs/a.md`, 'echo x > .tmp/tasks/A-1/a.txt', `cp ${W}/AUDIT/02_HANDOFF.md .tmp/tasks/A-1/h.md`, `mkdir -p ${W}/AUDIT/03_dukazy/A-2 && cp a.png ${W}/AUDIT/03_dukazy/A-2/`];
+  const zle = [...blok.filter(c => hook(KG, bash(repo, c)) !== 2).map(c => 'blok: ' + c), ...projde.filter(c => hook(KG, bash(repo, c)) !== 0).map(c => 'projít: ' + c)];
+  T(`K: A-029 allowlist workspace auditora (${blok.length} blok, ${projde.length} projde)`, zle.join(' | '), '');
+  T('K: A-029 cwd ve workspace auditora: zápis relativně blok, čtení povoleno', [hook(KG, bash(ws, 'echo {} > .rezim.json')), hook(KG, bash(ws, 'cat .rezim.json'))].join(','), '2,0');
+  T('K: A-029 Write zprávy na most mimo bus.mjs blokován (jen přes bus.mjs)', hook(KG, write(repo, path.join(ws, 'AUDIT', 'bus', '2026_kapitan_STATUS_A-1.json'))), 2);
+}
 T('K: bez env fail-closed', spawnSync(process.execPath, [KG], { input: JSON.stringify(bash(repo, 'ls')), env: { ...env, AUDITOR_WORKSPACE: '' }, encoding: 'utf8' }).status, 2);
 // A-005: detekce push/deploy (pushM/DEPLOY) běží nad TOKENIZOVANÝM příkazem (commands()), ne nad syrovým textem
 T('K: echo se slovy "git push" v textu není push (A-005 case1)', hook(KG, bash(repo, 'echo "poznámka: pak udělám git push"')), 0);
@@ -1205,7 +1221,8 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
   T('CODEX: Kapitán apply_patch do nálezů auditora blokován', cx(KG, patch(repo, 'Add', path.join(ws, 'AUDIT', '01_nalezy', 'A-9.md'))), 2);
   T('CODEX: Kapitán apply_patch do kódu (relativní cesta) povolen', cx(KG, patch(repo, 'Update', 'src/a.ts')), 0);
   T('CODEX: Kapitán nesmí měnit .codex/hooks.json', cx(KG, patch(repo, 'Update', '.codex/hooks.json')), 2);
-  T('CODEX: destruktivní SQL přes Bash blokováno', cx(KG, { cwd: repo, tool_name: 'Bash', tool_input: { command: 'psql -c "DROP TABLE users"' } }), 2);
+  T('CODEX: A-029 Kapitán shellem do .rezim.json / prisnost nastav blokován (stejná pojistka)', [cx(KG, { cwd: repo, tool_name: 'shell', tool_input: { command: ['bash', '-lc', `echo {} > ${norm(ws)}/.rezim.json`] } }), cx(KG, { cwd: repo, tool_name: 'Bash', tool_input: { command: `cd ${norm(ws)} && node tools/prisnost.mjs nastav osobni` } })].join(','), '2,2');
+  T('CODEX: destruktivní SQL přes Bash blokováno',cx(KG, { cwd: repo, tool_name: 'Bash', tool_input: { command: 'psql -c "DROP TABLE users"' } }), 2);
   T('CODEX: auditor apply_patch do repa blokován', cx(AG, patch(ws, 'Update', path.join(repo, 'src', 'a.ts'))), 2);
   T('CODEX: auditor apply_patch do AUDIT/ povolen', cx(AG, patch(ws, 'Add', 'AUDIT/01_nalezy/A-100.md')), 0);
   T('CODEX: patch bez souborů = fail-closed', cx(KG, { cwd: repo, tool_name: 'apply_patch', tool_input: { command: 'nesmysl' } }), 2);
@@ -1393,6 +1410,16 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
   T('PŘÍSNOST: pořadí úrovní a pravidla pro všechny úrovně', `${pz.LEVELS.join(',')}/${pz.LEVELS.every(l => pz.RULES[l])}`, 'prototyp,osobni,bezny,kriticky/true');
   T('PŘÍSNOST: contextLine začíná [PŘÍSNOST] a jmenuje úroveň', /^\[PŘÍSNOST\] PROTOTYP — blokuje jen P0/.test(pz.contextLine('prototyp')), true);
   T('PŘÍSNOST: CLI stav vypíše úroveň a pravidla', /OSOBNÍ/.test(cli(pw, 'stav').stdout), true);
+  { // A-029: každá změna úrovně → řádek v AUDIT/_zmeny-nastaveni.log (ISO čas, z → na, zdroj); kontext na startu ohlásí poslední změnu (< 7 dní)
+    const lg = path.join(pw, 'AUDIT', '_zmeny-nastaveni.log'); const lines = () => (fs.existsSync(lg) ? fs.readFileSync(lg, 'utf8') : '').trim().split('\n').filter(Boolean);
+    const n0 = lines().length; spawnSync(process.execPath, [PR, '--ws', pw, 'nastav', 'kriticky'], { encoding: 'utf8', env: { ...process.env, AUDITOR_ZDROJ: 'START' } }); const last = lines().pop() || '';
+    T('PŘÍSNOST: A-029 změna úrovně zapsána do AUDIT/_zmeny-nastaveni.log (čas, z → na, zdroj)', `${n0}/${lines().length}/${/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(last)}/${/osobni → kriticky/.test(last)}/${/zdroj=START/.test(last)}`, '3/4/true/true/true');
+    T('PŘÍSNOST: A-029 zdroj bez AUDITOR_ZDROJ = cli, první nastavení z „(nic)“', `${/zdroj=cli/.test(lines()[0])}/${/\(nic\) → prototyp/.test(lines()[0])}`, 'true/true');
+    T('PŘÍSNOST: A-029 kontext ohlásí poslední změnu úrovně', /Poslední změna přísnosti: .*OSOBNÍ → KRITICKÝ \(START\)/.test(cli(pw, 'kontext').stdout), true);
+    fs.writeFileSync(lg, '2020-01-01T00:00:00.000Z  bezny → prototyp  zdroj=cli\n', 'utf8');
+    T('PŘÍSNOST: A-029 změna starší 7 dní se na startu neohlašuje', /Poslední změna/.test(cli(pw, 'kontext').stdout), false);
+    cli(pw, 'nastav', 'osobni');
+  }
   const pf2 = spawnSync(process.execPath, [path.join(pkg, 'tools', 'preflight.mjs'), pw, 'auditor', '--agent', 'codex', '--offline'], { encoding: 'utf8', env: { ...process.env, AUDITOR_PREFLIGHT_OFFLINE: '1' } });
   T('PŘÍSNOST: preflight vypíše řádek [PŘÍSNOST] s úrovní workspace', /\[PŘÍSNOST\] OSOBNÍ/.test(pf2.stderr || ''), true);
   if (fs.existsSync(path.join(pkg, 'setup-auditor.ps1')) && fs.existsSync(path.join(pkg, 'setup-auditor.sh'))) {

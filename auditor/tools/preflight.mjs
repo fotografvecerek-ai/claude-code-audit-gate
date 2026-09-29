@@ -179,7 +179,7 @@ try {
   if (agent === 'codex') codexCheck(); else { bin = claudeCheck(); model = modelPick(); }
   scopeCheck(); modelCheck(); await balikCheck(); if (role === 'auditor') novaCheck(); sdilenaCheck();
 } catch (e) { say(`  ⚠ kontrola před startem: ${e.message}`); }
-try { const lvl = readLevel(ws); out.prisnost = lvl; say('  ' + contextLine(lvl)); } catch { }
+try { const lvl = readLevel(ws); out.prisnost = lvl; say('  ' + contextLine(lvl, ws).replace(/\n/g, '\n  ')); } catch { }
 try { fs.writeFileSync(sf, JSON.stringify({ ...st, posledni: out }, null, 2) + '\n'); } catch { }
 // stdout pro spouštěč: „<claude>|<alias modelu>" („-" = model podle nastavení); vždy neprázdné části (cmd for /f přeskočí prázdný token)
 if (has('--bin')) process.stdout.write(`${bin || 'claude'}|${model || '-'}`);
