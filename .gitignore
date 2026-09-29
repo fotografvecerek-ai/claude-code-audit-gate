@@ -6,6 +6,7 @@ auditor/playwright-report/
 auditor/AUDIT/.auth/
 auditor/AUDIT/_archiv/
 auditor/AUDIT/bus/*.json
+auditor/AUDIT/bus/*.json.ack*
 auditor/AUDIT/*.log
 auditor/build/
 Auditor_pruzkum_*.html

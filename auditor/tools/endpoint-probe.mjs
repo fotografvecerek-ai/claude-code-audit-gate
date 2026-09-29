@@ -14,13 +14,21 @@ if (placeholders.length) { console.error(`NEPRŮKAZNÉ: audit.config.json obsahu
 if (!A) console.error('VAROVÁNÍ: chybí storageState tenantu A — cross-tenant/BFLA/malformed testy se přeskočí (výsledek je částečný).');
 
 // discover: app/api/**/route.ts → cesta + exportované metody + zda má [param]
-const eps = [];
+const eps = []; const envBlocked = [];
 (function walk(d) { if (!fs.existsSync(d)) return; for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) walk(p); else if (e.name === 'route.ts' || e.name === 'route.js') { const t = fs.readFileSync(p, 'utf8'); const methods = [...t.matchAll(/export\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE)\b|export\s+const\s+(GET|POST|PUT|PATCH|DELETE)\s*=/g)].map(m => m[1] || m[2]); const url = '/' + path.relative(path.join(repo, 'app'), path.dirname(p)).split(path.sep).filter(s => !/^\(.*\)$/.test(s)).join('/'); eps.push({ file: path.relative(repo, p), url, methods, hasParam: /\[.+\]/.test(url), hasAuthHint: /auth\(|getServerSession|getSession|requireUser|withAuth|supabase\.auth\.getUser/.test(t), hasTenantHint: /tenantId|tenant_id|orgId/.test(t), hasZod: /safeParse\(|\.parse\(/.test(t) }); } } })(path.join(repo, 'app', 'api'));
+// Vercel serverless (api/**/*.js|ts v kořeni) a Next pages/api: soubor = endpoint, default export obslouží všechny metody → zkouší se GET a POST
+for (const base of ['api', path.join('pages', 'api'), path.join('src', 'pages', 'api')]) (function walk(d) { if (!fs.existsSync(d)) return; for (const e of fs.readdirSync(d, { withFileTypes: true })) { const p = path.join(d, e.name);
+  if (e.isDirectory()) { if (!/^(node_modules|_lib|lib|_utils)$/.test(e.name)) walk(p); continue; } if (!/\.(js|mjs|cjs|ts)$/.test(e.name) || /^_|\.d\.ts$|\.(test|spec)\./.test(e.name)) continue;
+  const t = fs.readFileSync(p, 'utf8'); if (!/export\s+default|module\.exports|export\s+(async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE)/.test(t)) continue;
+  const rel = path.relative(path.join(repo, base), p).replace(/\.(js|mjs|cjs|ts)$/, '').split(path.sep).join('/').replace(/(^|\/)index$/, '');
+  const url = '/api' + (rel ? '/' + rel : ''); if (eps.some(x => x.url === url)) continue;
+  const ms = [...t.matchAll(/req\.method\s*[!=]==?\s*['"](GET|POST|PUT|PATCH|DELETE)['"]/g)].map(m => m[1]);
+  eps.push({ file: path.relative(repo, p), url, methods: ms.length ? [...new Set(ms)] : ['GET', 'POST'], hasParam: /\[.+\]/.test(url), hasAuthHint: /auth|session|token|authorization/i.test(t), hasTenantHint: /tenantId|tenant_id|orgId/.test(t), hasZod: /safeParse\(|\.parse\(/.test(t) }); } })(path.join(repo, base));
 const fill = (url, t) => url.replace(/\[(\.\.\.)?(\w+)\]/g, (_, __, k) => (cfg.tenants?.[t]?.sampleIds?.[k] ?? cfg.tenants?.[t]?.sampleIds?.[Object.keys(cfg.tenants?.[t]?.sampleIds || {})[0]] ?? 'x'));
 async function call(method, url, { cookie = '', body, headers = {} } = {}) {
   const t0 = Date.now(); try { const r = await fetch(cfg.baseUrl + url, { method, redirect: 'manual', headers: { ...(cookie ? { cookie } : {}), ...(body ? { 'content-type': 'application/json' } : {}), ...headers }, body: body === undefined ? undefined : typeof body === 'string' ? body : JSON.stringify(body) }); const txt = await r.text(); return { status: r.status, ms: Date.now() - t0, len: txt.length, snippet: txt.slice(0, 200), h: Object.fromEntries(r.headers) }; } catch (e) { return { status: 0, err: String(e.message) }; }
 }
-if (!eps.length) { console.error('NEPRŮKAZNÉ: 0 endpointů nalezeno v app/api/**/route.ts — jiný router/framework? Doplň endpoints.manual v configu nebo uprav discovery. Prázdný výsledek NENÍ čistý sken.'); process.exit(3); }
+if (!eps.length) { console.error('NEPRŮKAZNÉ: 0 endpointů nalezeno (app/api/**/route.ts, api/**, pages/api/**) — jiný router/framework? Doplň endpoints.manual v configu nebo uprav discovery. Prázdný výsledek NENÍ čistý sken.'); process.exit(3); }
 for (const m of (cfg.endpoints?.manual || [])) eps.push({ file: 'manual', url: m.path.replace(/\{(\w+)\}/g, '[$1]'), methods: [m.method], hasParam: /\{/.test(m.path), hasAuthHint: true, hasTenantHint: true, hasZod: true, manualBody: m.body });
 const findings = [];
 const F = (sev, ep, test, obs, navrh) => findings.push({ priorita: sev, endpoint: `${ep.methods?.join('/') || ''} ${ep.url}`, file: ep.file, test, pozorovani: obs, navrh_reseni: navrh });
@@ -31,7 +39,9 @@ for (const ep of eps) {
     // anon
     const r = await call(m, url, { body: m === 'GET' ? undefined : {} });
     if (r.status === 200 && !/public|health|webhook|lead/i.test(ep.url)) F('P0', ep, 'anon', `HTTP 200 bez session (${r.len} B)`, 'ověřit session na začátku handleru (auth()), fail-closed; nebo endpoint explicitně označit jako veřejný v intake');
-    if (r.status >= 500) F('P1', ep, 'anon', `HTTP ${r.status}: ${r.snippet}`, 'A10:2025 — chyba bez session musí být 401/400, ne 500; ošetřit výjimky');
+    // 5xx kvůli chybějící konfiguraci testovací instance (env proměnná, klíč, DB) = NEPRŮKAZNÉ prostředí, ne chyba aplikace
+    if (r.status >= 500 && /(missing|not set|undefined|required).{0,40}(env|environment|api[_ -]?key|secret|database_url|token)|(env|environment).{0,20}(missing|not set)|ECONNREFUSED|getaddrinfo/i.test(r.snippet || '')) envBlocked.push({ url, method: m, status: r.status, snippet: (r.snippet || '').slice(0, 120) });
+    else if (r.status >= 500) F('P1', ep, 'anon', `HTTP ${r.status}: ${r.snippet}`, 'A10:2025 — chyba bez session musí být 401/400, ne 500; ošetřit výjimky');
     // cross-tenant: A volá B-id
     if (A && ep.hasParam) { const rA = await call(m, url, { cookie: A, body: m === 'GET' ? undefined : {} }); if (rA.status === 200) F('P0', ep, 'cross-tenant', `tenant A dostal 200 na id tenantu B (${rA.len} B)`, 'BOLA: filtr tenantId ve WHERE + RLS; 404 pro cizí id; červený test = tento probe'); }
     // bfla
@@ -51,4 +61,4 @@ for (const [k, why] of [['strict-transport-security', 'HSTS'], ['content-securit
 if (h.h?.['access-control-allow-origin'] === '*') F('P1', { url: '/', file: 'next.config', methods: ['GET'] }, 'cors', 'ACAO: *', 'explicitní allowlist originů');
 
 const partial = !A || !B;
-console.log(JSON.stringify({ baseUrl: cfg.baseUrl, partial, co_neproverovano: partial ? 'bez storageState A/B: cross-tenant, BFLA, malformed, mass assignment' : null, endpoints_discovered: eps.length, endpoints: eps, findings, summary: { P0: findings.filter(f => f.priorita === 'P0').length, P1: findings.filter(f => f.priorita === 'P1').length, P2: findings.filter(f => f.priorita === 'P2').length } }, null, 2));
+console.log(JSON.stringify({ baseUrl: cfg.baseUrl, partial, co_neproverovano: partial ? 'bez storageState A/B: cross-tenant, BFLA, malformed, mass assignment' : null, endpoints_discovered: eps.length, endpoints: eps, findings, env_blocked: envBlocked, env_blocked_poznamka: envBlocked.length ? 'NEPRŮKAZNÉ: 5xx kvůli chybějící konfiguraci testovací instance — doplň .env.audit a zopakuj, není to nález aplikace' : undefined, summary: { P0: findings.filter(f => f.priorita === 'P0').length, P1: findings.filter(f => f.priorita === 'P1').length, P2: findings.filter(f => f.priorita === 'P2').length } }, null, 2));

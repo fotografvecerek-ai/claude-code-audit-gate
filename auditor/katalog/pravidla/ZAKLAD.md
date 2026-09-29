@@ -1,0 +1,19 @@
+## Provozní základ agentů (z katalogu Auditoru — zkušenosti z provozu jiných projektů)
+- **Subagent vždy s explicitním modelem**: levný na mechaniku (hledání, přejmenování, docs), výchozí na běžnou implementaci, nejdražší jen na architekturu, bezpečnost a záludný debug. Dvakrát stejná chyba na nižším modelu → o úroveň výš.
+- **Diagnóza a oprava jsou dvě fáze** (dva agenti); agent jen na review dostane výslovně „needituj žádný soubor". Dva agenti nikdy needitují stejný soubor.
+- **Subagentovi přesné kotvy** (soubor + funkce/řádek), ne „přečti si celý soubor"; velké soubory čti cíleně (Grep, offset/limit).
+- **Nejdřív akceptační kritérium a červený test, pak oprava.** Test se neupravuje, aby prošel.
+- **„Hotovo" = důkaz z reálného vstupního bodu** (test, HTTP odpověď, screenshot) po novém buildu; ověřuje čerstvý agent, ne autor opravy.
+- **Git ve sdíleném stromu**: jmenovitý `git add <soubor>` / `git commit -- <soubor>`; žádný stash, `reset --hard`, `checkout --`, `clean -f`; pull/push s remote a větví; push po commitu.
+- **Procesy ukončuj jen podle PID**, nikdy podle jména (sestřelíš cizí agenty a servery).
+- **Tajemství nikdy** do `.env` v repu, chatu, logu ani argumentu příkazu — úložiště OS (skill `secret-management`).
+- **Hromadný zápis dat**: nesedí-li počet zasažených záznamů řádově se zadáním → STOP. Před zápisem do ostré DB záloha dotčených dat.
+- **Stav drž v `.claude/STATE.md`** (≤ 1 obrazovka: hotovo, rozdělané, další krok); po kompakci pokračuj první nehotovou položkou bez ptaní.
+- **Windows**: `.ps1` s diakritikou jen s UTF-8 BOM; cesty s mezerami/diakritikou vždy v uvozovkách; wrapper skript vrací skutečný exit kód.
+- **Pravidlo, které se opakovaně porušuje, převeď na mechanismus** (hook, test, lint) — ne další odstavec textu.
+- **Cíl a plán mají přednost před proudem nových požadavků; kvalita je víc než kvantita.** Požadavek v rozporu s dohodnutým cílem/plánem neprováděj slepě: hned důrazně upozorni, co naruší, a doporuč teď / později / nedělat — rozhoduje vlastník. Co není na řadě, zapiš do `.claude/KANBAN.md` (Čeká · Další · Dělám · Hotovo; v Dělám jedna věc) a proveď, až přijde řada.
+- **Mlčení není souhlas:** žádná odpověď vlastníka (na otázku, upozornění, návrh) neznamená „ano". Nevratný krok, vydání ani změnu dohodnutého plánu bez výslovného souhlasu neprováděj — připrav vše do posledního kroku a čekej; u vratných věcí pokračuj s označeným předpokladem a zapiš ho, aby šel vrátit.
+- **Kdy přestat:** dva neúspěšné pokusy stejným postupem (stejná chyba, test dál červený) = stop; změň metodu (jiná hypotéza, menší krok, jiný nástroj, vyšší model) nebo eskaluj s tím, co jsi zkusil a co vyloučil. Třetí pokus stejně se nedělá.
+- **Cesta zpět:** před nevratným krokem (mazání, zápis či migrace ostrých dat, odeslání zprávy, vydání, force operace) napiš jednou větou, jak se vrátí (záloha, revert, rollback). Nejde-li vrátit: silnější důkaz (dry-run, záloha dotčených dat) a výslovné „ano" vlastníka.
+- **Tvrzení:** ověřeno (vlastní běh) · předpoklad · odhad · hypotéza — nezaměňuj; nevymýšlej čísla ani výsledky testů; pouhý tlak není nový fakt (§11 příručky).
+- **Podobné požadavky sbírej do dávek**; nasazení k uživateli je součást úkolu, ne krok navíc.

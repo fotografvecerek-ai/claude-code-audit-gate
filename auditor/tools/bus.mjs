@@ -18,26 +18,124 @@
 //       SCOPED_PASS = prošel jen jmenovaný rozsah (--scope "…") a zároveň je otevřen nový blok — položka NENÍ uzavřená.
 //       APPLIED (kapitan: změna nasazena/aktivní, --ref commit/deploy id) · MEASURED (auditor: změřeno po vydání)
 //       QUESTION / ANSWER · STATUS (kapitan: DONE|DONE_WITH_CONCERNS|BLOCKED|NEEDS_CONTEXT|STARTED) · GATE (auditor: 🟢|🔴) · NOTE
+//       ZADANI (auditor|owner → kapitan): úloha vlastníka předaná DOSLOVA (--citace "…"); auditor k ní nesmí nic přidat (--text zakázán), ID K-### samo.
+// Role: vlastník rozhoduje, Kapitán dělá, auditor ověřuje. Auditor zadává Kapitánovi JEN nálezy auditu: HANDOFF od auditora musí mít ID
+//       nálezu (AUDIT/01_nalezy/<ID>.md nebo ID v AUDIT/02_HANDOFF.md) — novou práci auditor vymýšlet ani zadávat nemůže.
+//   node tools/bus.mjs nove-id [--prefix K]                                         # další volné ID úlohy vlastníka (K-001, K-002…)
 // Vlastnictví: zprávy s from=auditor smí psát jen auditor, from=kapitan jen Kapitán — hlídají hooky obou stran (auditor-guard.js, kapitan-audit-guard.js).
 import fs from 'node:fs'; import path from 'node:path'; import { execSync } from 'node:child_process';
+import { TRANSIENT_CODES, sleepMs, withRetry, readMessages, writeAck } from './bus-store.mjs';
 
 const ROOT = process.env.AUDITOR_WORKSPACE && fs.existsSync(process.env.AUDITOR_WORKSPACE) ? process.env.AUDITOR_WORKSPACE : findRoot(process.cwd());
 const BUS = path.join(ROOT, 'AUDIT', 'bus'); fs.mkdirSync(BUS, { recursive: true });
 const args = parse(process.argv.slice(2)); const cmd = args._[0];
-const ROLES = ['auditor', 'kapitan', 'owner']; const TYPES = ['HANDOFF', 'EVIDENCE', 'VERDICT', 'QUESTION', 'ANSWER', 'STATUS', 'GATE', 'NOTE', 'APPLIED', 'MEASURED'];
+const ROLES = ['auditor', 'kapitan', 'owner']; const TYPES = ['HANDOFF', 'EVIDENCE', 'VERDICT', 'QUESTION', 'ANSWER', 'STATUS', 'GATE', 'NOTE', 'APPLIED', 'MEASURED', 'ZADANI'];
 const STAGES = ['zapsano', 'doruceno', 'implementovano', 'nezavisle_overeno', 'schvaleno', 'aplikovano', 'aktivni', 'zmereno'];
 
 function findRoot(d) { for (let i = 0; i < 6; i++) { if (fs.existsSync(path.join(d, 'AUDIT'))) return d; const p = path.dirname(d); if (p === d) break; d = p; } return process.cwd(); }
 function parse(a) { const o = { _: [] }; for (let i = 0; i < a.length; i++) { if (a[i].startsWith('--')) { const k = a[i].slice(2); const v = a[i + 1] && !a[i + 1].startsWith('--') ? a[++i] : true; o[k] = v; } else o._.push(a[i]); } return o; }
-function all() { return fs.readdirSync(BUS).filter(f => f.endsWith('.json')).sort().map(f => { try { return { file: f, ...JSON.parse(fs.readFileSync(path.join(BUS, f), 'utf8')) }; } catch { return null; } }).filter(Boolean); }
+
+// A-010 kolo 2: sleepMs / withRetry / TRANSIENT_CODES (retry přes přechodné Windows chyby) jsou v bus-store.mjs.
+// Zámek níž už chrání jen LEDGER.md; potvrzení (ack) zámek nepoužívají (A-027 kolo 4, append-only soubory).
+// A-027: na Windows (Node 20/libuv 1.46 = klasická sémantika mazání) zámek, který vlastník právě smazal, zatímco ho jiný
+// proces měl otevřený (stat/read), zůstává chvíli "delete pending": stat i create pak hlásí EPERM místo ENOENT/EEXIST.
+// Reprodukce: 2/1000 procesů exit 1 na `EPERM: stat …json.lock` (stress-ack, 2 CPU). Znamená to "zámek právě mizí" —
+// stejně jako ENOENT: nemazat, jen počkat a zkusit znovu (null).
+function statOrNull(p) { try { return fs.statSync(p); } catch (e) { if (e.code === 'ENOENT' || TRANSIENT_CODES.has(e.code)) return null; throw e; } }
+// Testovatelnost bez čekání na produkční 10s/60s výchozí hodnoty (viz selftest.mjs A-010 kolo2).
+const LOCK_STALE_MS = +(process.env.AUDITOR_BUS_STALE_MS || 10000);
+const LOCK_TIMEOUT_MS = +(process.env.AUDITOR_BUS_LOCK_TIMEOUT_MS || 60000);
+
+// Bezpečné odstranění starého (stale) zámku. Přejmenování na unikátní jméno je na daném svazku atomické — vyhraje
+// ho vždy jen JEDEN souběžící proces (ostatní dostanou ENOENT, protože zámek už přejmenoval někdo jiný, nebo ho
+// mezitím normálně uvolnil jeho vlastník), takže smazán je vždy nanejvýš jednou. Funguje i pro adresář místo
+// souboru (A-010 kolo2 bod 4: zámek-jako-adresář dřív = věčná smyčka), protože rmSync níž je rekurzivní.
+function claimStaleLock(lockPath) {
+  const grave = `${lockPath}.stale-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  try { withRetry(() => fs.renameSync(lockPath, grave)); }
+  catch (e) { if (e.code === 'ENOENT' || TRANSIENT_CODES.has(e.code)) return false; throw e; }   // přechodná kolize (delete pending) → nevzdávat, volající smyčka to zkusí znovu
+  try { withRetry(() => fs.rmSync(grave, { recursive: true, force: true })); } catch { }
+  return true;
+}
+// Všechny zprávy se sloučeným ack (legacy pole + sidecar soubory) — jediné místo čtení je bus-store.mjs.
+function all() { return readMessages(BUS).filter(r => typeof r.ts === 'string' && r.ts); }   // záznam bez ts (ruční/poškozený) by shodil ack/ledger
 function sinceTs(s) { if (!s) return 0; const m = String(s).match(/^(\d+)d$/); return m ? Date.now() - m[1] * 864e5 : Date.parse(s); }
 function git(c) { try { return execSync(`git ${c}`, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); } catch (e) { return `ERR: ${String(e.stderr || e.message).trim().split('\n')[0]}`; } }
 function ledger() {
-  const rows = all(); const lines = ['# BUS ledger (generováno bus.mjs — needitovat)', '', '| čas | od | typ | ID | text | ref | ack |', '|---|---|---|---|---|---|---|'];
-  for (const r of rows.slice(-200)) lines.push(`| ${r.ts.slice(0, 16)} | ${r.from} | ${r.type} | ${r.id || ''} | ${(r.text || '').replace(/\|/g, '/').slice(0, 80)} | ${r.ref || ''} | ${(r.ack || []).map(a => a.by).join(',')} |`);
-  fs.writeFileSync(path.join(BUS, 'LEDGER.md'), lines.join('\n') + '\n');
+  const ledgerPath = path.join(BUS, 'LEDGER.md');
+  // vlastní zámek (souběžné post/ack ho regenerují zároveň) — jen tenhle soubor, ne zprávy samotné
+  withLock(ledgerPath, () => {
+    const rows = all(); const lines = ['# BUS ledger (generováno bus.mjs — needitovat)', '', '| čas | od | typ | ID | text | ref | ack |', '|---|---|---|---|---|---|---|'];
+    for (const r of rows.slice(-200)) lines.push(`| ${r.ts.slice(0, 16)} | ${r.from} | ${r.type} | ${r.id || ''} | ${(r.text || '').replace(/\|/g, '/').slice(0, 80)} | ${r.ref || ''} | ${(r.ack || []).map(a => a.by).join(',')} |`);
+    atomicWrite(ledgerPath, lines.join('\n') + '\n');
+  });
 }
-const out = o => console.log(typeof o === 'string' ? o : JSON.stringify(o, null, 2));
+// A-027: inbox/thread tisknou desítky kB. console.log do plné neblokující roury (macOS: malý buffer, pomalý čtenář) končí
+// EAGAIN → nezachycená výjimka → exit 1. Zápis tedy jde synchronně po dávkách a na EAGAIN krátce počká (s mezí); EPIPE
+// (čtenář roury skončil dřív, např. `| head`) je normální konec výstupu, ne chyba. Jiné chyby se propagují.
+function writeStdout(text) {
+  const buf = Buffer.from(text + '\n'); const deadline = Date.now() + 30000; let off = 0;
+  while (off < buf.length) {
+    try { off += fs.writeSync(1, buf, off); }
+    catch (e) {
+      if (e.code === 'EPIPE') return;
+      if (e.code !== 'EAGAIN' || Date.now() > deadline) throw e;
+      sleepMs(5);
+    }
+  }
+}
+const out = o => writeStdout(typeof o === 'string' ? o : JSON.stringify(o, null, 2));
+
+function nextId(pre) { const n = all().map(r => String(r.id || '')).map(i => (i.match(new RegExp(`^${pre}-(\\d+)$`)) || [])[1]).filter(Boolean).map(Number); return `${pre}-${String((n.length ? Math.max(...n) : 0) + 1).padStart(3, '0')}`; }
+
+// A-010 kolo 1: souběžné `ack` (50 agentů potvrzuje tutéž zprávu naráz) dělaly read-modify-write bez zámku → ztracená potvrzení.
+// A-010 kolo 2 (verdikt FAIL, viz AUDIT/04_verdikty/A-010.md): kolo-1 zámek měl vlastní race — stat() na zámek, co mezitím
+// zmizel (ENOENT), vracel Infinity → "starší než staleMs" → smazal cizí PRÁVĚ vzniklý zámek → dva procesy naráz v kritické
+// sekci → tichá ztráta. Oprava: ENOENT NIKDY neznamená "smazat", jen "zkusit znovu získat"; mazání jen po úspěšném statu
+// A opravdovém stáří, vždy atomicky (claimStaleLock = rename na unikátní jméno, pak unlink/rmSync — nikdy přímý unlink
+// zámku, který třeba mezitím patří někomu jinému); vlastnický token v obsahu zámku ověřený před uvolněním, aby proces
+// nikdy nesmazal zámek, který mu už nepatří (i po legitimním "ukradení" starého zámku někým jiným); rename/open s retry
+// na EPERM/EBUSY/EACCES (Windows, otevřený handle); a horní časová mez, aby zámek-jako-adresář nezpůsobil věčnou smyčku.
+// A-010 kolo 3 (A-027, flaky 239/240 a 48/50 na přetíženém CI runneru): stáří zámku (mtime > staleMs) samo o sobě
+// NEROZLIŠÍ "vlastník spadl" od "vlastník žije, jen je pomalý" (CPU hladovění na sdíleném CI runneru, GC pauza) —
+// ve druhém případě by tahle TOCTOU díra smazala zámek PRÁVĚ AKTIVNÍHO vlastníka a pustila dovnitř druhý proces
+// souběžně → tichá ztráta ack, přesně bez pádu (exit 0 u obou). Než zámek prohlásíme za stale, ověř navíc, že PID
+// uložený v tokenu už opravdu neběží — mtime je nutná, ne postačující podmínka.
+function lockOwnerAlive(lockPath) {
+  let content; try { content = fs.readFileSync(lockPath, 'utf8'); } catch { return false; }   // zámek mezitím zmizel/je nečitelný → neblokuj reclaim
+  const pid = Number(String(content).split('-')[0]);
+  if (!Number.isInteger(pid) || pid <= 0) return false;   // cizí/poškozený obsah zámku (test-orphan, adresář…) → nejde ověřit, nepovažuj za živý
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === 'EPERM'; }   // ESRCH = proces mrtvý; EPERM = žije, jen bez oprávnění ho signalizovat
+}
+function withLock(file, fn, { staleMs = LOCK_STALE_MS, timeoutMs = LOCK_TIMEOUT_MS } = {}) {
+  const lock = `${file}.lock`;
+  const token = `${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const deadline = Date.now() + timeoutMs;
+  let owned = false, lastCode = '';
+  for (; ;) {
+    try { fs.writeFileSync(lock, token, { flag: 'wx' }); owned = true; break; }
+    catch (e) {
+      // EISDIR: zámek je omylem adresář (dřívější pád/bug) — řeš jako "existuje", ne fatálně. EPERM/EBUSY/EACCES (A-027):
+      // zámek je na Windows "delete pending" (vlastník ho právě uvolnil) → čekej v téže smyčce do deadline, ne jen 25 retry.
+      if (e.code !== 'EEXIST' && e.code !== 'EISDIR' && !TRANSIENT_CODES.has(e.code)) throw e;
+      lastCode = e.code;
+      const st = statOrNull(lock);   // st === null → zámek MEZITÍM zmizel (ENOENT) → nikdy nemazat, jen zkusit znovu (tohle byla přesně chyba kola 1)
+      if (st && (Date.now() - st.mtimeMs) > staleMs && !lockOwnerAlive(lock)) { claimStaleLock(lock); continue; }
+      if (Date.now() > deadline) throw new Error(`bus: zámek ${path.basename(lock)} se nepodařilo získat do ${timeoutMs}ms (drží ho jiný proces, nebo je poškozený; poslední chyba ${lastCode})`);
+      sleepMs(10 + Math.floor(Math.random() * 20));   // krátký backoff, ne busy-loop
+    }
+  }
+  try { return fn(); }
+  finally {
+    if (owned) { try { if (fs.readFileSync(lock, 'utf8') === token) withRetry(() => fs.unlinkSync(lock)); } catch { } }   // smaž jen VLASTNÍ zámek (token) — nikdy cizí
+  }
+}
+function atomicWrite(file, data) {
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  let tmpLeft = false;
+  try { withRetry(() => fs.writeFileSync(tmp, data)); tmpLeft = true; withRetry(() => fs.renameSync(tmp, file)); tmpLeft = false; }
+  finally { if (tmpLeft) { try { fs.unlinkSync(tmp); } catch { } } }   // úklid .tmp i při pádu na EPERM po vyčerpání retry (dřív zůstával ležet)
+}
 
 switch (cmd) {
   case 'post': {
@@ -48,13 +146,32 @@ switch (cmd) {
     if (args['reply-to'] && !fs.existsSync(path.join(BUS, path.basename(args['reply-to'])))) die('--reply-to: zpráva nenalezena');
     const round = type === 'VERDICT' ? 'K' + (all().filter(r => r.id === id && r.type === 'VERDICT').length + 1) : undefined;
     if (type === 'STATUS' && !['STARTED', 'DONE', 'DONE_WITH_CONCERNS', 'BLOCKED', 'NEEDS_CONTEXT'].includes(status)) die('STATUS vyžaduje --status STARTED|DONE|DONE_WITH_CONCERNS|BLOCKED|NEEDS_CONTEXT');
+    if (type === 'HANDOFF' && from === 'auditor') { const A = path.join(ROOT, 'AUDIT'); let ho = ''; try { ho = fs.readFileSync(path.join(A, '02_HANDOFF.md'), 'utf8'); } catch { }
+      const esc = String(id).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      if (!id || id === '-' || !(fs.existsSync(path.join(A, '01_nalezy', `${id}.md`)) || new RegExp(`(^|[^\\w-])${esc}(?![\\w-])`).test(ho))) die(`HANDOFF od auditora jen pro nález auditu: ${id} není v AUDIT/01_nalezy/${id}.md ani v 02_HANDOFF.md. Novou práci zadává vlastník Kapitánovi — auditor ověřuje (úlohu vlastníka předej doslova: --type ZADANI --citace "…").`); }
+    if (type === 'ZADANI') {
+      if (from === 'kapitan') die('ZADANI posílá vlastník (nebo auditor jako doslovné předání vlastníkovy úlohy) — Kapitán úlohu přijímá: STATUS --id K-### --status STARTED');
+      if (!args.citace || !String(args.citace).trim()) die('ZADANI vyžaduje --citace "přesná slova vlastníka" (auditor úlohu jen předává, nenavrhuje)');
+      if (from === 'auditor' && String(text).trim()) die('ZADANI od auditora nesmí mít --text: auditor k úloze vlastníka nic nepřidává (návrh, postup, AK dělá Kapitán; auditor pak ověřuje)');
+    }
     if (type === 'EVIDENCE' && (!ref || !args.sha)) die('EVIDENCE vyžaduje --ref AUDIT/03_dukazy/<id>/ A --sha <commit repa> (bez nich auditor neověřuje)');
-    const ts = new Date().toISOString(); const to = from === 'auditor' ? 'kapitan' : from === 'kapitan' ? 'auditor' : 'both';
-    const file = `${ts.replace(/[:.]/g, '-')}_${from}_${type}_${id}.json`;
-    const msg = { msgId: file, ts, from, to, type, id, ref, text, ...(verdict ? { verdict } : {}), ...(args.scope ? { scope: args.scope } : {}), ...(round ? { round } : {}), ...(status ? { status } : {}), replyTo: args['reply-to'] ? path.basename(args['reply-to']) : null, sha: args.sha || null, commit: git('rev-parse --short HEAD'), ack: [] };
-    fs.writeFileSync(path.join(BUS, file), JSON.stringify(msg, null, 2) + '\n'); ledger();
+    const ts = new Date().toISOString(); const to = type === 'ZADANI' ? 'kapitan' : from === 'auditor' ? 'kapitan' : from === 'kapitan' ? 'auditor' : 'both';
+    const idF = type === 'ZADANI' && !/^K-\d+$/.test(id) ? nextId('K') : id;
+    // souběžné posty se stejnou milisekundou+from+type+id (stejný název souboru) se nikdy nesmí přepsat — wx (exclusive
+    // create) + při kolizi odlišující sufix a zkusit znovu, dokud nenajdeme volné jméno.
+    let file, msg;
+    for (let n = 0; ; n++) {
+      file = `${ts.replace(/[:.]/g, '-')}_${from}_${type}_${idF}${n ? `-${n}` : ''}.json`;
+      msg = { msgId: file, ts, from, to, type, id: idF, ref, text, ...(args.citace ? { citace: String(args.citace) } : {}), ...(verdict ? { verdict } : {}), ...(args.scope ? { scope: args.scope } : {}), ...(round ? { round } : {}), ...(status ? { status } : {}), replyTo: args['reply-to'] ? path.basename(args['reply-to']) : null, sha: args.sha || null, commit: git('rev-parse --short HEAD'), ack: [] };
+      try { withRetry(() => fs.writeFileSync(path.join(BUS, file), JSON.stringify(msg, null, 2) + '\n', { flag: 'wx' })); break; }
+      catch (e) { if (e.code !== 'EEXIST' || n > 1000) throw e; }
+    }
+    // zpráva už je trvale zapsaná — selhání pomocného ledgeru (např. vyčerpaný retry na EPERM) NESMÍ vrátit exit 1:
+    // agent by si to vyložil jako "post se nepovedl" a poslal duplicitní zprávu (A-010 kolo2 bod 3)
+    try { ledger(); } catch (e) { console.error(`bus: LEDGER.md se nepodařilo aktualizovat (zpráva ${file} je zapsaná): ${e.message}`); }
     out({ posted: file, msg }); break;
   }
+  case 'nove-id': { out(nextId(args.prefix || 'K')); break; }
   case 'inbox': {
     const role = args.for; if (!ROLES.includes(role)) die('--for auditor|kapitan|owner');
     const since = sinceTs(args.since); const limit = +(args.limit || (args.brief ? 15 : 100));
@@ -63,7 +180,12 @@ switch (cmd) {
     if (args.brief && total > limit) console.log(`(${total - limit} starších zpráv skryto — bus.mjs inbox --for ${role} --limit ${total})`);
     out(args.brief ? rows.map(r => `${r.ts.slice(0, 16)} ${r.from}→${role} ${r.type} ${r.id} ${r.verdict || r.status || ''} ${r.text.slice(0, 90)} ${r.ref ? '→ ' + r.ref : ''}`).join('\n') || '(inbox prázdný)' : rows); break;
   }
-  case 'ack': { const p = path.join(BUS, path.basename(args.msg || '')); if (!fs.existsSync(p)) die('zpráva nenalezena'); const m = JSON.parse(fs.readFileSync(p, 'utf8')); (m.ack ||= []).push({ by: args.by, ts: new Date().toISOString() }); fs.writeFileSync(p, JSON.stringify(m, null, 2) + '\n'); ledger(); out({ acked: p }); break; }
+  case 'ack': { const f = path.basename(args.msg || ''); const p = path.join(BUS, f); if (!f.endsWith('.json') || f.startsWith('.') || !fs.existsSync(p)) die('zpráva nenalezena');
+    // A-027 kolo 4: append-only sidecar (temp + rename), zprávu nečte ani nepřepisuje, žádný zámek → souběžná ack se nemůžou ztratit
+    writeAck(BUS, f, args.by);
+    // potvrzení už je trvale zapsané (sidecar soubor) — ledger je jen pomocný přehled, jeho selhání ack nesmí shodit
+    try { ledger(); } catch (e) { console.error(`bus: LEDGER.md se nepodařilo aktualizovat (ack pro ${path.basename(p)} je zapsané): ${e.message}`); }
+    out({ acked: p }); break; }
   case 'thread': out(all().filter(r => r.id === args.id)); break;
   case 'status': {
     const last = {}, rowsBy = {}; for (const r of all()) if (r.id && r.id !== '-') { (rowsBy[r.id] ||= []).push(r); last[r.id] = { ts: r.ts, from: r.from, type: r.type, verdict: r.verdict, status: r.status, round: r.round, ref: r.ref }; }

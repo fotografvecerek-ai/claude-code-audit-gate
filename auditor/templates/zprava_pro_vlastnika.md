@@ -9,6 +9,15 @@
 ## Jedním odstavcem
 <3–5 vět lidsky: v jakém stavu projekt je, co je největší riziko, co se teď děje a kdy bude další informace.>
 
+## Co používáš nejvíc — jak to je
+<Tvoje 3 denně používané funkce z intake (top-3): pro každou jedna věta — funguje / nefunguje / funguje jen částečně, jak hluboko je otestovaná
+(kombinace nastavení, mobil, rychlost, data) a co z toho plyne. Tady má vlastník vidět hloubku, ne šířku.>
+
+## Co jsem NEtestoval do hloubky a proč
+<!-- Povinné hned pod prvním dojmem. Každý řádek = co + proč ne (čas, chybí přístup/testovací data, mimo rozsah, riziko pro produkci) + otázka Qn
+     v „Co potřebuju od tebe", jestli to chceš teď. Bez řádku tady nesmí zůstat nic, co audit neprokázal (vlastník rozhoduje o hloubce, ne checklist). -->
+- <např. Hledání přes AI: ověřil jsem jen, že odpovídá; netestoval jsem, kolik položek pokrývá a jak odpoví po delší pauze → Q3>
+
 ## Nejzávažnější věci (seřazeno podle dopadu)
 | | Co je za problém | Co to znamená pro tebe | Doporučení (jak to vyřešit) |
 |---|---|---|---|
@@ -33,6 +42,7 @@
      KAŽDÁ otázka MUSÍ mít doporučenou odpověď s důvodem (v HTML je předvybraná; vlastník může jen potvrdit).
      Jen rozhodnutí, která jsou na vlastníkovi. Pokud žádná, napiš větu „Nic, jen si to přečti." -->
 - [Q1] <např. Můžu navrhnout rozdělení velkého souboru na menší části? Zrychlí to práci agentů a sníží spotřebu tokenů.> {ano/ne; doporučeno: ano — jeden velký soubor je hlavní příčina vysoké spotřeby tokenů}
+- [Q3] <např. Mám teď otestovat do hloubky hledání přes AI (pokrytí, první dotaz po pauze)? Zabere to cca půl dne.> {ano/ne; doporučeno: ano — používáš ho denně a dnes o něm nic nevíme}
 - [Q2] <např. Kde běží ostrá data?> {Supabase | vlastní server | nevím; doporučeno: nevím — pokud si nejsi jistý, zjistím to z konfigurace sám}
 
 ## Průběh opravy

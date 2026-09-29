@@ -127,7 +127,7 @@ Gate platí pro merge --no-ff i squash auditovaného commitu, pokud je **hash st
 - Spuštění: `start-auditor.cmd` = `claude --add-dir <repo>` z workspace; první zpráva „Začni intake".
 
 ## Ověření po instalaci (vždy, i po každé změně hooků)
-`node tools/selftest.mjs` — 94 scénářů bran (auditor, Kapitán, pre-commit, bus, gate-check, nový projekt: projekt-guard, kontrolor, release-check) musí být 100 % PASS.
+`node tools/selftest.mjs` — scénáře bran (auditor, Kapitán, pre-commit, bus, gate-check, nový projekt: projekt-guard, kontrolor, release-check) musí být 100 % PASS; aktuální počet vypíše sám nástroj na konci běhu.
 Na Windows navíc jednou spusť `claude --verbose` a ověř, že shellové příkazy chodí jako `Bash` (Git Bash) — hooky mají větev i pro
 `PowerShell`, ale rozhodující je skutečný `tool_name`.
 
@@ -189,6 +189,64 @@ AUDIT/
 ```
 
 Auditor nikdy nezapisuje mimo `AUDIT/` a `tools/`; Kapitán zapisuje jen do `03_dukazy/`.
+
+## Změny v1.8.8
+- Úspora tokenů ve výchozím nastavení: pomocníci obou rolí na sonnetu (jen záloha, model v definici má přednost), strop souběhu (auditor 5, Kapitán 3), stav práce se vloží po kompakci i `/clear` (`tools/stav-session.mjs`), skill `predani`, PDF nad 5 stran ne celé, hlášení konektorů (MCP) pro celý počítač.
+- Opravy z vlastního auditu balíku (A-001 až A-023): těsnější pojistky Kapitána a auditora (detekce git mutací/odeslání podle skutečně spouštěného příkazu, zápis přesměrováním mimo workspace fail-closed, allowlist `git`/`gh` i podle argumentů), opravená pre-push pojistka (refy ze stdin), bezpečné zámky mostu (`bus.mjs` pod zámkem, atomický zápis, retry na Windows), aktualizace instalace nikdy nepřepíše cizí hook beze zálohy a přerušenou instalaci sama doplní nebo zřetelně varuje, katalog zvládá frontmatter s CRLF, dokumentace (README/CONTRIBUTING) odpovídá realitě. Samotest 703.
+- Kolo 3 (A-008, poslední): instalace bez markeru + vlastní `.gitattributes` vlastníka už nedostane naše git hooky proti jeho volbě, samotest
+  přesměrovává `HOME`/`USERPROFILE` do dočasné složky všude, kde spouští instalátor (pojistka hlídá hash skutečného `~/.claude.json`
+  před/po celém běhu), a starý marker dokončené instalace se maže hned na začátku instalace, ne až na konci. Samotest 722.
+
+## Změny v1.8.7
+- Pojistky a pluginy pro celý počítač (běží ve všech projektech): detekce, upozornění při startu, průvodce přesunem se zálohou. Kapitán pojistky neobchází. Samotest 225.
+
+## Změny v1.8.6
+- Delegace vynucená pojistkou (Kapitán kód v hlavním okně nepíše), patch-deploy za hlavičkou PowerShellu + diakritika, sdílená pravidla mezi projekty (detekce + průvodce), `.new` hlášené při startu, příručka katalogu v `.claude/prirucka/`. Samotest 224.
+
+## Změny v1.8.4
+- Samotest ve workspace: upravený nástroj čekající na sloučení = „SLOUČIT" (neblokuje), kontrola názvu počítače jen u souborů balíku.
+
+## Změny v1.8.3
+- Kdo co dělá: práci zadává vlastník Kapitánovi, auditor ověřuje. Most: HANDOFF auditora jen s ID nálezu, `ZADANI` = doslovné předání úlohy vlastníka (K-###), zprávy jen přes bus.mjs. Kapitán opus → sonnet (plánuje), kód píše subagent `implementator` (sonnet); metrika delegace. Samotest 217.
+
+## Změny v1.8.2
+- Pravidla: mlčení není souhlas, kdy přestat (2 neúspěšné pokusy → jiná metoda), cesta zpět před nevratným krokem.
+
+## Změny v1.8.1
+- Hloubka podle vlastníka: top-3 funkce v 1. vlně (kombinace proti nezávislému výpočtu), inventura z běžících procesů/portů/logů, checklist AI/ML,
+  logy automatizace za 30 dní, sekce ZPRÁVY „co jsem netestoval do hloubky", retro po vlně (cíl C-181). Cíl a plán před proudem požadavků (KANBAN.md),
+  úsudek a tvrzení (§0c). Hooky podle cíle zápisu (čtení s `2>/dev/null` projde). Aktualizace: upravené soubory zůstanou, nová verze jako `.new`. Samotest 211.
+
+## Změny v1.8.0
+- Katalog zkušeností (`katalog/`, `tools/katalog.mjs`, START → [9]): skilly, read-only agenti, pravidla a hooky nabízené podle projektu — nic se
+  neinstaluje samo; Claude Code i Codex. Pojistky podle provozu: hranice cest ve hooku auditora, zakázaná slova jen u spouštěného příkazu, gate-check
+  nad adresářem příkazu, `patch-deploy` za docstring a nikdy do skriptů s tajemstvím, `unpatch-deploy` bez necommitnutých změn. Opravy nástrojů
+  (hygiene-scan, endpoint-probe, efficiency-audit, bus, audit-stats, Playwright). Vrstva projektu `tools/local/` + `.claude/rules/*-projekt.md`.
+  Oprava časované chyby samotestu (pevné datum gate). Samotest 207.
+
+## Změny v1.7.0
+- Kontrola před startem (`tools/preflight.mjs`) ve spouštěčích: `claude update`, všechny instalace Claude Code, spustí se nejnovější; Codex přes npm;
+  upozornění na pevný model a novou verzi Auditoru. Model podle dostupnosti při startu (auditor opus→best→sonnet, Kapitán od 1.8.3 opus→sonnet; `.rezim.json` → `modely`). Jedno okno na projekt: `start-projekt` (Windows Terminal, záložky Auditor/Kapitán). Aktualizace nepřepíše úpravy nástrojů auditora (otisky, záloha, `tools/local/`). Měření spotřeby jen z transkriptů projektu (ne workspace auditora); USER pluginy/hooky označené; cíl C-170. Spouštěče na Windows zvládnou diakritiku v cestě (UTF-8 + chcp 65001) a nepovedené cd agenta nespustí. Samotest 175.
+
+## Změny v1.6.0
+- Úsporný režim: kompakce u ~200 tis. tokenů, subagenti pruzkumnik/mechanik/overovatel(-lehky), pojistka `usporny-guard`, ústava §0b,
+  `uklid-workspace.mjs`, Ø kontext na krok v `audit-stats`, cíl C-160 pro rozjeté audity. Samotest 165.
+
+## Změny v1.5.0
+- Codex: auditor a/nebo Kapitán v OpenAI Codex CLI (`tools/codex-setup.mjs`, `codex-hook.mjs`, `codex-hooks-check.mjs`, `codex-start.mjs`,
+  START → [8]); stejné pojistky, AGENTS.md, sandbox, chráněná složka pojistek s otisky. Samotest 154.
+
+## Změny v1.4.1
+- Telegram nezávislý na počítači a osobním nastavení: složka bota podle otisku cesty projektu, standardní bot i pro Kapitána s vlastním mostem
+  (volba se pamatuje), ohlášení „běží" při startu okna (`tools/telegram-ping.mjs`), `telegram-setup.mjs --test`. jeden bot = jedno okno (duplicitní token se odmítne). plugin hlídaný při startu, odpověď jen přes reply kanálu. úvodní zpráva před volbami (neztrácí se). rozjetý audit podle kteréhokoliv výsledku. Samotest 126.
+
+## Změny v1.4.0
+- Telegram: `tools/telegram-setup.mjs` (+ `--detect`, `--agent`), `templates/pruvodce_telegram.md`, spouštěče s kanálem (`write-launchers.mjs`
+  čte `.telegram.json`), ústava §4b, role Kapitána. START → [6] otevře průvodce v okně Claude.
+- Příprava počítače: `tools/bootstrap.ps1|sh`, START sám zjistí chybějící Git/Node/Claude Code.
+- Aktualizace bez opakování: `templates/cile_auditu.json` → `AUDIT/NOVE_CILE.md` jen s chybějícími cíli, `AUDIT/.balik.json`; ústava „Pokračování a aktualizace".
+- Samostatnost Kapitána: `tools/opravneni.mjs`, START → [7], blok destruktivního SQL v `kapitan-audit-guard.js`.
+- Samotest 110.
 
 ## Změny v1.3.0
 - Rozcestník `START.cmd`/`start.sh`: [1] nový projekt · [2] audit projektu na disku · [3] audit GitHub repa.
@@ -253,7 +311,7 @@ Auditor nikdy nezapisuje mimo `AUDIT/` a `tools/`; Kapitán zapisuje jen do `03_
 - Instalátor hlásí commit poctivě (kontrola exit kódu; dřív „uloženo" i po odmítnutí).
 
 ## Změny v3.9.1
-- Výchozí model auditora u PLNÉHO profilu = **Fable 5.1** (`claude-fable-5-1`); LEHKÝ = Opus, JEN AUDIT = Sonnet. Důvod: hlavní vlákno auditora dělá úsudek
+- Model se volí **při každém startu podle právě dostupných modelů** (`tools/preflight.mjs`, ověření krátkým dotazem, 24 h paměť): auditor `opus` → `best` → `sonnet`, Kapitán `sonnet` → `opus`. Aliasy se posouvají samy, nic není natvrdo na verzi; pořadí mění vlastník v `.rezim.json` → `"modely"`. Důvod: hlavní vlákno auditora dělá úsudek
   (co je chyba, falešné DONE, verdikty) — slabší model = horší verdikty; mechanika zůstává na levných subagentech.
 
 ## Změny v3.9
@@ -349,12 +407,12 @@ Auditor nikdy nezapisuje mimo `AUDIT/` a `tools/`; Kapitán zapisuje jen do `03_
 - **Provoz/zálohy/licence**: izolovaný restore test, readiness, alerty, runbook, licence závislostí a dat.
 - Průvodce instaluje hygienu do repa se souhlasem.
 
-## Změny v2 (přehodnocení v1 + poučení z auditu KinoXT3)
+## Změny v2 (přehodnocení v1 + poučení z reálného auditu)
 - **Chyba v1 opravena**: plošné deny `git commit/push` bránilo auditorovi commitovat vlastní AUDIT repo → hook je teď cestově citlivý (git jen ve workspace, nikdy v repu).
 - Placeholdery `[DOPLŇ]` nahrazuje průvodce; cesty jdou do `settings.json → env`, hooky je čtou.
 - Most (`bus.mjs`) místo „sdílená složka": funguje přes stroje, má vlastnictví zpráv, kola review, `replyTo`, stavový řetězec, metriky chování Kapitána (**false_done_rate**).
-- Strana Kapitána má vlastní hook a **gate-check** — vydání nelze obejít ani ručním kliknutím na .bat (KinoXT3: člověk obešel HOLD).
+- Strana Kapitána má vlastní hook a **gate-check** — vydání nelze obejít ani ručním kliknutím na .bat (z praxe: člověk obešel HOLD).
 - Nálezy mají **třídu důkazu** (reprodukovaná chyba / staticky doložené riziko / hypotéza / mezera v důkazu); handoff i verdikt mají povinné „co jsem neprokázal".
-- Ověření vyžaduje vlastní protipříklady a **kombinace stavů/přepínačů** (KinoXT3: 18/18 zelených testů, `--dry-run --rollback` mazal živý soubor).
+- Ověření vyžaduje vlastní protipříklady a **kombinace stavů/přepínačů** (z praxe: 18/18 zelených testů, `--dry-run --rollback` mazal živý soubor).
 - UI crawler má síťový guard (mutace, externí hosty, rizikové GET blokovány mimo izolované prostředí).
 - Efektivita: měření v čerstvé session, latence hooků zvlášť, počty volání Skill/Agent z transkriptů, dieta seřazená podle úspora/riziko.

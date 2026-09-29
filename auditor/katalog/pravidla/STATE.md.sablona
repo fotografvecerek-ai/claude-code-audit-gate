@@ -1,0 +1,12 @@
+# STATE — stav práce
+
+> Drž MALÝ (≤ 1 obrazovka) — po kompakci kontextu se čte celý (hook katalogu `stav-kompakce`). Starší bloky přesuň do archivu.
+
+## Poslední milník
+[TODO] — datum, co je hotovo, odkaz na commit.
+
+## Rozdělaná práce (první nehotová položka = kde pokračovat po kompakci)
+- [ ] [TODO]
+
+## Blokující otázky
+[TODO nebo „žádné"]

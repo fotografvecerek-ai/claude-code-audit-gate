@@ -16,6 +16,6 @@ if (!screens.length && pagesDir) walk(pagesDir, p => { const rel = path.relative
 if (!screens.length) walk(repo, p => { if (/\.html$/.test(p) && !/node_modules|dist|build|test/.test(p)) screens.push({ name: path.basename(p, '.html'), path: '/' + path.relative(repo, p).replace(/\\/g, '/'), auth: false }); });
 if (!screens.length) screens.push(...example.screens);
 const cfg = { ...example, baseUrl: `http://localhost:${port}`, isolatedEnv: false, screens: screens.slice(0, 60) };
-delete cfg._isolatedEnv_note; delete cfg._baseUrl_note;
+delete cfg._isolatedEnv_note; delete cfg._baseUrl_note; delete cfg._uiBaseUrl_note;
 fs.writeFileSync(out, JSON.stringify(cfg, null, 2) + '\n');
 console.log(`seznam obrazovek pro testy: ${screens.length} (${appDir ? 'App Router' : pagesDir ? 'Pages Router' : 'HTML'}) → ${out}; testovací účty si auditor vyžádá v intake`);

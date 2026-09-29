@@ -1,0 +1,336 @@
+AUDITOR 1.6.0 — GUIDE (read this first)
+=======================================
+
+WHAT THIS IS
+------------
+
+A standalone agent for Claude Code that AUDITS your project: security, functionality, the user interface (Playwright walks through
+every screen and every element), repo tidiness, a single source of truth, git practice, agent efficiency (tokens, models),
+backups, and whether the technology fits your goal.
+It codes, changes and releases NOTHING itself. It hands findings, with a suggested fix, to "Captain" (your project agent), forces
+Captain to fix them first, independently verifies every fix, and only then allows a release. The gates are technical (hooks, git
+hook, CI), not just sentences in a prompt.
+WHO IT’S FOR: mainly a RESCUE for a project that’s already underway and is broken and inconsistent (burning tokens, the agent
+producing nonsense, a mess). PREVENTION from day one works too — the rules and gates for Captain (test-first from the brief,
+hygiene, release gate) work right away; but a first audit of an empty repo will find almost nothing.
+
+WHAT YOU NEED
+-------------
+
+- Windows 10/11: START.cmd · macOS / Linux / WSL: bash start.sh (same choices; desktop shortcuts like .command / .desktop; on Mac
+  the system bash 3.2 is enough, plus Node and Git from Homebrew)
+- Node.js 20+           (winget install OpenJS.NodeJS.LTS)
+- Git for Windows       (winget install Git.Git)
+- Claude Code           (npm i -g @anthropic-ai/claude-code)
+- optional: GitHub CLI logged in (winget install GitHub.cli, then: gh auth login)
+             — without it, the GitHub steps (secrets, protected branch) are skipped and you do them by hand
+- optional: gitleaks, semgrep (secret and security-pattern scans; without them, those steps are skipped)
+
+INSTALLATION (3 STEPS)
+----------------------
+
+1. Unzip the whole zip into a permanent folder, e.g.  C:\dev\_auditor\   (NOT into Downloads, do NOT run it from inside the zip).
+   macOS: e.g. ~/dev/_auditor and in Terminal:  bash ~/dev/_auditor/start.sh
+2. Double-click  START.cmd
+3. The menu — what you want to do:
+
+     [1] Create a NEW project  — a project set up in a healthy way from day one. You just type a name (Enter = moje-aplikace), and
+                                  everything else happens on its own: folder C:\dev\<název> (mac/Linux ~/dev/<název>), git, rules
+                                  for the agent, an independent controller, safeguards, CI, a private GitHub repo as a backup (it
+                                  asks, Enter = yes), a "Project - <název>" desktop shortcut. It only asks whether you also want a
+                                  standalone auditor alongside the project: [1] combination (recommended) or [2] just a healthy
+                                  start. Then the agent opens and starts the conversation itself (/zacatek). See NEW PROJECT
+                                  below.
+
+     [2] Audit a project on DISK — a project already underway on this computer. You enter the path to the project folder; Enter
+                                  with no path = scan the drives and pick projects from a list. It doesn’t have to be a git repo:
+                                  if git is missing, the installer sets it up (.gitignore + first commit) — and the auditor logs
+                                  that as the first finding. Scanning the drives: drives + Documents + Downloads (2-5 min), then
+                                  it assesses each project (~1 s per project, progress [12/103] is shown), it displays a numbered
+                                  list in the terminal AND opens the same list in a browser. In the browser you tick the projects
+                                  (and can change the profile if you like), click "Save selection" (downloads Auditor_vyber.json)
+                                  and in the terminal press Enter — the wizard loads your selection itself. Or type the numbers
+                                  (e.g. 1 3 5) directly into the terminal; the numbers are the same in the HTML and in the
+                                  terminal. Network drives (NAS) are skipped — they’re slow; enter a project from one of those by
+                                  its path instead.
+
+     [3] Audit a GITHUB repo  — audit someone else’s project from just the repo address (e.g. a client’s). You paste in the
+                                  address, the auditor downloads the code to itself and goes through it. Nothing gets installed at
+                                  the client’s end and nothing is written to their repo. Private repo: the client invites you as a
+                                  collaborator (read access is enough) and you need gh logged in (gh auth login). Output for the
+                                  client: ZPRAVA.html, 02_HANDOFF.md (a brief for their developer/agent), STATISTIKA.html. New
+                                  version of the code: <projekt>-audit\aktualizovat-repo.cmd.
+
+     [4] Help (this guide)   [5] Self-test   [6] Telegram bot
+     [7] Captain autonomy (can it run project scripts and the database on its own?)   [0] Exit
+
+The installer doesn’t ask you anything technical — it decides on its own based on its assessment of the project (profile, model,
+git, network drives, deploy scripts, window launching). All that’s on you: the path to the project, or picking projects by ticking
+them / entering numbers ([2]).
+The installer creates a  <projekt>-audit\  folder next to each project (the auditor’s workspace), sets up hooks and gates on both
+sides, generates a list of screens, commits the installation to git (only its own files), sets up a private audit repo + secrets
+via gh, runs the self-test (must show "N/N PASS") and AT THE END OPENS THE AUDITOR WINDOW ITSELF (it starts the intake: it asks
+you in plain language — what the app does, for whom, what you’re worried about; you answer, it gets to work) and the CAPTAIN
+WINDOW (it waits until the old one in the project finishes running; Enter = start now). Technical notes for the auditor (missing
+optional tools, deploy scripts) go into AUDIT\instalace.log.
+
+Profiles: FULL = everything (an app with users/data/payments/deploys), model Opus (the "opus" alias = always
+         the newest Opus); Captain runs on Sonnet (cheaper, for coding)
+         LIGHT = no CI, model Opus (small projects with no user data)
+         AUDIT ONLY = just the auditor’s workspace, the repo itself is left untouched (old/inactive projects)
+
+NEW PROJECT — HEALTHY FROM THE START ([1])
+------------------------------------------
+
+For a project you’re just setting up. Instead of a separate auditor, the project gets the auditor’s rules and safeguards built
+right into it, so from day one it works the way an auditor would enforce anyway:
+- CLAUDE.md with the rules: acceptance test first, then code · "done" = verified · a single source of truth · a tidy repo · git
+  and backups · security from the first line · watching token spend · technology chosen to fit the goal.
+- An independent CONTROLLER (subagent): only reads and runs tests, writes exclusively to docs\kontrola\, and nobody else is
+  allowed to write there — so the main agent can’t just write itself an "approved". It checks against the same checklists as the
+  auditor.
+- Commands in the agent’s window: /zacatek (conversation, brief, choice of technology, first tests) · /zadani <what> (new work
+  item = write the test first) · /hotovo · /kontrola (a full independent check, weekly or after ~30 commits; the agent reminds you
+  itself) · /vydani (deploy only with a green 🟢 verdict from the controller) · /uklid.
+- Safeguards: a hook blocks mess, secrets, edits to the safeguards, and releases without a verdict; pre-commit watches tidiness
+  even outside the agent; CI on GitHub checks tidiness, secrets, tests, and the release verdict.
+- Report for you after every check: docs\kontrola\ZPRAVA.html (in plain language, with a recommendation and a question form).
+To be honest: the controller is a strong safeguard, but not quite the same thing as a separate auditor — it runs under the same
+account and is launched by the agent itself. That’s why the COMBINATION is recommended (choice [1] when setting up): a standalone
+auditor gets installed alongside the project too (folder <název>-audit, shortcut "Auditor - <název>"). The controller keeps watch
+continuously; you run the auditor before a bigger release and once a month (the agent will remind you). When the auditor stops a
+release (🔴), the project’s agent sees this at the start of every session and the release stays blocked until the auditor has
+verified the fixes. Just the healthy start (choice [2]) is enough for a small personal project; the auditor can be added at any
+time.
+
+TELEGRAM ([6])
+--------------
+
+Both Auditor and Captain can each have their own Telegram bot: you message it from your phone and the message goes straight into
+its window (even if it’s not doing anything right now); it replies to you on Telegram. The auditor only sends you the important
+things on its own (first impression, a serious finding, a verdict, a release being stopped, a question with a recommended answer)
+— at most a few messages a day.
+START → [6] → path to the project: a wizard window (Claude) opens and walks you through everything step by step — including
+installing Telegram if you don’t have it. You create the bot with @BotFather (a human has to do that part), paste the token into
+the box (nowhere else), then message the bot "ahoj" and the wizard pairs it with just you.
+Captain: if the project ALREADY HAS its own Telegram bus, that stays unchanged — but whether it delivers messages depends on the
+project’s settings. That’s why a standard bot is also offered (recommended): it’s a different bot, it doesn’t clash with the bus,
+and messages go straight into the window on every computer. If it already has a bot from this tool, a new window just takes it
+over automatically. Nothing depends on the computer’s name or on personal settings. Every time a window starts, the bot writes you
+"🟢 … starting up" — if it doesn’t arrive, run [6] again. To confirm the window is really receiving messages, message the bot and
+check the window replies.
+Needs: Claude Code logged in through claude.ai (Pro/Max) or Console; on Team/Enterprise an admin has to allow channels. Bun
+installs the tool itself.
+
+CAPTAIN AUTONOMY ([7])
+----------------------
+
+How much Captain should bother you. You choose this during installation (and once at update time), and change it any time via [7]:
+  [1] CAUTIOUS   — gives you project scripts and the database for approval (you need to be at the computer)
+  [2] AUTONOMOUS — runs project scripts and the database on its own and doesn’t bother you. Safeguards stay in place: a safeguard
+                  blocks dropping tables and bulk deletes in the database, it backs up before writing to the live database and the
+                  auditor checks that backup, and a release still only goes through the auditor.
+  [3] FULL       — on top of that, no prompts from Claude Code at all (not recommended)
+Takes effect the next time Captain’s window is opened.
+
+UPDATING AN EXISTING AUDIT
+--------------------------
+
+A new version NEVER repeats the audit. START → [2] → same project = just an update (tools, rules, settings; the model and the
+findings stay as they are). If the new version added audit goals your audit doesn’t have yet, an AUDIT\NOVE_CILE.md is created
+with just those — the auditor does only those, and at the smallest possible scope (e.g. a summary of what it already knows, or
+just the new commits). A full re-audit only happens if you explicitly tell it: do the whole audit again.
+
+A COMPUTER WITHOUT CLAUDE (e.g. at a client’s)
+----------------------------------------------
+
+START figures out on its own what’s missing (Git, Node.js, Claude Code) and offers to install it ([1] Enter). On Windows via
+winget + the official Claude Code installer, on Mac via Homebrew. Then you just log in to Claude (a browser opens) — you need a
+Claude Pro/Max subscription or a Console account.
+
+ECONOMY MODE (default)
+----------------------
+
+An auditor that advises you to save can’t waste itself. So: context gets compacted around ~200k tokens (not all the way up to ~1M
+— because every step re-reads the whole context), the main thread only steers and decides, the work itself is done by cheap
+subagents (the scout = the cheapest model, the mechanic = a mid-tier one; the expensive model is used only to verify serious
+findings), large files aren’t read in full, and repo copies in the workspace get cleaned up. A safeguard enforces this, not just
+wording in a prompt. To see what an audit costs, run node tools/audit-stats.mjs (tokens and "avg. context per step" — the smaller,
+the more economical).
+Thorough mode (without these limits): write {"rezim":"dukladny"} into <projekt>-audit\.rezim.json.
+
+CHECK BEFORE STARTING (every time you start the auditor or Captain)
+-------------------------------------------------------------------
+
+Before the agent starts, the launcher checks Claude Code: it downloads the update, finds every installation on the computer and
+runs the newest one — even if the "claude" command points at an old one (typically: the update went into a different install).
+More than one installation is reported, with instructions on how to keep just one. Windows already running stay on the version
+they were started with — a new version only takes effect once they’re closed and started again. Same for Codex, via npm. The model
+is chosen at every start based on what’s CURRENTLY available on your account (a quick check, remembered for 24 h): the auditor
+tries opus → best → sonnet, Captain tries opus → sonnet (it plans and talks with you; the code itself is written by its subagents
+on the cheaper sonnet). Nothing is hard-pinned to a version — the alias always points at the newest model of its tier. A different
+order:
+<projekt>-audit\.rezim.json → {"modely":{"auditor":["opus","best"],"kapitan":["sonnet"]}}.
+
+ONE WINDOW PER PROJECT
+----------------------
+
+start-projekt (and the "Auditor a Kapitan - <projekt>" desktop shortcut) opens a single Windows Terminal window with two tabs:
+Auditor (green) and Captain (blue). Switch with the mouse or Ctrl+Tab. Without Windows Terminal it opens two windows like before.
+On macOS/Linux, the same thing via tmux (Ctrl+b n = next tab). When a new version of Auditor is out, it writes one sentence
+telling you how to update. With no internet, it just gives a heads-up.
+
+WHO TO TALK TO
+--------------
+
+You decide, Captain does the work, the auditor verifies. Give new work (a feature, a fix, a change) to CAPTAIN. Ask the auditor:
+how are we doing, is what Captain claims actually true, is it OK to release, and "something’s wrong, find the cause." If you
+accidentally give the auditor work to do, it won’t start it — it will flag this to you and offer to hand it to Captain word for
+word (only once you say "yes"). The auditor only ever hands Captain audit findings on its own.
+
+A LOT OF REQUESTS AT ONCE
+-------------------------
+
+Both Auditor and Captain stick to the agreed goal and plan. If you ask for something that would disrupt it, they’ll tell you right
+away, clearly, and recommend "now / later / don’t do it" — you decide. Whatever isn’t next in line gets written onto a kanban
+board (Captain: .claude/KANBAN.md, auditor: AUDIT/KANBAN.md) and gets done when its turn comes. Quality beats quantity.
+Silence isn’t agreement: if you don’t reply, they won’t do anything irreversible (deleting, releasing, changing the plan) —
+they’ll prepare it and wait.
+
+CATALOG ([9]) — OTHER PROJECTS’ EXPERIENCE, ONLY WHAT THIS PROJECT NEEDS
+------------------------------------------------------------------------
+
+The package includes a catalog of proven skills, agents, rules and hooks (QA loop, safe passwords and keys, independent
+verification, code review, syntax checking, protection against stash/reset --hard and killing processes by name…). Nothing
+installs itself — every extra thing costs tokens on every step. Captain goes through the catalog once, at its next start, and
+turns on only what the project needs. Hooks (checks that run on their own) are turned on by you: START → [9] → path to the project
+→ it shows recommendations with their cost and asks you. Turning one off leaves no leftovers behind.
+
+CODEX ([8]) — AUDITOR OR CAPTAIN IN OPENAI CODEX
+------------------------------------------------
+
+Instead of Claude Code, either agent can run in the OpenAI Codex CLI: START → [8] → path to the project → you choose [1] both in
+Claude Code, [2] Captain in Codex, [3] auditor in Codex, [4] both in Codex. If Codex is missing it offers to install it (npm i -g
+@openai/codex); the first time it runs you log in with your ChatGPT account. A computer with no Claude Code but with Codex:
+install choice [2] sets both agents up in Codex right away.
+What still holds in Codex: the same safeguards (Captain may not change findings/verdicts/hooks, destructive SQL is blocked, the
+auditor may not write to the repo — and Codex’s own sandbox watches it too), the same bus between the agents (a hook delivers
+messages after every step and at the end of each turn), and the rules in AGENTS.md. Captain autonomy ([7]) determines Codex’s
+sandbox and approval settings.
+What Codex does NOT have: a Telegram channel (that’s Claude Code only) and project hooks written for Claude Code
+(.claude/settings.json) — in Codex only the Auditor’s own safeguards apply. The safeguard scripts live in Codex’s own folder
+(~/.codex/auditor/…), which the agents can’t write to; before every start the launcher checks their fingerprints, and if they
+don’t match it won’t start the agent and tells you to run START → [8] (that restores them). In Codex, Captain may only write to
+the project, AUDIT/03_dukazy and AUDIT/bus.
+
+I DON’T KNOW WHERE MY PROJECTS ARE / I DON’T KNOW IF IT’S GIT
+-------------------------------------------------------------
+
+No problem — choose [2] and press Enter with no path. The scan goes through all local drives, Documents, Downloads and the
+Desktop, finds git repos as well as code folders with no git (based on package.json, CLAUDE.md, index.html…), and for each one the
+list shows: name, date last changed, a recommendation, "git" / "NO-GIT", and the full path. Other tools’ repos and unrelated ones
+(nvm, scoop, clones of other people’s projects) get marked SKIP. All you do is type the numbers.
+
+WHAT’S LEFT FOR YOU TO DO AFTER INSTALLATION
+--------------------------------------------
+
+a) <projekt>-audit\AUDIT\.auth\.env.audit  — fill in a TEST database and accounts (the template is ready; the script rejects
+   production values). Without this the auditor won’t start its own instance of the app.
+b) Once the auditor starts an instance (port 3100, 3101 …), log in once with the test accounts:
+   cd <projekt>-audit\tools
+   npx playwright codegen --save-storage ..\AUDIT\.auth\tenantA.json http://localhost:3100/login
+   (and the same for tenantB). The auditor will tell you itself when it needs this.
+c) Deploy: releases are watched by Captain’s hook (vercel, git push to main). The installer only adds a gate-check to your deploy
+   scripts with your OK ([2]); by default it’s left to the auditor — it will suggest which scripts, and Captain will do it, with
+   evidence. Manual deploy: <projekt>-audit\deploy-with-gate.cmd <příkaz>
+d) If you don’t have gh: on GitHub, manually protect the main branch (status check "auditor-gate", force push disallowed) and set
+   the Secrets AUDIT_REPO and AUDIT_REPO_TOKEN (see auditor\README.md).
+
+DO I NEED TO TURN ANYTHING OFF BEFORE THE AUDIT?
+------------------------------------------------
+
+No. The auditor runs in its own window, doesn’t write to the project, and tests against its own copy of the code. The only rule: a
+Captain already running BEFORE installation doesn’t have the new safeguards (they only load at startup) — let it finish (a message
+from the clipboard, see below) and start it again; a new Captain launched from the shortcut will wait for this on its own. Captain
+can keep working normally during the audit; the auditor audits a specific commit and will note in the handoff if the code changed
+in the meantime. Captain only stops (STOP-THE-LINE) once it actually receives a handoff with a P0/P1.
+
+HOW TO USE IT
+-------------
+
+AUDITOR:   <projekt>-audit\start-auditor.cmd      (it starts the intake itself; if the > line stays empty, type: Start intake)
+           You’ll recognize it by the status line at the bottom: AUDITOR · <projekt> … (your global KAPITÁN line doesn’t show in
+           the auditor’s window — the project’s own setting takes priority).
+           You answer a few questions (what the app does, for whom, what you’re worried about, the test environment).
+           The auditor then works through, on its own: repo hygiene → git practice → static analysis → security → functionality →
+           a UI walkthrough → single source of truth → operations/backups → efficiency → sustainability → findings → HANDOFF
+           (AUDIT\02_HANDOFF.md).
+CAPTAIN:   you don’t need to write it anything — at startup it loads the auditor’s messages itself; until there’s a handoff, it
+           does its normal work. If the > line stays empty, type: Load messages from the auditor and continue working.
+           Start it as before, OR from the "Kapitan - <projekt>" desktop shortcut. Either is fine: the safeguards live in the
+           project’s own settings (.claude\settings.json in the repo) and apply to any Claude Code started in that folder. The
+           shortcut also waits for an old Captain still running in the project (3 min of no activity) so two don’t end up running
+           at once.
+OLD CAPTAIN (started before installation): you can’t message it from outside. The installer puts a message on your clipboard —
+           switch to its window, Ctrl+V, Enter: it finishes its current item, saves to git, and shuts down. Rule: an open P0/P1 =
+           the only work there is (STOP-THE-LINE). It fixes the issue, files evidence into AUDIT\03_dukazy\, and reports it over
+           the bus.
+AUDITOR    verifies every fix independently (6 gates: the problem existed → the change exists → it’s wired in → it works → the
+           user flow → regressions + a safeguard). A partial PASS = FAIL. Max 3 rounds, then it asks you. Once every P0/P1 is done
+           it issues the RELEASE GATE (AUDIT\05_release_gate.md) — only then does a deploy go through (Captain’s hook, the
+           gate-check in .bat, CI on GitHub).
+
+WHAT YOU’LL SEE
+---------------
+
+- AUDIT\STATISTIKA.html    how much the auditor got through (files, lines of code, screens, endpoints), what it found, how long it
+                             took and how many tokens it cost (exact, by model).
+- AUDIT\ZPRAVA.html        ← READ THIS ONE: a report for you in the browser, with no technical jargon — the status, the most
+                             serious things (what it means for you), tokens, backups, what it needs from you. The auditor updates
+                             it after the first impression, after the handoff, and after every verified fix. Questions for you are
+                             there as a form: a recommended answer is pre-selected (with a reason), you just confirm or change it,
+                             add a comment if you like, and click "Send answers to the auditor." Then tell the auditor: I’ve
+                             answered.
+- AUDIT\02_HANDOFF.md      what’s wrong, why, the suggested fix, priorities
+- AUDIT\04_verdikty\        PASS/FAIL for every fix, with evidence
+- AUDIT\05_release_gate.md  is it OK to release? (green/red)
+- AUDIT\06_efektivita.md    tokens, models, first-pass yield, before/after
+- AUDIT\07_udrzitelnost.md  whether the technology suits your goal (DB, hosting, services, costs)
+- node <projekt>-audit\tools\bus.mjs metrics   — how Captain fixes things (false "done"s, rounds)
+The auditor writes to you in plain language, one sentence plus a link to the file. It doesn’t offload technical QA onto you.
+
+WHEN SOMETHING’S NOT WORKING
+----------------------------
+
+- "SELF-TEST FAILED" or "GATE NOT WORKING" → don’t start the auditor, copy the whole window output and send it to Claude.
+  (Self-test = a check that the safeguards really do block things; 109/109 on Windows, 110/110 elsewhere.)
+- The agent reports "Blocked" → that’s a gate, not a bug. The auditor may not write to the repo; Captain may not change
+  hooks/settings/CI or release without a gate; a new file in the repo root, and anything temporary outside .tmp\tasks\<ID>\, are
+  forbidden. Rules get tuned by narrowing them, not by working around them.
+- The message "N files are not saved in git" during installation → that’s not an error. Git = the history of a project’s saved
+  versions; "unsaved" just means files changed since the last save (commonly hundreds of them on agent-built projects: logs,
+  output, a missing .gitignore). The installer doesn’t touch your files, it only commits its own, and the auditor turns this into
+  a first finding with a suggestion of what belongs where. There’s nothing you need to do.
+- "GATE-CHECK FAIL: working tree isn’t clean" → this only comes up when releasing: Captain first has to save its work to git (the
+  auditor will tell it to, in the handoff).
+- "GATE-CHECK FAIL: code changed since the audit" → a new fix means a new piece of evidence + a new verdict.
+- "Settings Error … Expected array" in Captain’s window: settings from before version 3.9.4; run START.cmd again (it fixes them).
+- "model not available" / Fable isn’t on the account → in the auditor’s window type  /model opus  (or sonnet).
+- Chromium didn’t download → cd <projekt>-audit\tools && npx playwright install chromium
+- The first "auditor-gate" CI run on GitHub is red until the auditor issues a gate — that’s by design.
+- Updating the package → unzip the new version over the old folder, START.cmd → [2] → same project. The installer recognizes the
+  auditor is already there, and ONLY UPDATES it: it swaps in the constitution, checklists, tools, safeguards and settings (the
+  model stays as it was), commits the updated safeguards to git, and runs the self-test. No intake, no questions, no new windows;
+  AUDIT\ (findings, verdicts, handoff, reports, retros) is NEVER overwritten. Let running windows finish, close them and reopen
+  from the shortcuts — the auditor picks up where it left off, and Captain gets the auditor’s messages. Several projects at once:
+  [2] → Enter → pick them.
+- Several projects = several workspaces; each has its own bus, gate and port. One package, one instance per project. On several
+  machines, keep the same paths (C:\dev\...).
+
+DETAILS
+-------
+
+auditor\README.md       — the package’s structure, all the choices, change history
+auditor\CLAUDE.md       — the auditor’s constitution (exactly what it does and must not do)
+auditor\BRIDGE.md       — the communication protocol between the auditor and Captain
+auditor\checklists\     — what gets checked (security, UI, hygiene, SSOT, efficiency, git, operations, sustainability)

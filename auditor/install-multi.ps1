@@ -55,16 +55,17 @@ if ($fromHtml) {
 if (-not $plan) { Write-Host "nic nevybráno"; exit 0 }
 Write-Host "`n== Plán" -ForegroundColor Cyan
 $plan | ForEach-Object { Write-Host ("  {0,-28} {1,-10} port {2}{3}" -f $_.name, $_.profile, $_.port, $(if ($_.noGit) { '  (založí se git repo)' } else { '' })) }
-Write-Host "(profil = doporučení z posouzení; PLNY = Fable 5.1, LEHKY = Opus, JEN_AUDIT = Sonnet, do projektu se nesahá). Instaluji..." -ForegroundColor Cyan
+Write-Host "(profil = doporučení z posouzení; PLNY = Opus, LEHKY = Opus, JEN_AUDIT = Sonnet, do projektu se nesahá). Instaluji..." -ForegroundColor Cyan
 $summary = @(); $launch = @()
 foreach ($p in $plan) {
   if ($p.profile -eq 'PRESKOCIT') { $summary += "$($p.name): přeskočeno"; continue }
   if ($p.noGit) { node (Join-Path $pkg 'tools\git-init-project.mjs') $p.repo; if ($LASTEXITCODE -ne 0) { $summary += "$($p.name): git init selhal (velké soubory?)"; continue }; $p.dirty = 0 }
   if ($p.dirty -gt 0) { Write-Host "`n$($p.name): $($p.dirty) souborů není uložených v gitu - to je v pořádku, instaluji dál; tvoje soubory se nemění a auditor to zapíše jako první nález." -ForegroundColor Yellow }
   $ws = Join-Path (Split-Path $p.repo -Parent) "$($p.name)-audit"
+  if (Test-Path (Join-Path $ws '.claude\settings.json')) { node (Join-Path $pkg 'tools\update-install.mjs') $p.repo $ws; $summary += "$($p.name): $(if ($LASTEXITCODE -eq 0) { 'AKTUALIZOVÁNO (rozjetý audit zůstává)' } else { 'CHYBA aktualizace' })"; continue }
   Write-Host "`n================ $($p.name) → $($p.profile) ================" -ForegroundColor Green
   switch ($p.profile) {
-    'PLNY'      { $k = 'ano'; $h = 'ano'; $c = if ($p.github) { 'ano' } else { 'ne' }; $m = 'claude-fable-5-1' }
+    'PLNY'      { $k = 'ano'; $h = 'ano'; $c = if ($p.github) { 'ano' } else { 'ne' }; $m = 'opus' }
     'LEHKY'     { $k = 'ano'; $h = 'ano'; $c = 'ne'; $m = 'opus' }
     'JEN_AUDIT' { $k = 'ne';  $h = 'ne';  $c = 'ne'; $m = 'sonnet' }
   }

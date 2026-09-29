@@ -2,7 +2,7 @@
 // TRIAGE — read-only posouzení více projektů: stack, velikost, git stav, signály dat/plateb/tenantů, deploy, existující Claude/auditor
 // instalace → doporučený INSTALAČNÍ PROFIL s důvody. Používá install-multi (.ps1/.sh). Nic nemění.
 //   node tools/triage.mjs <cesta|složka-s-projekty> [...]  [--json] [--html soubor] [--scan] [--sit = i síťové disky] [--depth N]
-// Profily: PLNY (vše: Kapitán, hygiena, CI, Fable 5.1) · LEHKY (Kapitán + hygiena, bez CI, opus) · JEN_AUDIT (jen workspace auditora, repo se nedotkne)
+// Profily: PLNY (vše: Kapitán, hygiena, CI, Opus) · LEHKY (Kapitán + hygiena, bez CI, opus) · JEN_AUDIT (jen workspace auditora, repo se nedotkne)
 //          · PRESKOCIT (není git repo / prázdné / archiv)
 import fs from 'node:fs'; import path from 'node:path'; import { execSync } from 'node:child_process';
 let args = process.argv.slice(2).filter(a => !a.startsWith('--')); const asJson = process.argv.includes('--json'); const scan = process.argv.includes('--scan') || !args.length;
@@ -118,7 +118,7 @@ for (const [ri, repo] of repos.entries()) {
     if (claude.auditorInstalled) reasons.push('auditor už nainstalován → reinstalace (aktualizace hooků), AUDIT/ zůstane');
     if (!claude.agents) reasons.push('projekt nemá subagenty → auditor to označí jako EFF nález');
   }
-  const plan = profile === 'PLNY' ? { kapitan: true, hygiena: true, ci: github, model: 'claude-fable-5-1', port: 3100 + out.length } : profile === 'LEHKY' ? { kapitan: true, hygiena: true, ci: false, model: 'opus', port: 3100 + out.length } : profile === 'JEN_AUDIT' ? { kapitan: false, hygiena: false, ci: false, model: 'sonnet', port: 3100 + out.length } : null;
+  const plan = profile === 'PLNY' ? { kapitan: true, hygiena: true, ci: github, model: 'opus', port: 3100 + out.length } : profile === 'LEHKY' ? { kapitan: true, hygiena: true, ci: false, model: 'opus', port: 3100 + out.length } : profile === 'JEN_AUDIT' ? { kapitan: false, hygiena: false, ci: false, model: 'sonnet', port: 3100 + out.length } : null;
   process.stderr.write(`  ${((Date.now() - tR) / 1000).toFixed(1)} s\n`);
   out.push({ repo, name, noGit: isNoGit, cloud: an.cloud, stack: stack.join(', ') || 'neznámý', code, git: { ...git, lastAgeDays, myCommits, totalCommits, last: git.last || (isNoGit ? fs.statSync(repo).mtime.toISOString().slice(0, 10) : git.last) }, github, foreign, signals: sig, claude, profile, reasons, plan });
 }
@@ -138,7 +138,7 @@ if (htmlOut) {
 &nbsp;|&nbsp; <button class="sec" onclick="pick('plny')">+ všechny PLNÝ</button> <button class="sec" onclick="pick('lehky')">+ LEHKÝ</button> <button class="sec" onclick="pick('audit')">+ JEN AUDIT</button> <button class="sec" onclick="pick(null)">zrušit vše</button> <input type="text" id="q" placeholder="filtr (název, cesta, stack, profil)…" oninput="for(const tr of document.querySelectorAll('tbody tr'))tr.style.display=tr.textContent.toLowerCase().includes(this.value.toLowerCase())?'':'none'"></div>
 <table><thead><tr><th onclick="s(0)">#</th><th onclick="s(1)">Projekt</th><th onclick="s(2)">Stack</th><th onclick="s(3)">Poslední změna</th><th onclick="s(4)">Změn / 90 d</th><th onclick="s(5)">Velikost</th><th>Signály</th><th>Remote</th><th onclick="s(8)">Doporučení</th></tr></thead><tbody>
 ${rows}</tbody></table>
-<p><small>Profily: PLNÝ = Kapitán + hygiena + CI + Fable 5.1 · LEHKÝ = bez CI, Opus · JEN AUDIT = jen workspace auditora, repo se nedotkne · PŘESKOČIT = cizí/nástrojové/bez kódu (můžeš vybrat i tak, výchozí profil JEN AUDIT). Vygenerováno read-only, nic nebylo změněno.</small></p>
+<p><small>Profily: PLNÝ = Kapitán + hygiena + CI + Opus · LEHKÝ = bez CI, Opus · JEN AUDIT = jen workspace auditora, repo se nedotkne · PŘESKOČIT = cizí/nástrojové/bez kódu (můžeš vybrat i tak, výchozí profil JEN AUDIT). Vygenerováno read-only, nic nebylo změněno.</small></p>
 <script>let dir={};function s(i){const tb=document.querySelector('tbody');const rs=[...tb.rows];dir[i]=!dir[i];rs.sort((a,b)=>{const x=a.cells[i].dataset.v??a.cells[i].textContent,y=b.cells[i].dataset.v??b.cells[i].textContent;const n=parseFloat(x),m=parseFloat(y);const c=(!isNaN(n)&&!isNaN(m))?n-m:String(x).localeCompare(String(y),'cs');return dir[i]?c:-c});rs.forEach(r=>tb.appendChild(r))}
 const sel=()=>[...document.querySelectorAll('tbody tr')].filter(t=>t.querySelector('.sel').checked).sort((a,b)=>+a.dataset.n-+b.dataset.n);
 function upd(){const v=sel();for(const t of document.querySelectorAll('tbody tr'))t.classList.toggle('on',t.querySelector('.sel').checked);document.getElementById('out').value=v.map(t=>t.dataset.n).join(' ');document.getElementById('cnt').textContent='vybráno '+v.length}

@@ -20,8 +20,10 @@ if (-not (Test-Path $envA)) { (Get-Content (Join-Path $Workspace 'templates\env.
 Step "Deploy skripty v projektu"
 $patched = @()
 if (-not $NoRepoTouch) {
-  # nejdřív úklid po starších verzích balíku (v3.8.1/3.9 vkládaly gate-check do příliš mnoha skriptů): vložené řádky mají značku, odstraní se přesně
-  node (Join-Path $Workspace 'tools\unpatch-deploy.mjs') $Repo 2>&1 | Where-Object { $_ -notlike 'UNPATCHED *' } | ForEach-Object { "  $_" }
+  # skripty, které už bránu mají, se jen ZAPÍŠOU do logu (instalátor je nikdy neupravuje — necommitnutý rozdíl by bránu obešel);
+  # odstranění rozhoduje auditor v handoffu: tools\unpatch-deploy.mjs <repo> --provest --file <soubor> (jen čisté soubory, s commitem)
+  $nal = @(node (Join-Path $Workspace 'tools\unpatch-deploy.mjs') $Repo 2>&1 | Where-Object { $_ -like 'NALEZ *' } | ForEach-Object { $_.Substring(6) })
+  if ($nal.Count) { Add-Content (Join-Path $Workspace 'AUDIT\instalace.log') ("[{0}] skripty s branou ({1}): {2}" -f (Get-Date -Format s), $nal.Count, ($nal -join ', ')) -Encoding UTF8; Ok "$($nal.Count) skriptů už bránu má - beze změny (seznam: AUDIT\instalace.log)" }
   $cands = @(node (Join-Path $Workspace 'tools\patch-deploy.mjs') $Repo $Workspace --list 2>&1 | Where-Object { $_ -like 'KANDIDAT *' } | ForEach-Object { $_.Substring(9) })
   $log = Join-Path $Workspace 'AUDIT\instalace.log'; Add-Content $log ("[{0}] deploy skripty kandidáti ({1}): {2}" -f (Get-Date -Format s), $cands.Count, ($cands -join ', ')) -Encoding UTF8
   if ($cands.Count) { Ok "nalezeno $($cands.Count) deploy skriptů - které z nich dostanou gate-check, rozhodne auditor v handoffu (seznam: AUDIT\instalace.log)" } else { Ok "deploy skripty podle názvu nenalezeny; vydání hlídá hook Kapitána (vercel, git push)" }
@@ -29,7 +31,9 @@ if (-not $NoRepoTouch) {
 
 Step "Deploy wrapper s gate-checkem"
 $dw = Join-Path $Workspace 'deploy-with-gate.cmd'
-"@echo off`r`nnode `"$Workspace\kapitan-side\gate-check.mjs`" `"$Repo`" || exit /b 1`r`ncd /d `"$Repo`"`r`n%*" | Set-Content $dw -Encoding ASCII
+# UTF-8 bez BOM + chcp 65001 (cesty s diakritikou); původní kódová stránka konzole se vrátí, návratový kód příkazu zůstane
+$cmdText = "@echo off`r`nfor /f `"tokens=2 delims=:.`" %%c in ('chcp') do set `"_CP=%%c`"`r`nchcp 65001 >nul`r`nnode `"$Workspace\kapitan-side\gate-check.mjs`" `"$Repo`" || (chcp %_CP% >nul & exit /b 1)`r`ncd /d `"$Repo`" || (chcp %_CP% >nul & exit /b 1)`r`n%*`r`nset `"_RC=%errorlevel%`"`r`nchcp %_CP% >nul`r`nexit /b %_RC%`r`n"
+[IO.File]::WriteAllText($dw, $cmdText, (New-Object System.Text.UTF8Encoding $false))
 Ok "$dw  (použití: deploy-with-gate.cmd vercel --prod  - nebo vlož první řádek do svého deploy .bat)"
 
 $appBranch = 'main'
@@ -106,9 +110,11 @@ elseif (-not $ghOk) {
 Step "Zástupci na ploše"
 try { $wsh = New-Object -ComObject WScript.Shell; $desk = [Environment]::GetFolderPath('Desktop')
   $combo = Test-Path (Join-Path $Workspace 'AUDIT\.zdravy-start.json')
-  $pairs = @(,@("Auditor - $name", 'start-auditor.cmd')); if (-not (Test-Path (Join-Path $Workspace 'AUDIT\.remote.json')) -and -not $combo) { $pairs += ,@("Kapitan - $name", 'start-kapitan.cmd') }
-  foreach ($pair in $pairs) { $lnk = $wsh.CreateShortcut((Join-Path $desk "$($pair[0]).lnk")); $lnk.TargetPath = 'cmd.exe'; $lnk.Arguments = "/k `"$Workspace\$($pair[1])`""; $lnk.WorkingDirectory = $Workspace; $lnk.IconLocation = 'shell32.dll,137'; $lnk.Save() }
-  if ($combo) { Ok "na ploše: 'Auditor - $name' (agent projektu má vlastního zástupce 'Projekt - $name')" } else { Ok "na ploše: 'Auditor - $name' a 'Kapitan - $name' (Kapitán počká, dokud v projektu běží starý)" } } catch { Warn "zástupce se nepodařilo vytvořit: $_" }
+  $hasK = (Test-Path (Join-Path $Workspace 'start-projekt.cmd'))
+  # s Kapitánem: JEDEN zástupce = jedno okno Windows Terminalu se záložkami Auditor a Kapitán; jinak jen auditor
+  $pairs = if ($hasK) { @(,@("Auditor a Kapitan - $name", 'start-projekt.cmd', '/c call', 7)) } else { @(,@("Auditor - $name", 'start-auditor.cmd', '/k call', 1)) }
+  foreach ($pair in $pairs) { $lnk = $wsh.CreateShortcut((Join-Path $desk "$($pair[0]).lnk")); $lnk.TargetPath = 'cmd.exe'; $lnk.Arguments = "$($pair[2]) `"$Workspace\$($pair[1])`""; $lnk.WorkingDirectory = $Workspace; $lnk.WindowStyle = $pair[3]; $lnk.IconLocation = 'shell32.dll,137'; $lnk.Save() }
+  if ($combo) { Ok "na ploše: 'Auditor - $name' (agent projektu má vlastního zástupce 'Projekt - $name')" } elseif ($hasK) { Ok "na ploše: 'Auditor a Kapitan - $name' (jedno okno, dvě záložky; Kapitán počká, dokud v projektu běží starý)" } else { Ok "na ploše: 'Auditor - $name'" } } catch { Warn "zástupce se nepodařilo vytvořit: $_" }
 
 Step "Přístup Claude Code ke složkám (bez dialogu při prvním startu)"
 node (Join-Path $Workspace 'tools\trust-folders.mjs') $Workspace $Repo 2>&1 | ForEach-Object { "  $_" }
@@ -133,10 +139,18 @@ if ($todo.Count) { Write-Host "`nCO SE NEPODAŘILO UDĚLAT AUTOMATICKY (můžeš
 Write-Host "`nPozn.: pokud na GitHubu uvidíš červený běh 'auditor-gate', je to správně - zezelená, až auditor povolí vydání."
 $oldMsg = "Auditor byl nainstalován. Dokonči jen rozdělanou položku (nic nového nezačínej), ulož práci do gitu (git add + commit + push), napiš mi jednou větou, kde jsi skončil, a ukonči session (/exit). Příště tě spustím znovu - nová session má napojení na auditora."
 if ($stOk -and -not $NoLaunch) {
+  if (Test-Path (Join-Path $Repo '.claude\hooks\kapitan-audit-guard.js')) { node (Join-Path $Workspace 'tools\opravneni.mjs') $Workspace $Repo --ask }
+  node (Join-Path $Workspace 'tools\sdilena-pravidla.mjs') pruvodce --repo $Repo   # pravidla, která se míchají mezi projekty: vlastník rozhodne u každého
+  Write-Host "`n== Telegram (vlastní bot pro auditora i Kapitána; když Kapitán už most má, zůstává)" -ForegroundColor Cyan
+  node (Join-Path $Workspace 'tools\telegram-setup.mjs') --ws $Workspace --repo $Repo --role obe
+}
+if ($stOk -and -not $NoLaunch) {
   Write-Host "`nBĚŽÍ TI TEĎ KAPITÁN V TOMTO PROJEKTU?" -ForegroundColor Yellow
   Write-Host "  Do běžícího okna nejde zvenku psát. Zpráva pro něj je ve SCHRÁNCE: přepni do jeho okna, Ctrl+V, Enter." -ForegroundColor Yellow
   Write-Host "  (Text: $oldMsg)"
   try { Set-Clipboard -Value $oldMsg } catch { }
-  Start-Process cmd.exe -ArgumentList '/k', "`"$Workspace\start-auditor.cmd`""; Write-Host "`n  Auditor se otevírá v novém okně a sám začne intake - odpovídej mu lidsky." -ForegroundColor Green
-  Start-Process cmd.exe -ArgumentList '/k', "`"$Workspace\start-kapitan.cmd`""; Write-Host "  Kapitán se otevírá v druhém okně; pokud v projektu ještě běží starý, počká 3 min klidu (Enter = spustit hned)." -ForegroundColor Green
+  if (Test-Path (Join-Path $Workspace 'start-projekt.cmd')) { Start-Process cmd.exe -ArgumentList '/c', "call `"$Workspace\start-projekt.cmd`"" -WindowStyle Minimized
+    Write-Host "`n  Otevírá se jedno okno se dvěma záložkami: Auditor (zelená - sám začne intake, odpovídej mu lidsky) a Kapitán (modrá)." -ForegroundColor Green
+    Write-Host "  Kapitán počká, pokud v projektu ještě běží starý (Enter = spustit hned). Mezi záložkami přepínáš myší nebo Ctrl+Tab." -ForegroundColor Green }
+  else { Start-Process cmd.exe -ArgumentList '/k', "call `"$Workspace\start-auditor.cmd`""; Write-Host "`n  Auditor se otevírá v novém okně a sám začne intake - odpovídej mu lidsky." -ForegroundColor Green }
 }

@@ -1,6 +1,7 @@
 {
   "baseUrl": "http://localhost:3100",
   "_baseUrl_note": "port auditorovy instance (build-env.mjs up --port 3100) — NE Kapitánův dev server na 3000",
+  "_uiBaseUrl_note": "volitelné \"uiBaseUrl\": adresa UI, když běží jinde než API (např. statický web a serverless api/) — Playwright specy ji berou přednostně",
   "isolatedEnv": false,
   "_isolatedEnv_note": "true JEN pro oddělenou DB/port/účty (žádná živá data). false = crawler blokuje mutační a externí požadavky a rizikové GET (seed/migrate/reset…).",
   "screens": [

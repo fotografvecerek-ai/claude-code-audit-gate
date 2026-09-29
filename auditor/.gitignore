@@ -7,3 +7,5 @@ AUDIT/_archiv/
 AUDIT/*.log
 AUDIT/.pre-install-status.txt
 build/
+.preflight.json
+.bin/
