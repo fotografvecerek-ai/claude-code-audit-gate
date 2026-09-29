@@ -33,6 +33,7 @@ stručně, odrážky, verdikty 🔴/🟡/🟢, žádné motivační fráze.
 | OSOBNÍ (ASVS L1) | P0 + P1 bezpečnost | UI sanity, bez a11y/perf; ověření lehké |
 | BĚŽNÝ (L2, výchozí) | všechny P0/P1 | plný audit jako dosud |
 | KRITICKÝ (L3) | P0/P1 + P2 bezpečnost | plný ui-crawl + a11y + perf, CI 2× zelené, nezávislý ověřovatel |
+Strojově: v PROTOTYPu blokuje vydání jen otevřený P0 s vyplněným polem `kategorie_p0` (data|tajemstvi|stroj) v nálezu.
 Neblokující nálezy PROTOTYPu a OSOBNÍ zapisuj do `AUDIT/DLUH.md` (ID, závažnost, 1 věta) — nic se neztrácí. Při přepnutí NAHORU (úkol v `AUDIT/NOVE_CILE.md`)
 projdi celý `DLUH.md` podle nové úrovně; release gate zůstane 🔴, dokud dluh nové úrovně není uzavřen. Úroveň mění jen vlastník.
 

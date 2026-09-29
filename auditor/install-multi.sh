@@ -7,6 +7,7 @@ ROWS=(); while IFS= read -r __l; do ROWS+=("$__l"); done < <(node "$PKG/tools/tr
 [ ${#ROWS[@]} -gt 0 ] || { echo "žádná git repa"; exit 1; }
 echo "HTML report: $REPORT"; (command -v xdg-open >/dev/null && xdg-open "$REPORT" >/dev/null 2>&1 || command -v open >/dev/null && open "$REPORT" || true) 2>/dev/null
 echo; echo "== Nalezené projekty"
+PRISNOST=3; if [ -t 0 ]; then read -r -p "Přísnost auditu: [1] Prototyp [2] Osobní [3] Běžný [4] Kritický (Enter = 3): " __p; PRISNOST=${__p:-3}; fi  # K-002; bez klávesnice = běžný
 i=0; for row in "${ROWS[@]}"; do i=$((i+1)); IFS='|' read -r repo name prof gh port dirty last ng <<< "$row"; printf "  %2d. %-26s %-12s %-10s %-9s %s\n" "$i" "$name" "${last:-—}" "$prof" "$([ "$ng" = 1 ] && echo BEZ-GITU || echo git)" "$repo"; done
 T0=$(date +%s); PLAN=(); HTMLSEL=""
 for try in 1 2 3; do
@@ -44,7 +45,7 @@ for p in "${PLAN[@]}"; do IFS='|' read -r repo name prof gh port dirty ng <<< "$
   if [ -f "$WS/.claude/settings.json" ]; then node "$PKG/tools/update-install.mjs" "$repo" "$WS" && SUM+=("$name: AKTUALIZOVÁNO (rozjetý audit zůstává)") || SUM+=("$name: CHYBA aktualizace"); continue; fi
   echo; echo "================ $name → $prof ================"
   case "$prof" in PLNY) K=ano; H=ano; C=$([ "$gh" = 1 ] && echo ano || echo ne); M=opus;; LEHKY) K=ano; H=ano; C=ne; M=opus;; JEN_AUDIT) K=ne; H=ne; C=ne; M=sonnet;; esac
-  AUDITOR_YES=1 AUDITOR_REPO="$repo" AUDITOR_WS="$WS" AUDITOR_REMOTE="" AUDITOR_MODEL=$M AUDITOR_KAPITAN=$K AUDITOR_HYGIENA=$H AUDITOR_CI=$C bash "$PKG/setup-auditor.sh" || { SUM+=("$name: CHYBA průvodce"); continue; }
+  AUDITOR_YES=1 AUDITOR_REPO="$repo" AUDITOR_WS="$WS" AUDITOR_REMOTE="" AUDITOR_MODEL=$M AUDITOR_KAPITAN=$K AUDITOR_HYGIENA=$H AUDITOR_CI=$C bash "$PKG/setup-auditor.sh" --prisnost "$PRISNOST" || { SUM+=("$name: CHYBA průvodce"); continue; }
   node "$WS/tools/gen-config.mjs" "$repo" --port "$port"
   [ -f "$WS/AUDIT/.auth/.env.audit" ] || sed "s/localhost:3100/localhost:$port/" "$WS/templates/env.audit.example" > "$WS/AUDIT/.auth/.env.audit"
   printf '#!/usr/bin/env bash\nnode "%s/kapitan-side/gate-check.mjs" "%s" || exit 1\ncd "%s" && exec "$@"\n' "$WS" "$repo" "$repo" > "$WS/deploy-with-gate.sh"; chmod +x "$WS/deploy-with-gate.sh"

@@ -56,6 +56,9 @@ if (-not $plan) { Write-Host "nic nevybráno"; exit 0 }
 Write-Host "`n== Plán" -ForegroundColor Cyan
 $plan | ForEach-Object { Write-Host ("  {0,-28} {1,-10} port {2}{3}" -f $_.name, $_.profile, $_.port, $(if ($_.noGit) { '  (založí se git repo)' } else { '' })) }
 Write-Host "(profil = doporučení z posouzení; PLNY = Opus, LEHKY = Opus, JEN_AUDIT = Sonnet, do projektu se nesahá). Instaluji..." -ForegroundColor Cyan
+# K-002: přísnost auditu jednou pro všechny projekty (Enter = 3 = běžný; bez klávesnice = běžný)
+$prisnost = '3'
+if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) { $pr = Read-Host 'Přísnost auditu pro všechny projekty: [1] Prototyp [2] Osobní [3] Běžný [4] Kritický (Enter = 3)'; if ($pr) { $prisnost = $pr.Trim() } }
 $summary = @(); $launch = @()
 foreach ($p in $plan) {
   if ($p.profile -eq 'PRESKOCIT') { $summary += "$($p.name): přeskočeno"; continue }
@@ -69,7 +72,7 @@ foreach ($p in $plan) {
     'LEHKY'     { $k = 'ano'; $h = 'ano'; $c = 'ne'; $m = 'opus' }
     'JEN_AUDIT' { $k = 'ne';  $h = 'ne';  $c = 'ne'; $m = 'sonnet' }
   }
-  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkg 'setup-auditor.ps1') -Repo $p.repo -Workspace $ws -Yes -Model $m -Kapitan $k -Hygiena $h -CI $c
+  & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkg 'setup-auditor.ps1') -Repo $p.repo -Workspace $ws -Yes -Model $m -Kapitan $k -Hygiena $h -CI $c -Prisnost $prisnost
   if ($LASTEXITCODE -ne 0) { $summary += "$($p.name): CHYBA v průvodci"; continue }
   $extra = @('-Port', $p.port); if ($c -eq 'ne') { $extra += '-NoGitHub' }; if ($p.profile -eq 'JEN_AUDIT') { $extra += '-NoRepoTouch' }
   & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkg 'post-install.ps1') -Repo $p.repo -Workspace $ws -NoLaunch @extra

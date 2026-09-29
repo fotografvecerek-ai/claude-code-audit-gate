@@ -1440,6 +1440,25 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
     const ps1 = fs.readFileSync(path.join(pkg, 'setup-auditor.ps1'), 'utf8'), sh = fs.readFileSync(path.join(pkg, 'setup-auditor.sh'), 'utf8');
     T('PŘÍSNOST: instalátor (ps1 i sh) má parametr přísnosti a volá prisnost.mjs nastav', `${/\[string\]\$Prisnost/.test(ps1) && /prisnost\.mjs'\) --ws \$ws nastav/.test(ps1)}/${/--prisnost\)/.test(sh) && /prisnost\.mjs" --ws "\$WS" nastav/.test(sh)}`, 'true/true');
   }
+  { // K-002 K2: trvalá evidence dluhu, readLevel (BOM, poškozený JSON), vstupní body instalace, kategorie P0
+    const kw = path.join(tmp, 'prisnost-k2'); fs.mkdirSync(kw, { recursive: true }); const dj = () => { try { return JSON.parse(fs.readFileSync(path.join(kw, 'AUDIT', '.prisnost.json'), 'utf8')); } catch { return null; } };
+    fs.writeFileSync(path.join(kw, '.rezim.json'), '﻿{"prisnost":"kriticky"}', 'utf8'); T('PŘÍSNOST K2: readLevel přečte .rezim.json s UTF-8 BOM', pz.readLevel(kw), 'kriticky');
+    fs.writeFileSync(path.join(kw, '.rezim.json'), '{"prisnost":"kriticky"', 'utf8'); T('PŘÍSNOST K2: readLevel u poškozeného JSON = bezny', pz.readLevel(kw), 'bezny');
+    fs.writeFileSync(path.join(kw, '.rezim.json'), '{"prisnost":"osobni","jazyk":"en"}', 'utf8');
+    cli(kw, 'nastav', 'kriticky'); const d1 = dj();
+    T('PŘÍSNOST K2: zvýšení zapíše AUDIT/.prisnost.json {audit_dluhu:{otevren,uroven,od}}', `${d1?.audit_dluhu?.otevren}/${d1?.audit_dluhu?.uroven}/${Number.isFinite(Date.parse(d1?.audit_dluhu?.od))}`, 'true/kriticky/true');
+    T('PŘÍSNOST K2: contextLine při otevřeném dluhu připíše „audit dluhu otevřen“', /audit dluhu otevřen/.test(cli(kw, 'kontext').stdout), true);
+    fs.writeFileSync(path.join(kw, 'AUDIT', '.prisnost.json'), JSON.stringify({ ...d1, jiny: 1 })); cli(kw, 'nastav', 'osobni');
+    T('PŘÍSNOST K2: snížení dluh nezavře ani nezmění (trvá do dluh-uzavren)', `${dj()?.audit_dluhu?.otevren}/${dj()?.jiny}`, 'true/1');
+    const cl = cli(kw, 'dluh-uzavren'); T('PŘÍSNOST K2: dluh-uzavren nastaví otevren:false a zachová ostatní klíče', `${cl.status}/${dj()?.audit_dluhu?.otevren}/${dj()?.jiny}/${/audit dluhu otevřen/.test(cli(kw, 'kontext').stdout)}`, '0/false/1/false');
+    for (const [f, re, nm] of [['INSTALL.cmd', /setup-auditor\.ps1"[^\r\n]*-Prisnost/, 'INSTALL.cmd'], ['install-multi.ps1', /setup-auditor\.ps1'\)[^\r\n]*-Prisnost/, 'install-multi.ps1'], ['audit-github.ps1', /setup-auditor\.ps1'\)[^\r\n]*-Prisnost/, 'audit-github.ps1'],
+      ['install.sh', /setup-auditor\.sh"[^\r\n]*--prisnost/, 'install.sh'], ['install-multi.sh', /setup-auditor\.sh"[^\r\n]*--prisnost/, 'install-multi.sh'], ['audit-github.sh', /setup-auditor\.sh"[^\r\n]*--prisnost/, 'audit-github.sh'], ['tools/new-project.mjs', /-Prisnost', prisnost[\s\S]*--prisnost', prisnost/, 'new-project.mjs']]) {
+      const fp = path.join(pkg, f); if (!fs.existsSync(fp)) continue; const src = fs.readFileSync(fp, 'utf8');
+      T(`PŘÍSNOST K2: vstupní bod instalace ${nm} předává přísnost do setup-auditor`, re.test(src), true);
+    }
+    const nl = path.join(pkg, 'templates', 'nalez.md'); if (fs.existsSync(nl)) T('PŘÍSNOST K2: šablona nálezu má pole kategorie_p0 (data|tajemstvi|stroj)', /kategorie_p0[\s\S]*data[\s\S]*tajemstvi[\s\S]*stroj/.test(fs.readFileSync(nl, 'utf8')), true);
+    const cm = path.join(pkg, 'CLAUDE.md'); if (fs.existsSync(cm)) T('PŘÍSNOST K2: CLAUDE.md §Přísnost zmiňuje kategorie_p0 pro PROTOTYP', /PROTOTYP[^\r\n]*kategorie_p0/.test(fs.readFileSync(cm, 'utf8')), true);
+  }
 }
 { // PATCH-DEPLOY: brána v PowerShellu za hlavičkou (param), jen ASCII; SDÍLENÁ PRAVIDLA: nalezena, agent je nepřesune
   const pr = path.join(tmp, 'pd-app'), pw = path.join(tmp, 'pd-app-audit'); fs.mkdirSync(path.join(pw, 'kapitan-side'), { recursive: true }); fs.mkdirSync(pr, { recursive: true });
@@ -1580,6 +1599,19 @@ if (!process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL) {
   const p2 = runUI(r2, w2);
   T('UPDATE-INSTALL A-008: legitimní profil „jen audit" (AUDIT/.remote.json) beze změn → OK',
     `exit=${p2.status},aktualizovano=${/AKTUALIZOVÁNO/.test(p2.stdout)},varovani=${/NEDOKONČ/.test(p2.stdout + p2.stderr)}`, 'exit=0,aktualizovano=true,varovani=false');
+
+  // K-002 K2: trvalý dluh přísnosti — úkol „audit dluhu“ přežije update-install (přepisuje NOVE_CILE.md), dluh-uzavren ho zastaví
+  { const rK = path.join(tmp, 'ui-k2'), wK = path.join(tmp, 'ui-k2-audit'); uiRepo(rK); uiWs(wK, { remote: true }); fs.writeFileSync(path.join(wK, 'AUDIT', '02_HANDOFF.md'), '# x\n');
+    const PRk = path.join(pkg, 'tools', 'prisnost.mjs'); const cliK = (...a) => spawnSync(process.execPath, [PRk, '--ws', wK, ...a], { encoding: 'utf8' });
+    const ncK = path.join(wK, 'AUDIT', 'NOVE_CILE.md'); const dluhTask = () => { try { return /Audit dluhu \(AUDIT\/DLUH\.md\) podle úrovně KRITICKÝ — release gate 🔴/.test(fs.readFileSync(ncK, 'utf8')); } catch { return false; } };
+    cliK('nastav', 'bezny'); cliK('nastav', 'kriticky'); fs.rmSync(ncK, { force: true });
+    const u1 = runUI(rK, wK);
+    T('UPDATE-INSTALL K-002: po zvýšení přísnosti update-install úkol „audit dluhu“ znovu založí (NOVE_CILE.md smazáno)', `exit=${u1.status},${dluhTask()}`, 'exit=0,true');
+    fs.writeFileSync(ncK, '# přepsáno\n'); const u2 = runUI(rK, wK);
+    T('UPDATE-INSTALL K-002: úkol dluhu trvá i po další aktualizaci (soubor .prisnost.json update nepřepíše)', `exit=${u2.status},${dluhTask()},${fs.existsSync(path.join(wK, 'AUDIT', '.prisnost.json'))}`, 'exit=0,true,true');
+    cliK('dluh-uzavren'); fs.rmSync(ncK, { force: true }); const u3 = runUI(rK, wK);
+    T('UPDATE-INSTALL K-002: po dluh-uzavren úkol dluhu už nevznikne', `exit=${u3.status},${dluhTask()}`, 'exit=0,false');
+  }
 
   // 3) třetí díra (vlastní zjištění) + A-008 kolo 3 (C5L): hygiena už jednou potvrzeně nainstalovaná, ale .git/hooks/pre-commit
   //    i pre-push úplně chybí (např. .git smazán a znovu založen). Dřívější kód jen AKTUALIZOVAL hook, co už měl marker —

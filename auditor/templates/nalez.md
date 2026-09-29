@@ -5,6 +5,7 @@
 | **Třída důkazu** | `REPRODUKOVANÁ CHYBA` (vlastní bezpečný vstup, očekávaný × skutečný výsledek, verze) / `STATICKY DOLOŽENÉ RIZIKO` (průchod kódem + protipříklad, dopad nereprodukován) / `HYPOTÉZA K OVĚŘENÍ` (indicie bez důkazu příčiny/dopadu) / `MEZERA V DŮKAZU` (Kapitán tvrdí PASS, test neověřuje správný stav/artefakt/izolaci/flow) |
 | Priorita | P0 (únik/ztráta dat, obejití auth) / P1 (funkce nefunguje, špatná autorizace, SSOT u peněz/oprávnění) / P2 (UX, kvalita, duplicita) / P3 (kosmetika) |
 | Pravděpodobnost × dopad | nízká/střední/vysoká × nízký/střední/vysoký → 🔴/🟡/🟢 |
+| Kategorie P0 (`kategorie_p0`) | `data` (ztráta/únik dat) / `tajemstvi` (únik tajemství) / `stroj` (poškození stroje) / `—` (není P0 nebo jiný P0) — v úrovni PROTOTYP blokuje vydání jen otevřený P0 s vyplněnou kategorií |
 | Oblast | bezpečnost / funkce / UI / a11y / SSOT / architektura / efektivita |
 | Standard | např. `OWASP A01:2025`, `ASVS v5.0.0-8.2.1`, `WCAG 2.2 2.5.8` (verze ověřena: ano/ne) |
 | Místo | `soubor:řádek`, endpoint, obrazovka + viewport |

@@ -208,6 +208,11 @@ if (kapitan || starter) {
   // A-008 kolo 2: `rozjety` teď počítá výš (u remoteOrCombo) — použito i tam pro looksIncomplete, tady jen reuse (žádná duplicitní logika).
   const hotove = new Set(b.hotove || []); const nf = path.join(ws, 'AUDIT', 'NOVE_CILE.md');
   const pending = rozjety ? cile.filter(c => !hotove.has(c.id) && !(c.hotovo_kdyz || []).some(f => fs.existsSync(path.join(ws, f)))) : [];
+  // K-002: trvalý dluh přísnosti (AUDIT/.prisnost.json, tento soubor update nepřepisuje) — úkol se při každé aktualizaci založí znovu, dokud ho auditor neuzavře (`prisnost.mjs dluh-uzavren`)
+  { let d = null; try { d = JSON.parse(rd(path.join(ws, 'AUDIT', '.prisnost.json'))).audit_dluhu; } catch { }
+    const lv = { prototyp: 'PROTOTYP', osobni: 'OSOBNÍ', bezny: 'BĚŽNÝ', kriticky: 'KRITICKÝ' }[d && d.uroven];
+    if (d && d.otevren === true && lv) pending.push({ id: `DLUH-${lv}`, od_verze: ver, cil: `Audit dluhu (AUDIT/DLUH.md) podle úrovně ${lv} — release gate 🔴 do uzavření`,
+      postup: 'projdi celý AUDIT/DLUH.md podle nové úrovně; po uzavření auditor spustí `node tools/prisnost.mjs dluh-uzavren` (do té doby se úkol po každé aktualizaci vrací).', naklady: 'podle velikosti dluhu' }); }
   if (mergeNew.length && rozjety) pending.push({ id: `SLOUCIT-${stamp}`, od_verze: ver, cil: `sloučit ručně: ${mergeNew.join('; ')}`,
     postup: 'porovnej svou verzi s <soubor>.new; opravy balíku převezmi, úpravy pro projekt přesuň do tools/local/ (nástroje) nebo .claude/rules/*-projekt.md; pak <soubor>.new smaž. Do té doby běží tvoje verze.', naklady: 'malé (porovnání dvou verzí)' });
   if (savedTools.length && rozjety) pending.push({ id: `NASTROJE-${stamp}`, od_verze: ver, cil: `přenést tvoje úpravy nástrojů (${savedTools.join(', ')}) — aktualizace je nahradila novou verzí, tvoje verze leží v AUDIT/_nastroje-zaloha/${stamp}/`,

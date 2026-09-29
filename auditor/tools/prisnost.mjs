@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 // PŘÍSNOST AUDITU za projekt — jediné místo pravdy (standard OWASP ASVS L1/L2/L3, žádná vlastní stupnice).
-//   node tools/prisnost.mjs [--ws <workspace>] stav | kontext | nastav <prototyp|osobni|bezny|kriticky>
+//   node tools/prisnost.mjs [--ws <workspace>] stav | kontext | nastav <prototyp|osobni|bezny|kriticky> | dluh-uzavren
 // Úroveň je v <workspace>/.rezim.json → "prisnost"; chybí nebo je neplatná = "bezny" (staré instalace beze změny).
 // Každá změna se zapíše do AUDIT/_zmeny-nastaveni.log (A-029); úroveň mění jen vlastník (START/instalátor) — pojistka Kapitána `nastav` z agenta blokuje.
-// Zvýšení úrovně založí úkol „audit dluhu" v AUDIT/NOVE_CILE.md; první nastavení (klíč dosud chyběl) ani snížení ne.
+// Zvýšení úrovně založí úkol „audit dluhu" v AUDIT/NOVE_CILE.md a zapíše trvalý stav do AUDIT/.prisnost.json (update-install ho nepřepisuje
+// a úkol z něj při každé aktualizaci znovu založí); `dluh-uzavren` (zapisuje auditor, ne Kapitán) dluh uzavře. První nastavení ani snížení dluh nezakládá.
 import fs from 'node:fs'; import path from 'node:path'; import { fileURLToPath } from 'node:url';
 
 export const LEVELS = ['prototyp', 'osobni', 'bezny', 'kriticky'];
@@ -39,11 +40,29 @@ export function lastChange(ws, now = Date.now()) {
   const t = Date.parse(m[1]); if (!Number.isFinite(t) || now - t > RECENT_MS || now - t < -RECENT_MS) return null;
   return { cas: m[1], z: m[2], na: m[3], zdroj: m[4] };
 }
+// Trvalá evidence dluhu: AUDIT/.prisnost.json → { audit_dluhu: { otevren, uroven, od } } (mimo NOVE_CILE.md, které update přepisuje).
+const debtFile = ws => path.join(ws, 'AUDIT', '.prisnost.json');
+function readDebtState(ws) {
+  try { const j = JSON.parse(fs.readFileSync(debtFile(ws), 'utf8').replace(/^\uFEFF/, '')); return j && typeof j === 'object' && !Array.isArray(j) ? j : {}; } catch { return {}; }
+}
+function writeDebtState(ws, audit_dluhu) {
+  fs.mkdirSync(path.join(ws, 'AUDIT'), { recursive: true });
+  fs.writeFileSync(debtFile(ws), JSON.stringify({ ...readDebtState(ws), audit_dluhu }, null, 2) + '\n', 'utf8');
+}
+export function debtStatus(ws) {
+  const d = readDebtState(ws).audit_dluhu;
+  return d && d.otevren === true && isLevel(d.uroven) ? { otevren: true, uroven: d.uroven, od: String(d.od || '') } : { otevren: false };
+}
+export function closeDebt(ws) {
+  const d = readDebtState(ws).audit_dluhu; if (!d || d.otevren !== true) return false;
+  writeDebtState(ws, { ...d, otevren: false, uzavreno: new Date().toISOString() }); return true;
+}
 const lbl = x => LABELS[x] || x;
 export function contextLine(level, ws) {
   const l = isLevel(level) ? level : DEFAULT_LEVEL; const base = `[PŘÍSNOST] ${LABELS[l]} — ${RULES[l]}`;
   const ch = ws ? lastChange(ws) : null;
-  return ch ? `${base}\n[PŘÍSNOST] Poslední změna přísnosti: ${ch.cas.slice(0, 16).replace('T', ' ')} UTC ${lbl(ch.z)} → ${lbl(ch.na)} (${ch.zdroj}) — nečekanou změnu ohlas vlastníkovi.` : base;
+  const debt = ws && debtStatus(ws).otevren ? `${base} — audit dluhu otevřen` : base;
+  return ch ? `${debt}\n[PŘÍSNOST] Poslední změna přísnosti: ${ch.cas.slice(0, 16).replace('T', ' ')} UTC ${lbl(ch.z)} → ${lbl(ch.na)} (${ch.zdroj}) — nečekanou změnu ohlas vlastníkovi.` : debt;
 }
 
 export function setLevel(ws, level) {
@@ -62,6 +81,7 @@ export function setLevel(ws, level) {
     const head = fs.existsSync(nc) ? '' : '# Nové cíle auditu\n\n';
     const line = `- [ ] **DLUH-${LABELS[level]}** — Audit dluhu (AUDIT/DLUH.md) podle úrovně ${LABELS[level]} (přísnost zvýšena z ${LABELS[prev]}) — release gate 🔴 do uzavření.\n`;
     fs.appendFileSync(nc, head + line, 'utf8');
+    writeDebtState(ws, { otevren: true, uroven: level, od: new Date().toISOString() });
   }
   return { level, prev, raised };
 }
@@ -76,6 +96,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     else if (cmd === 'nastav') {
       const r = setLevel(ws, String(arg || '').toLowerCase());
       console.log(`Přísnost auditu nastavena: ${LABELS[r.level]}.${r.raised ? ' Založen úkol „audit dluhu" v AUDIT/NOVE_CILE.md.' : ''}`);
-    } else { console.error('Použití: node tools/prisnost.mjs [--ws <cesta>] stav | kontext | nastav <prototyp|osobni|bezny|kriticky>'); process.exit(1); }
+    } else if (cmd === 'dluh-uzavren') console.log(closeDebt(ws) ? 'Audit dluhu uzavřen.' : 'Žádný otevřený audit dluhu.');
+    else { console.error('Použití: node tools/prisnost.mjs [--ws <cesta>] stav | kontext | nastav <prototyp|osobni|bezny|kriticky> | dluh-uzavren'); process.exit(1); }
   } catch (e) { console.error(e.message); process.exit(1); }
 }

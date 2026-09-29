@@ -36,7 +36,10 @@ echo.
 echo Repo:      %REPO%
 echo Workspace: %WS%
 echo.
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup-auditor.ps1" -Repo "%REPO%" -Workspace "%WS%" -Yes
+set "PRISNOST=3"
+set /p PRISNOST=Prisnost auditu: [1] Prototyp [2] Osobni [3] Bezny [4] Kriticky (Enter = 3): 
+if not defined PRISNOST set "PRISNOST=3"
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0setup-auditor.ps1" -Repo "%REPO%" -Workspace "%WS%" -Yes -Prisnost "%PRISNOST%"
 if errorlevel 1 (echo. & echo Pruvodce skoncil chybou - viz vyse. & pause & exit /b 1)
 if not defined HASCLAUDE (echo Claude Code tu neni - auditor i Kapitan pobezi v Codexu. & node "%~dp0tools\codex-setup.mjs" --ws "%WS%" --repo "%REPO%" --auditor codex --kapitan codex --yes)
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0post-install.ps1" -Repo "%REPO%" -Workspace "%WS%"
