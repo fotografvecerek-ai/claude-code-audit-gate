@@ -50,7 +50,7 @@ tools/node_modules/
 
 # 2) settings.json s TVÝMI cestami (env čtou hooky; deny pravidla chrání repo)
 $wsP = Posix $ws; $repoP = Posix $repo
-$env:AUDITOR_ZDROJ = 'instalator'; node (Join-Path $ws 'tools/prisnost.mjs') --ws $ws nastav $prisnost; Remove-Item Env:AUDITOR_ZDROJ -ErrorAction SilentlyContinue; if ($LASTEXITCODE -ne 0) { Write-Host 'Zápis přísnosti auditu selhal' -ForegroundColor Red; exit 1 }
+$env:AUDITOR_ZDROJ = 'instalator'; node (Join-Path $ws 'tools/prisnost.mjs') --ws $ws nastav $prisnost --vlastnik; Remove-Item Env:AUDITOR_ZDROJ -ErrorAction SilentlyContinue; if ($LASTEXITCODE -ne 0) { Write-Host 'Zápis přísnosti auditu selhal' -ForegroundColor Red; exit 1 }
 node (Join-Path $ws 'tools/write-auditor-settings.mjs') $ws $repo $model; if ($LASTEXITCODE -ne 0) { Write-Host 'Zápis settings auditora selhal' -ForegroundColor Red; exit 1 }
 
 # 3) git

@@ -29,7 +29,7 @@ mkdir -p "$WS"/AUDIT/{01_nalezy/momentky,03_dukazy,04_verdikty,bus,.auth}
 [ -f "$WS/tools/audit.config.json" ] || cp "$WS/tools/audit.config.example.json" "$WS/tools/audit.config.json"
 printf 'node_modules/\ntest-results/\nplaywright-report/\nAUDIT/.auth/\nAUDIT/_archiv/\nAUDIT/bus/.notified-*\nbuild/\ntools/node_modules/\n' > "$WS/.gitignore"
 
-AUDITOR_ZDROJ=instalator node "$WS/tools/prisnost.mjs" --ws "$WS" nastav "$PRISNOST" || { echo "Zápis přísnosti auditu selhal"; exit 1; }
+AUDITOR_ZDROJ=instalator node "$WS/tools/prisnost.mjs" --ws "$WS" nastav "$PRISNOST" --vlastnik || { echo "Zápis přísnosti auditu selhal"; exit 1; }
 node "$WS/tools/write-auditor-settings.mjs" "$WS" "$REPO" "$MODEL" || { echo "Zápis settings auditora selhal"; exit 1; }
 
 ( cd "$WS"; [ -d .git ] || { git init -q; git add -A; git -c user.name=auditor -c user.email=auditor@local commit -q -m "auditor workspace init"; }

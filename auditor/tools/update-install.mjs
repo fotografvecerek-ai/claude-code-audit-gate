@@ -36,7 +36,7 @@ const walk = (d, pre = '') => { let o = []; for (const e of fs.readdirSync(d, { 
 const LAYERS = [['tools', ''], ['templates', 'templates/'], ['checklists', 'checklists/']];
 let manAll = {}; try { manAll = JSON.parse(rd(MF)); } catch { }
 const man = manAll.soubory || null, manO = manAll.ostatni || null;
-const ALWAYS = /^(fs-bezpecne|preflight|usporny-guard|bus|bus-notify|bus-store|codex-[\w-]+|write-[\w-]+|update-install|selftest|telegram-[\w-]+|kapitan-role|opravneni|wait-idle|merge-repo-settings|trust-folders|guard-check|katalog|sdilena-pravidla|jazyk|stav-session)\.mjs$|^VERZE$/;   // pojistky a spouštění: vždy verze balíku
+const ALWAYS = /^(fs-bezpecne|preflight|usporny-guard|bus|bus-notify|bus-store|codex-[\w-]+|write-[\w-]+|update-install|selftest|telegram-[\w-]+|kapitan-role|opravneni|wait-idle|merge-repo-settings|trust-folders|guard-check|katalog|sdilena-pravidla|jazyk|stav-session|prisnost).mjs$|^VERZE$/;   // pojistky a spouštění: vždy verze balíku
 let lastInst = 0; try { lastInst = fs.statSync(path.join(ws, 'CLAUDE.md')).mtimeMs; } catch { }
 const keep = new Set(), savedTools = [], mergeNew = []; const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
 const lineDiff = (f1, f2) => { const lc = f => new Set(rd(f).split(/\r?\n/)); const a = lc(f1), b = lc(f2); return `+${[...a].filter(l => !b.has(l)).length}/−${[...b].filter(l => !a.has(l)).length} ř.`; };
@@ -209,7 +209,7 @@ if (kapitan || starter) {
   const hotove = new Set(b.hotove || []); const nf = path.join(ws, 'AUDIT', 'NOVE_CILE.md');
   const pending = rozjety ? cile.filter(c => !hotove.has(c.id) && !(c.hotovo_kdyz || []).some(f => fs.existsSync(path.join(ws, f)))) : [];
   // K-002: trvalý dluh přísnosti (AUDIT/.prisnost.json, tento soubor update nepřepisuje) — úkol se při každé aktualizaci založí znovu, dokud ho auditor neuzavře (`prisnost.mjs dluh-uzavren`)
-  { let d = null; try { d = JSON.parse(rd(path.join(ws, 'AUDIT', '.prisnost.json'))).audit_dluhu; } catch { }
+  { let d = null; try { d = (await import('./prisnost.mjs')).debtStatus(ws); } catch { try { d = JSON.parse(rd(path.join(ws, 'AUDIT', '.prisnost.json'))).audit_dluhu; } catch { } }   // A-029 K3: platí stav schválený (git ws)
     const lv = { prototyp: 'PROTOTYP', osobni: 'OSOBNÍ', bezny: 'BĚŽNÝ', kriticky: 'KRITICKÝ' }[d && d.uroven];
     if (d && d.otevren === true && lv) pending.push({ id: `DLUH-${lv}`, od_verze: ver, cil: `Audit dluhu (AUDIT/DLUH.md) podle úrovně ${lv} — release gate 🔴 do uzavření`,
       postup: 'projdi celý AUDIT/DLUH.md podle nové úrovně; po uzavření auditor spustí `node tools/prisnost.mjs dluh-uzavren` (do té doby se úkol po každé aktualizaci vrací).', naklady: 'podle velikosti dluhu' }); }

@@ -1427,9 +1427,9 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
   { // A-029: každá změna úrovně → řádek v AUDIT/_zmeny-nastaveni.log (ISO čas, z → na, zdroj); kontext na startu ohlásí poslední změnu (< 7 dní)
     const lg = path.join(pw, 'AUDIT', '_zmeny-nastaveni.log'); const lines = () => (fs.existsSync(lg) ? fs.readFileSync(lg, 'utf8') : '').trim().split('\n').filter(Boolean);
     const n0 = lines().length; spawnSync(process.execPath, [PR, '--ws', pw, 'nastav', 'kriticky'], { encoding: 'utf8', env: { ...process.env, AUDITOR_ZDROJ: 'START' } }); const last = lines().pop() || '';
-    T('PŘÍSNOST: A-029 změna úrovně zapsána do AUDIT/_zmeny-nastaveni.log (čas, z → na, zdroj)', `${n0}/${lines().length}/${/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(last)}/${/osobni → kriticky/.test(last)}/${/zdroj=START/.test(last)}`, '3/4/true/true/true');
-    T('PŘÍSNOST: A-029 zdroj bez AUDITOR_ZDROJ = cli, první nastavení z „(nic)“', `${/zdroj=cli/.test(lines()[0])}/${/\(nic\) → prototyp/.test(lines()[0])}`, 'true/true');
-    T('PŘÍSNOST: A-029 kontext ohlásí poslední změnu úrovně', /Poslední změna přísnosti: .*OSOBNÍ → KRITICKÝ \(START\)/.test(cli(pw, 'kontext').stdout), true);
+    T('PŘÍSNOST: A-029 změna úrovně zapsána do AUDIT/_zmeny-nastaveni.log (čas, z → na, zdroj; bez commitu vlastníka „neověřeno“)', `${n0}/${lines().length}/${/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d/.test(last)}/${/osobni → kriticky/.test(last)}/${/zdroj=neověřeno\(START\)/.test(last)}`, '3/4/true/true/true');
+    T('PŘÍSNOST: A-029 zdroj bez AUDITOR_ZDROJ = neověřeno(cli), první nastavení z „(nic)“', `${/zdroj=neověřeno\(cli\)/.test(lines()[0])}/${/\(nic\) → prototyp/.test(lines()[0])}`, 'true/true');
+    T('PŘÍSNOST: A-029 kontext ohlásí poslední změnu úrovně', /Poslední změna přísnosti: .*OSOBNÍ → KRITICKÝ \(neověřeno\(START\)\)/.test(cli(pw, 'kontext').stdout), true);
     fs.writeFileSync(lg, '2020-01-01T00:00:00.000Z  bezny → prototyp  zdroj=cli\n', 'utf8');
     T('PŘÍSNOST: A-029 změna starší 7 dní se na startu neohlašuje', /Poslední změna/.test(cli(pw, 'kontext').stdout), false);
     cli(pw, 'nastav', 'osobni');
@@ -1458,6 +1458,67 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
     }
     const nl = path.join(pkg, 'templates', 'nalez.md'); if (fs.existsSync(nl)) T('PŘÍSNOST K2: šablona nálezu má pole kategorie_p0 (data|tajemstvi|stroj)', /kategorie_p0[\s\S]*data[\s\S]*tajemstvi[\s\S]*stroj/.test(fs.readFileSync(nl, 'utf8')), true);
     const cm = path.join(pkg, 'CLAUDE.md'); if (fs.existsSync(cm)) T('PŘÍSNOST K2: CLAUDE.md §Přísnost zmiňuje kategorie_p0 pro PROTOTYP', /PROTOTYP[^\r\n]*kategorie_p0/.test(fs.readFileSync(cm, 'utf8')), true);
+  }
+  { // A-029 kolo 3 (ZMĚNA METODY): integrita nastavení vlastníka proti git HEAD workspace auditora — obchvaty z verdiktu provedené SKUTEČNĚ
+    const ib = path.join(tmp, 'integrita'); const iapp = path.join(ib, 'app'), iws = path.join(ib, 'app-audit');
+    fs.mkdirSync(iapp, { recursive: true }); fs.mkdirSync(path.join(iws, 'AUDIT'), { recursive: true }); fs.mkdirSync(path.join(iws, 'tools'), { recursive: true });
+    fs.copyFileSync(PR, path.join(iws, 'tools', 'prisnost.mjs'));
+    const OK_REZ = '{\n  "prisnost": "kriticky",\n  "jazyk": "cs"\n}\n', OK_OPR = '{"kapitan":2}\n', OK_DLUH = '{"audit_dluhu":{"otevren":true,"uroven":"kriticky","od":"2026-09-29T00:00:00.000Z"}}\n';
+    const put = () => { fs.writeFileSync(path.join(iws, '.rezim.json'), OK_REZ); fs.writeFileSync(path.join(iws, '.opravneni.json'), OK_OPR); fs.writeFileSync(path.join(iws, 'AUDIT', '.prisnost.json'), OK_DLUH); };
+    const gi = (w, ...a) => String(spawnSync('git', ['-C', w, ...a], { encoding: 'utf8' }).stdout || '').trim();
+    gi(iws, 'init', '-q'); gi(iws, 'config', 'user.email', 'a@a'); gi(iws, 'config', 'user.name', 'auditor'); fs.writeFileSync(path.join(iws, 'README.md'), 'ws'); gi(iws, 'add', '-A'); gi(iws, 'commit', '-qm', 'init');
+    put(); const cm0 = typeof pz.commitSettings === 'function' && pz.commitSettings(iws, 'vlastník: přísnost (nic)→kriticky');
+    const lg = path.join(iws, 'AUDIT', '_zmeny-nastaveni.log'); const rdLog = () => fs.existsSync(lg) ? fs.readFileSync(lg, 'utf8') : '';
+    const start = (w = iws) => spawnSync(process.execPath, [path.join(pkg, 'tools', 'prisnost.mjs'), '--ws', w, 'kontext'], { encoding: 'utf8' }).stdout || '';
+    const WARN = /\[PŘÍSNOST\] ⚠ nastavení změněno mimo START \(neschváleno vlastníkem\) — platí/;
+    const s0 = start(); T('A-029 K3: schválený stav (commit vlastníka) → KRITICKÝ bez varování', `${cm0}/${pz.readLevel(iws)}/${WARN.test(s0)}/${/^\[PŘÍSNOST\] KRITICKÝ/.test(s0)}`, 'true/kriticky/false/true');
+    const shBin = (() => { if (!isWin) return 'bash'; try { const ep = String(spawnSync('git', ['--exec-path'], { encoding: 'utf8' }).stdout || '').trim(); for (const c of ['../../../bin/bash.exe', '../../../usr/bin/bash.exe']) { const f = path.resolve(ep, c); if (fs.existsSync(f)) return f; } } catch { } return null; })();
+    T('A-029 K3: shell pro skutečné provedení obchvatů je k dispozici (Git Bash / bash)', !!shBin, true);
+    const sh = cmd => shBin ? spawnSync(shBin, ['-c', cmd], { cwd: iapp, encoding: 'utf8' }) : { status: null };
+    const unlink = p => { try { const st = fs.lstatSync(p); if (st.isSymbolicLink()) { try { fs.unlinkSync(p); } catch { fs.rmdirSync(p); } } else fs.rmSync(p, { recursive: true, force: true }); } catch { } };
+    const diskLevel = () => { try { return JSON.parse(fs.readFileSync(path.join(iws, '.rezim.json'), 'utf8')).prisnost; } catch { return '?'; } };
+    const P = `'{"prisnost":"prototyp"}'`;
+    const lnk = isWin ? `D=app; node -e "require('fs').symlinkSync(require('path').resolve('../'+process.argv[1]+'-audit'),'lnk2','junction')" \$D` : 'D=app; ln -s ../${D}-audit lnk2';
+    const OBCHVATY = [
+      ['1 proměnná ${D}', `D=app; echo ${P} > ../\${D}-audit/.rezim.json`],
+      ['2 glob *', `echo ${P} > ../app-aud*/.rezim.json`],
+      ['3 glob ?', `echo ${P} > ../app-audi?/.rezim.json`],
+      ['4 zpětné apostrofy', `echo ${P} > \`echo ../app-aud\`it/.rezim.json`],
+      ['5 odkaz (ln -s / junction) se složeným jménem', `${lnk} && echo ${P} > lnk2/.rezim.json`],
+      ['6 node -e se složenou cestou', `node -e "require('fs').writeFileSync('../app-'+'audit/.rezim.json', JSON.stringify({prisnost:'prototyp'}))"`],
+      ['7 import setLevel z prisnost.mjs', `node -e "import('../app-'+'audit/tools/prisnost.mjs').then(m=>m.setLevel('../app-'+'audit','prototyp'))"`],
+      ['7b kopie prisnost.mjs + nastav --vlastnik bez terminálu vlastníka', `cp ../app-audit/tools/prisnost.mjs ./p.mjs && D=app; node p.mjs --ws ../\${D}-audit nastav prototyp --vlastnik`],
+    ];
+    for (const [nm, cmd] of OBCHVATY) {
+      put(); unlink(path.join(iapp, 'lnk2')); const before = rdLog().length;
+      const r = sh(cmd); const disk = diskLevel(); const out = start(); const added = rdLog().slice(before);
+      T(`A-029 K3 obchvat ${nm}: proveden (soubor přepsán) → po startu KRITICKÝ + varování + řádek v logu`, `${r.status}/${disk}/${pz.readLevel(iws)}/${WARN.test(out) && /platí KRITICKÝ/.test(out)}/${/soubor=\.rezim\.json/.test(added)}`, '0/prototyp/kriticky/true/true');
+    }
+    unlink(path.join(iapp, 'lnk2'));
+    put(); sh(`D=app; echo '{"kapitan":3}' > ../\${D}-audit/.opravneni.json`); { const before = rdLog().length; const so = start();
+      T('A-029 K3: .opravneni.json přepsán shellem → platí verze z HEAD (2) + varování + řádek v logu', `${pz.kapitanLevel?.(iws)}/${WARN.test(so)}/${/soubor=\.opravneni\.json/.test(rdLog().slice(before))}`, '2/true/true'); }
+    put(); sh(`node -e "require('fs').writeFileSync('../app-'+'audit/AUDIT/.prisnost.json', JSON.stringify({audit_dluhu:{otevren:false}}))"`); { const before = rdLog().length; const sd = start();
+      T('A-029 K3: otevřený dluh nejde zavřít přepisem AUDIT/.prisnost.json (platí HEAD) + varování + log', `${pz.debtStatus(iws).otevren}/${/audit dluhu otevřen/.test(sd)}/${WARN.test(sd)}/${/soubor=AUDIT\/\.prisnost\.json/.test(rdLog().slice(before))}`, 'true/true/true/true'); }
+    put(); fs.writeFileSync(path.join(iws, '.rezim.json'), '{"prisnost":"prototyp"}'); gi(iws, 'add', '-A'); gi(iws, 'commit', '-qm', 'audit: prubeh');
+    T('A-029 K3: běžný commit auditora (git add -A) přepsaný soubor neschválí', `${gi(iws, 'show', 'HEAD:.rezim.json').includes('prototyp')}/${pz.readLevel(iws)}/${WARN.test(start())}`, 'true/kriticky/true');
+    put(); pz.setLevel(iws, 'osobni'); const cm1 = typeof pz.commitSettings === 'function' && pz.commitSettings(iws, 'vlastník: přísnost kriticky→osobni'); const sl = start();
+    T('A-029 K3: legitimní změna (START/instalátor → commit vlastníka) → nová úroveň platí bez varování', `${cm1}/${pz.readLevel(iws)}/${WARN.test(sl)}/${/^\[PŘÍSNOST\] OSOBNÍ/.test(sl)}`, 'true/osobni/false/true');
+    T('A-029 K3: commit vlastníka má autora „vlastník“ a zprávu „vlastník: přísnost X→Y“', gi(iws, 'log', '-1', '--format=%an%x09%s', '--', '.rezim.json'), 'vlastník\tvlastník: přísnost kriticky→osobni');
+    const du = cli(iws, 'dluh-uzavren'); const sdu = start();
+    T('A-029 K3: dluh-uzavren (auditor) dluh zavře commitem → bez varování', `${du.status}/${pz.debtStatus(iws).otevren}/${WARN.test(sdu)}/${/audit dluhu otevřen/.test(sdu)}`, '0/false/false/false');
+    { const w2 = path.join(ib, 'bez-head-audit'); fs.mkdirSync(w2, { recursive: true }); gi(w2, 'init', '-q'); fs.writeFileSync(path.join(w2, 'README.md'), 'ws'); gi(w2, 'add', '-A'); gi(w2, '-c', 'user.name=auditor', '-c', 'user.email=a@a', 'commit', '-qm', 'init');
+      fs.writeFileSync(path.join(w2, '.rezim.json'), '{"prisnost":"prototyp"}'); fs.writeFileSync(path.join(w2, '.opravneni.json'), '{"kapitan":3}'); const s2 = start(w2);
+      T('A-029 K3: soubor v HEAD chybí, na disku je → BĚŽNÝ, Kapitán OPATRNÝ (1), varování', `${pz.readLevel(w2)}/${pz.kapitanLevel?.(w2)}/${WARN.test(s2)}`, 'bezny/1/true'); }
+    { const ng = path.join(tmp, 'integrita-bez-gitu'); fs.mkdirSync(ng, { recursive: true }); fs.writeFileSync(path.join(ng, '.rezim.json'), '{"prisnost":"prototyp"}');
+      const r1 = cli(ng, 'kontext'), r2 = cli(ng, 'kontext');
+      T('A-029 K3: ws bez gitu (stará instalace) → nepadne, platí soubor, varování jen jednou', `${r1.status}/${r2.status}/${pz.readLevel(ng)}/${/není git/.test(r1.stdout)}/${/není git/.test(r2.stdout)}`, '0/0/prototyp/true/false'); }
+    { const src = f => { try { return fs.readFileSync(path.join(pkg, f), 'utf8'); } catch { return ''; } }; const root = f => { try { return fs.readFileSync(path.join(pkg, '..', f), 'utf8'); } catch { return null; } };
+      const stC = root('START.cmd'), stS = root('start.sh');
+      T('A-029 K3: START [10] (cmd i sh) a instalátory (ps1 i sh) volají nastav s --vlastnik (commit do gitu ws)', `${stC === null || /prisnost\.mjs" --ws "%WS%" nastav %L% --vlastnik/.test(stC)}/${stS === null || /prisnost\.mjs" --ws "\$w" nastav "\$l" --vlastnik/.test(stS)}/${/nastav \$prisnost --vlastnik/.test(src('setup-auditor.ps1'))}/${/nastav "\$PRISNOST" --vlastnik/.test(src('setup-auditor.sh'))}`, 'true/true/true/true');
+      T('A-029 K3: opravneni.mjs při volbě vlastníka (--ask v terminálu) commitne .opravneni.json do gitu ws', /commitSettings\(ws, `vlastník: oprávnění Kapitána/.test(src('tools/opravneni.mjs')), true);
+      T('A-029 K3: SessionStart auditora (settings.json, codex-start) a preflight volají kontrolu integrity (prisnost kontext / contextLine)', `${/prisnost\.mjs\\?" --ws \\?"\$CLAUDE_PROJECT_DIR\\?" kontext/.test(src('.claude/settings.json'))}/${/prisnost\.mjs'\), \['--ws', ws, 'kontext'\]/.test(src('tools/codex-start.mjs'))}/${/contextLine\(lvl, ws\)/.test(src('tools/preflight.mjs'))}`, 'true/true/true');
+      T('K-002 K3: kategorie_p0 je orientační pole — CLAUDE.md i šablona netvrdí strojovou blokaci, rozhoduje verdikt auditora', `${/Strojově/.test(src('CLAUDE.md'))}/${/kategorie_p0[^\r\n]*orientační[^\r\n]*verdikt auditora/.test(src('CLAUDE.md'))}/${/orientační[^\r\n]*verdikt auditora/.test(src('templates/nalez.md'))}`, 'false/true/true');
+    }
   }
 }
 { // PATCH-DEPLOY: brána v PowerShellu za hlavičkou (param), jen ASCII; SDÍLENÁ PRAVIDLA: nalezena, agent je nepřesune

@@ -129,7 +129,7 @@ if "%L%"=="1" set "L=prototyp"
 if "%L%"=="2" set "L=osobni"
 if "%L%"=="3" set "L=bezny"
 if "%L%"=="4" set "L=kriticky"
-set "AUDITOR_ZDROJ=START" & node "%~dp0auditor\tools\prisnost.mjs" --ws "%WS%" nastav %L%
+set "AUDITOR_ZDROJ=START" & node "%~dp0auditor\tools\prisnost.mjs" --ws "%WS%" nastav %L% --vlastnik
 pause
 goto menu
 

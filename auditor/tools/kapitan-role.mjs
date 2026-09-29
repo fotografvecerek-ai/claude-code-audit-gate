@@ -10,7 +10,7 @@ const CODEX = iA > 0 || process.argv.includes('--codex');
 const posix = p => { p = p.replace(/\\/g, '/'); const m = p.match(/^([A-Za-z]):\/(.*)$/); return m ? `/${m[1].toLowerCase()}/${m[2]}` : p; };
 const W = posix(ws);
 let SOUB = 3; try { SOUB = Math.max(1, +JSON.parse(fs.readFileSync(path.join(ws, '.rezim.json'), 'utf8')).soubeh?.kapitan || 3); } catch { }
-let lvl = 1; try { lvl = JSON.parse(fs.readFileSync(path.join(ws, '.opravneni.json'), 'utf8')).kapitan || 1; } catch { }
+let lvl = 1; try { lvl = (await import('./prisnost.mjs')).kapitanLevel(ws); } catch { try { lvl = JSON.parse(fs.readFileSync(path.join(ws, '.opravneni.json'), 'utf8')).kapitan || 1; } catch { } }   // A-029 K3: platí verze schválená vlastníkem
 const LV = lvl >= 2 ? `- **Samostatnost (vlastník zvolil ${lvl === 3 ? 'PLNÝ' : 'SAMOSTATNÝ'}):** skripty projektu a databázové příkazy spouštíš SÁM — vlastníka o spuštění
   nežádej a nepiš mu příkazy do terminálu. Před zápisem do ostré databáze ulož zálohu dotčených dat (select/export) do \`${W}/AUDIT/03_dukazy/<ID>/\`,
   pak zápis, pak ověření dotazem; výsledek nahlas auditorovi. Destruktivní SQL (DROP, TRUNCATE, DELETE/UPDATE bez WHERE) pojistka blokuje — to dělá jen vlastník.
