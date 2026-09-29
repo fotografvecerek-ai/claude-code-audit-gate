@@ -111,19 +111,34 @@ export function ensureWsGit(ws) {
 const NO_TTY = 'schválení nastavení potřebuje terminál vlastníka — spusť START → [7] (samostatnost Kapitána) nebo [10] (přísnost) v okně terminálu (Windows: START.cmd dvojklikem).';
 export const blocked = () => process.env.AUDITOR_BEZ_TTY ? 'samotest' : (process.env.CLAUDECODE || process.env.CLAUDE_CODE_ENTRYPOINT) ? 'běží z agenta (Claude Code)' : '';
 const TTY_IN = process.platform === 'win32' ? '\\\\.\\CONIN$' : '/dev/tty', TTY_OUT = process.platform === 'win32' ? '\\\\.\\CONOUT$' : '/dev/tty';
-export function ttyAvailable() { if (blocked()) return false; try { fs.closeSync(fs.openSync(TTY_IN, 'r')); return true; } catch { return false; } }
+// Konzoli čteme jen v interaktivním běhu: stdin nebo stdout je terminál a nejde o CI. Jinak (CI, -Yes s přesměrovaným vstupem) by čtení
+// z CONIN$ na Windows čekalo donekonečna (konzole existuje, nikdo neodpoví) — A-026: e2e Windows viselo 30 min. '' = konzoli lze použít.
+export const TTY_TIMEOUT_MS = 120000;
+export function consoleProblem() {
+  const bl = blocked(); if (bl) return bl;
+  if (process.env.CI) return 'neinteraktivní běh (CI)';
+  if (!process.stdin.isTTY && !process.stdout.isTTY) return 'neinteraktivní běh (vstup i výstup přesměrované)';
+  return '';
+}
+export function ttyAvailable() { if (consoleProblem()) return false; try { fs.closeSync(fs.openSync(TTY_IN, 'r')); return true; } catch { return false; } }
 export function readConfirm(fd) {   // jeden řádek z konzole (max 64 bajtů); platí jen „ano“
   const b = Buffer.alloc(1); let line = '';
   try { while (line.length < 64 && fs.readSync(fd, b, 0, 1, null) === 1) { const c = b.toString('utf8'); if (c === '\n') break; line += c; } } catch { return false; }
   return /^ano$/i.test(line.trim());
 }
+// Odpověď čte podproces s časovým limitem (synchronní čtení konzole nejde přerušit) — bez odpovědi do TTY_TIMEOUT_MS = odmítnutí.
 export function ttyConfirm(question) {
-  const bl = blocked(); if (bl) return { ok: false, duvod: `${bl} — ${NO_TTY}` };
-  let fi; try { fi = fs.openSync(TTY_IN, 'r'); } catch { return { ok: false, duvod: `konzole není k dispozici — ${NO_TTY}` }; }
+  const bl = consoleProblem(); if (bl) return { ok: false, duvod: `${bl} — ${NO_TTY}` };
+  try { fs.closeSync(fs.openSync(TTY_IN, 'r')); } catch { return { ok: false, duvod: `konzole není k dispozici — ${NO_TTY}` }; }
   let fo = null; if (!process.stdout.isTTY) { try { fo = fs.openSync(TTY_OUT, 'w'); } catch { } }
   const say = t => { try { if (fo !== null) fs.writeSync(fo, t, null, 'utf8'); else process.stdout.write(t); } catch { } };
-  try { say(`\n${question}\nPotvrď napsáním „ano“ (cokoli jiného = ne): `); return readConfirm(fi) ? { ok: true } : { ok: false, duvod: 'vlastník nepotvrdil' }; }
-  finally { try { fs.closeSync(fi); } catch { } if (fo !== null) try { fs.closeSync(fo); } catch { } }
+  try {
+    say(`\n${question}\nPotvrď napsáním „ano“ do ${TTY_TIMEOUT_MS / 1000} s (cokoli jiného = ne): `);
+    const code = `import(${JSON.stringify(import.meta.url)}).then(m => { const fs = require('fs'); let fd; try { fd = fs.openSync(${JSON.stringify(TTY_IN)}, 'r'); } catch { process.exit(3); } process.exit(m.readConfirm(fd) ? 0 : 1); })`;
+    const r = spawnSync(process.execPath, ['-e', code], { stdio: 'ignore', timeout: TTY_TIMEOUT_MS, windowsHide: false });
+    if (r.error && /ETIMEDOUT/.test(r.error.code || r.error.message)) { say('\n'); return { ok: false, duvod: `bez odpovědi do ${TTY_TIMEOUT_MS / 1000} s — ${NO_TTY}` }; }
+    return r.status === 0 ? { ok: true } : { ok: false, duvod: r.status === 3 ? `konzole není k dispozici — ${NO_TTY}` : 'vlastník nepotvrdil' };
+  } finally { if (fo !== null) try { fs.closeSync(fo); } catch { } }
 }
 // Schválení nastavení vlastníkem = commit s autorem „vlastník“. Volá START/instalátor/opravneni.mjs; bez terminálu vlastníka nic neschválí.
 export function ownerApprove(ws, msg, files = INTEGRITY_FILES) {

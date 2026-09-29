@@ -395,10 +395,10 @@ Opravy z vlastního auditu balíku (nálezy A-001 až A-023, ověřeno auditorem
 - **Kotva důvěry brány vydání mimo repo aplikace (A-026, P1; zbytky A-023).** Workspace auditora, otisk `gate-check.mjs`, produkční větve
   a limit stáří brány už neurčuje `.claude/settings.json` (ani commitnutý, ani podvržený plumbingem), pracovní strom ani proměnné prostředí:
   platí jen kotva `<git-common-dir>/auditor-kotva.json` (sdílená všemi worktree repa). Zapisuje ji jen vlastník v terminálu přes START → [9]
-  (`tools/kotva.mjs nastav`, potvrzení z TTY; pod Claude Code, v samotestu a bez konzole odmítne). Pojistka Kapitána blokuje zápis kotvy,
+  (`tools/kotva.mjs nastav`, potvrzení z TTY; pod Claude Code, v samotestu, v CI a bez terminálu odmítne hned, bez odpovědi do 120 s odmítne). Pojistka Kapitána blokuje zápis kotvy,
   `.git/config`, `core.hooksPath` a git hooků i přes proměnné, glob, `$(rev-parse)`, here-string, heredoc, `xargs sh -c`, alias v `-c`/`--config-env`,
   `node -e`/`python -c` se skládáním řetězců a uložené skripty. Chybějící, poškozená, cizí nebo neshodná kotva = push do produkčních větví
   odmítnut (fail-closed) s návodem „spusť START → [9]“; feature větve fungují dál. `pre-push` hook (brána vydání) se instaluje vždy, i bez
   hygieny; cizí `pre-push` se zazálohuje do `pre-push.bak-<čas>` s varováním. Po aktualizaci z 1.8.8: jednou spusť START → [9] u každého
-  projektu. CI (`auditor-gate.yml`) už nečte `AUDITOR_WORKSPACE` z env. Samotest 895 (testy se skutečným pushem do bare origin: X28, X28b,
+  projektu. CI (`auditor-gate.yml`) už nečte `AUDITOR_WORKSPACE` z env. Samotest 897 (testy se skutečným pushem do bare origin: X28, X28b,
   X29, P19, P21, legitimní 🟢 push).

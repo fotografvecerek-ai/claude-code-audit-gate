@@ -2,7 +2,7 @@
 // push do bare origin (X28/X28b/X29/P19/P21 + legitimní 🟢/🔴). Volá se z selftest.mjs (sdílí jeho T, env a pomocníky).
 // Pozor: tenhle soubor schválně neobsahuje doslovný název kotvy vedle zápisu do souboru — guard by ho jako uložený skript
 // (oprávněně) zablokoval; název se skládá z KOTVA.ANCHOR_FILE.
-import fs from 'node:fs'; import path from 'node:path'; import { spawnSync } from 'node:child_process';
+import fs from 'node:fs'; import path from 'node:path'; import { spawnSync } from 'node:child_process'; import { pathToFileURL } from 'node:url';
 
 const RED = '🔴 NESMÍ VYDAT', GREEN = '🟢 SMÍ VYDAT';
 
@@ -67,6 +67,16 @@ export function runA026(ctx) {
   T('A-026 kotva.mjs nastav pod AUDITOR_BEZ_TTY=1 → odmítnuto', nastav({ AUDITOR_BEZ_TTY: '1' }, w2).status !== 0, true);
   T('A-026 kotva.mjs nastav pod CLAUDECODE=1 → odmítnuto', nastav({ AUDITOR_BEZ_TTY: '', CLAUDECODE: '1' }, w2).status !== 0, true);
   T('A-026 kotva.mjs nastav pod CLAUDE_CODE_ENTRYPOINT → odmítnuto', nastav({ AUDITOR_BEZ_TTY: '', CLAUDECODE: '', CLAUDE_CODE_ENTRYPOINT: 'cli' }, w2).status !== 0, true);
+  // neinteraktivní běh (CI, instalátor -Yes, stdin i stdout přesměrované) nesmí čekat na konzoli: Windows CONIN$ jde otevřít a čtení by viselo
+  const bezZakazu = { AUDITOR_BEZ_TTY: '', CLAUDECODE: '', CLAUDE_CODE_ENTRYPOINT: '' };
+  const rychle = extra => { const t0 = Date.now(); const r = spawnSync(process.execPath, [path.join(pkg, 'tools', 'kotva.mjs'), 'nastav', '--repo', r1, '--ws', w1, '--instalace'], { env: { ...env, ...bezZakazu, ...extra }, input: '', encoding: 'utf8', timeout: 30000 }); return { ...r, ms: Date.now() - t0 }; };
+  fs.rmSync(KOTVA.anchorPath(r1));   // bez kotvy → nastav by se ptal vlastníka (založení kotvy)
+  const ci = rychle({ CI: '1' }), bezTty = rychle({ CI: '' }), vznikla = fs.existsSync(KOTVA.anchorPath(r1));
+  fs.writeFileSync(KOTVA.anchorPath(r1), before);
+  T('A-026 kotva.mjs nastav --instalace s CI=1 / bez TTY → odmítnuto do 10 s (nečeká na konzoli), kotva nevznikla', `${ci.status !== 0 && !ci.error}/${ci.ms < 10000}/${bezTty.status !== 0 && !bezTty.error}/${bezTty.ms < 10000}/${vznikla}`, 'true/true/true/true/false');
+  const pz26 = spawnSync(process.execPath, ['--input-type=module', '-e', `import { ttyConfirm, ttyAvailable } from ${JSON.stringify(pathToFileURL(path.join(pkg, 'tools', 'prisnost.mjs')).href)}; const c = ttyConfirm('test?'); console.log(JSON.stringify({ ok: c.ok, d: c.duvod, a: ttyAvailable() }));`], { env: { ...env, ...bezZakazu, CI: '' }, input: '', encoding: 'utf8', timeout: 30000 });
+  const pzr = (() => { try { return JSON.parse(pz26.stdout.trim().split('\n').pop()); } catch { return {}; } })();
+  T('A-026 ttyConfirm bez TTY (stdin i stdout přesměrované, bez CI) → odmítnutí hned, ttyAvailable false', `${!pz26.error}/${pzr.ok}/${/neinteraktivní/.test(pzr.d || '')}/${pzr.a}`, 'true/false/true/false');
   T('A-026 odmítnuté nastav kotvu nezměnilo', fs.readFileSync(KOTVA.anchorPath(r1), 'utf8'), before);
   T('A-026 kotva.mjs nastav na ws cizího repa → odmítnuto i bez zákazu (ws patří jinému repu)', /jinému repu/.test(nastav({ AUDITOR_BEZ_TTY: '1' }, w2).stderr || ''), true);
 
