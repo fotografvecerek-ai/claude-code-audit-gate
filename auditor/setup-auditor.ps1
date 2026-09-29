@@ -56,6 +56,8 @@ node (Join-Path $ws 'tools/write-auditor-settings.mjs') $ws $repo $model; if ($L
 # 3) git
 Push-Location $ws
 if (-not (Test-Path .git)) { git init -q 2>$null; git config core.autocrlf false; git add -A 2>$null; git -c user.name=auditor -c user.email=auditor@local commit -q -m "auditor workspace init" 2>$null }
+# A-029 K4: volby vlastníka (přísnost) schválí commit vlastníka až po založení gitu — vlastník je právě zadal v terminálu (bez terminálu jen varování)
+node (Join-Path $ws 'tools/prisnost.mjs') --ws $ws potvrd --instalator; $global:LASTEXITCODE = 0
 if ($remote) { git remote remove origin 2>$null; git remote add origin $remote; Write-Host "Remote nastaven: $remote (první push udělej ručně: git push -u origin main)" }
 # 4) nástroje
 Push-Location tools; try { npm install --no-audit --no-fund | Out-Null } catch { Write-Host "VAROVÁNÍ: npm install selhal - spusť ručně v $ws\tools" -ForegroundColor Yellow }; try { npx playwright install chromium | Out-Null } catch { Write-Host "VAROVÁNÍ: stažení Chromia selhalo - spusť ručně: npx playwright install chromium" -ForegroundColor Yellow }; Pop-Location

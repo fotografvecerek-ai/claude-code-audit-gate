@@ -7,9 +7,11 @@
 //   3 PLNÝ       — navíc bez jakýchkoliv dotazů Claude Code (bypassPermissions); platí jen hooky. Nedoporučeno.
 // Zapisuje: <ws>/.opravneni.json (volba) a <repo>/.claude/settings.local.json (osobní nastavení tohoto počítače, necommituje se; naše pravidla
 // označená, cizí zůstávají). node tools/opravneni.mjs <ws> <repo> [--level 1|2|3] [--ask]
-import fs from 'node:fs'; import path from 'node:path'; import readline from 'node:readline'; import { spawnSync } from 'node:child_process'; import { fileURLToPath } from 'node:url'; import { commitSettings } from './prisnost.mjs';
+import fs from 'node:fs'; import path from 'node:path'; import readline from 'node:readline'; import { spawnSync } from 'node:child_process'; import { fileURLToPath } from 'node:url'; import { ownerApprove, ttyAvailable, ensureWsGit, integrity } from './prisnost.mjs';
 const [wsArg, repoArg] = process.argv.slice(2).filter(a => !a.startsWith('--')); const ws = path.resolve(wsArg || '.'); const repo = path.resolve(repoArg || '.');
-const lvArg = (() => { const i = process.argv.indexOf('--level'); return i > 0 ? process.argv[i + 1] : ''; })(); const ASK = process.argv.includes('--ask') && process.stdin.isTTY;
+const lvArg = (() => { const i = process.argv.indexOf('--level'); return i > 0 ? process.argv[i + 1] : ''; })();
+// A-029 K4: --ask jen s terminálem vlastníka — stdin TTY, nebo konzole (/dev/tty, CONIN$) v Git Bash/mintty, kde stdin TTY není
+const ASK = process.argv.includes('--ask') && (process.stdin.isTTY || ttyAvailable());
 const NAMES = { 1: 'OPATRNÝ', 2: 'SAMOSTATNÝ', 3: 'PLNÝ' };
 const MARK = 'auditor-opravneni';   // značka našich pravidel (v poli _auditorOpravneni), ať je umíme odebrat
 const ALLOW = [
@@ -41,8 +43,14 @@ if (level !== '1') { const add = ALLOW.filter(r => !s.permissions.allow.includes
 if (level === '3' && s.permissions.defaultMode !== 'bypassPermissions') { s.permissions.defaultMode = 'bypassPermissions'; s._auditorDefaultMode = true; }
 fs.writeFileSync(sp, JSON.stringify(s, null, 2) + '\n');
 fs.writeFileSync(path.join(ws, '.opravneni.json'), JSON.stringify({ kapitan: +level, nazev: NAMES[level], zmeneno: new Date().toISOString(), _: MARK }, null, 2) + '\n');
-// A-029 K3: volba vlastníka v terminálu (--ask) → commit do gitu workspace; přepis souboru jinudy platí až po schválení (prisnost.mjs kapitanLevel)
-if (ASK) commitSettings(ws, `vlastník: oprávnění Kapitána ${cur.kapitan || '(nic)'}→${level}`, ['.opravneni.json']);
+// A-029 K3/K4: volba vlastníka v terminálu (--ask) → schválení commitem vlastníka v gitu workspace (ws bez gitu ho nejdřív dostane);
+// přepis souboru jinudy platí až po schválení (prisnost.mjs kapitanLevel). Zbylé neschválené volby (přísnost, dluh) nabídne potvrdit.
+if (ASK) {
+  const g = ensureWsGit(ws); if (!g.ok) console.error(`  ⚠ ${g.duvod}`);
+  if (!ownerApprove(ws, `vlastník: oprávnění Kapitána ${cur.kapitan || '(nic)'}→${level}`, ['.opravneni.json'])) console.error('  ⚠ volba není schválená — do schválení platí samostatnost Kapitána 1 (OPATRNÝ)');
+  let it = null; try { it = integrity(ws); } catch { }
+  if (it && it.git && it.zmeny.length) spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'prisnost.mjs'), '--ws', ws, 'potvrd'], { stdio: 'inherit' });
+}
 console.log(`  ✅ Kapitán: ${NAMES[level]} (${sp}) — platí od příštího startu jeho okna`);
 // role Kapitána v CLAUDE.md projektu podle nové úrovně (jen když je nainstalovaná strana Kapitána)
 // spouštěče: Kapitán v Codexu má sandbox a schvalování podle úrovně přímo v příkazu codex

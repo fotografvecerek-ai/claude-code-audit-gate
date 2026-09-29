@@ -33,6 +33,8 @@ AUDITOR_ZDROJ=instalator node "$WS/tools/prisnost.mjs" --ws "$WS" nastav "$PRISN
 node "$WS/tools/write-auditor-settings.mjs" "$WS" "$REPO" "$MODEL" || { echo "Zápis settings auditora selhal"; exit 1; }
 
 ( cd "$WS"; [ -d .git ] || { git init -q; git add -A; git -c user.name=auditor -c user.email=auditor@local commit -q -m "auditor workspace init"; }
+  # A-029 K4: volby vlastníka (přísnost) schválí commit vlastníka až po založení gitu (bez terminálu jen varování)
+  node "$WS/tools/prisnost.mjs" --ws "$WS" potvrd --instalator || true
   [ -n "$REMOTE" ] && { git remote remove origin 2>/dev/null || true; git remote add origin "$REMOTE"; echo "Remote nastaven (první push ručně: git push -u origin main)"; }
   cd tools && { npm install --no-audit --no-fund >/dev/null || echo "VAROVÁNÍ: npm install selhal — spusť ručně v $WS/tools"; } ; { npx playwright install chromium >/dev/null 2>&1 || echo "VAROVÁNÍ: stažení Chromia selhalo (síť?) — spusť ručně: cd $WS/tools && npx playwright install chromium"; } )
 

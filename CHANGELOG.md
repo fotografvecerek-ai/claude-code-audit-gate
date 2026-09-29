@@ -373,3 +373,13 @@ Opravy z vlastního auditu balíku (nálezy A-001 až A-023, ověřeno auditorem
   otevřený dluh zůstává otevřený; řádek `soubor=…` v `AUDIT/_zmeny-nastaveni.log`. `AUDITOR_ZDROJ` z prostředí je jen tvrzení — bez commitu
   vlastníka se loguje jako `neověřeno(…)`. Workspace bez gitu (stará instalace) funguje dál, jednou upozorní. `kategorie_p0` je orientační pole,
   o blokaci rozhoduje verdikt auditora. Po aktualizaci: hlásí-li start ⚠, potvrď úroveň znovu přes START [10] (případně [7]). Samotest 787.
+- **Přísnost: selhání gitu workspace = fail-closed, schválení jen z terminálu vlastníka, migrace voleb (A-029 kolo 4).** Když kontrola integrity
+  nefunguje (git mimo PATH, `.git` smazán/přesunut/poškozený, workspace uvnitř cizího repa, stará instalace bez gitu), platí přísnější z (BĚŽNÝ,
+  disk) a samostatnost Kapitána 1; start to hlásí při KAŽDÉM spuštění („[PŘÍSNOST] ⚠ kontrola integrity nastavení nefunguje: … START → [7]“)
+  a zapíše řádek `integrita=bez-gitu` do `AUDIT/_zmeny-nastaveni.log`. Marker `AUDIT/.integrita-bez-gitu` se už nepoužívá a nic neumlčí.
+  Schválení: `commitSettings` už není exportovaná, schvaluje jen `ownerApprove` (terminál vlastníka: stdin TTY, jinak výslovné „ano“ z `/dev/tty`
+  resp. `CONIN$`; z Claude Code a samotestu vždy odmítne) a kořenový commit (instalace, `checkout --orphan`) nic neschvaluje. Nový příkaz
+  `prisnost.mjs potvrd [--instalator]`: instalátory po založení gitu, `opravneni.mjs --ask` (START → [7]) a update-install nabídnou potvrdit
+  nastavení na disku; update-install dá staré instalaci git, bez terminálu jen vypíše, co platí, a instrukci START → [7] — úroveň nikdy tiše
+  nemění. `start.sh` v Git Bash (mintty) spouští node přes `winpty`. Zbytkové riziko: kdo má stejný účet OS, může commit s autorem vlastníka
+  podvrhnout gitem přímo (jde o zmírnění, ne kryptografické schválení — rozhodne vlastník). Samotest 799.

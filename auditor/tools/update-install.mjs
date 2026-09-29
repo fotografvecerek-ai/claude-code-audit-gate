@@ -93,7 +93,20 @@ const remoteOrCombo = fs.existsSync(path.join(ws, 'AUDIT', '.remote.json')) || f
 // A-008 kolo 2: hoistnuto sem (dřív jen v sekci 2c) — použito i v looksIncomplete níž. „Rozjetý" audit (výsledky auditu
 // už existují) je silnější důkaz dokončené staré instalace bez markeru než pouhá existence tools/node_modules.
 const rozjety = ['00_intake.md', '02_HANDOFF.md', '05_release_gate.md', 'ZPRAVA.md', 'ZPRAVA.html'].some(f => fs.existsSync(path.join(ws, 'AUDIT', f))) || (() => { try { return fs.readdirSync(path.join(ws, 'AUDIT', '01_nalezy')).some(f => /^A-\d+\.md$/.test(f)); } catch { return false; } })();
-if (kapitan && !fs.existsSync(path.join(ws, '.opravneni.json'))) { if (process.stdin.isTTY) { try { execFileSync(process.execPath, [path.join(pkg, 'tools', 'opravneni.mjs'), ws, repo, '--ask'], { stdio: 'inherit' }); } catch { } } else warn('samostatnost Kapitána zatím nevybrána (OPATRNÝ) — START → [7]'); }
+// A-029 K4 (migrace): ws bez gitu (stará instalace) dostane git; volby vlastníka z doby před kontrolou integrity nikdy tiše nezměníme —
+// v terminálu je vlastník potvrdí, bez terminálu varování s tím, co teď platí, a instrukce START → [7]. Úroveň se tu nemění nahoru ani dolů.
+let pz = null; try { pz = await import('./prisnost.mjs'); } catch (e) { warn(`kontrola nastavení vlastníka se nenačetla: ${e.message}`); }
+if (pz) { try { const g = pz.ensureWsGit(ws); if (!g.ok) warn(g.duvod); else if (g.created) ok('workspace auditora dostal git (kontrola integrity nastavení vlastníka)'); } catch (e) { warn(`git workspace: ${e.message}`); } }
+if (kapitan && !fs.existsSync(path.join(ws, '.opravneni.json'))) { if (process.stdin.isTTY || (pz && pz.ttyAvailable())) { try { execFileSync(process.execPath, [path.join(pkg, 'tools', 'opravneni.mjs'), ws, repo, '--ask'], { stdio: 'inherit' }); } catch { } } else warn('samostatnost Kapitána zatím nevybrána (OPATRNÝ) — START → [7]'); }
+if (pz) {
+  try {
+    const it = pz.integrity(ws);
+    if (!it.git || it.zmeny.length) {
+      if (it.git && (process.stdin.isTTY || pz.ttyAvailable())) execFileSync(process.execPath, [path.join(pkg, 'tools', 'prisnost.mjs'), '--ws', ws, 'potvrd'], { stdio: 'inherit' });
+      else warn(`nastavení vlastníka nejsou schválená — ${pz.summary(it)}; potvrdit je můžeš jen ty: START → [7] v terminálu`);
+    }
+  } catch (e) { const it2 = (() => { try { return pz.integrity(ws); } catch { return null; } })(); warn(`nastavení vlastníka nejsou schválená${it2 ? ` — ${pz.summary(it2)}` : ''}; potvrdit je můžeš jen ty: START → [7] v terminálu`); }
+}
 if (kapitan) {
   for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'auditor-bus.mjs', 'pre-push-guard.mjs']) put(path.join(pkg, 'kapitan-side', f), `.claude/hooks/${f}`);
   const sk = path.join(repo, '.claude', 'skills', 'audit-rezim', 'SKILL.md'); const before = rd(sk); fs.mkdirSync(path.dirname(sk), { recursive: true });
