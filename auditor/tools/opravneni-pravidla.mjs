@@ -5,6 +5,7 @@
 // Spravujeme jen: permissions.allow (pravidla z ALLOW), permissions.defaultMode=bypassPermissions a značky _auditorOpravneni/_auditorDefaultMode.
 // Ostatní klíče a cizí pravidla zůstávají beze změny. Soubory čteme i zapisujeme výslovně v UTF-8.
 import fs from 'node:fs'; import path from 'node:path';
+import { isBroadRule, coveredBy } from './opravneni-vzor.mjs';   // A-031: pravidla se vyhodnocují VZOREM, ne přesným řetězcem
 
 export const NAMES = { 1: 'OPATRNÝ', 2: 'SAMOSTATNÝ', 3: 'PLNÝ' };
 export const ALLOW = [
@@ -43,13 +44,16 @@ export function applyLevel(s0, level) {
 
 // Nadbytek proti úrovni (nemutuje vstup): bypassPermissions pod úrovní 3, pravidla z ALLOW pod úrovní 2 — bez ohledu na značku
 // (zápis mimo opravneni.mjs značku mít nemusí). Nic nepřidává. → { s, removed: [...] }
+// A-031: pravidla se vyhodnocují VZOREM (opravneni-vzor.mjs): úroveň 3 nic; úroveň 2 odebere široká/riziková pravidla mimo tabulku (Bash(*), Bash, mcp__*__*,
+// Bash(rm:*) …); úroveň 1 navíc i vše z tabulky. Úzká pravidla (Bash(node selftest.mjs), Bash(git status)) zůstávají vždy.
+export const isExcess = (rule, level) => +level >= 3 ? false : +level === 2 ? isBroadRule(rule) && !coveredBy(rule, ALLOW) : (isBroadRule(rule) || ALLOW.includes(rule) || coveredBy(rule, ALLOW));
 export function stripExcess(s0, level) {
   const perm = isObj(s0.permissions) ? s0.permissions : null; if (!perm) return { s: s0, removed: [] };
   const dropMode = !allowsBypass(level) && perm.defaultMode === BYPASS;
-  const badRules = allowsRules(level) ? [] : arr(perm.allow).filter(r => ALLOW.includes(r));
+  const badRules = arr(perm.allow).filter(r => typeof r === 'string' && isExcess(r, level));
   const removed = [...(dropMode ? [`defaultMode=${BYPASS}`] : []), ...badRules];
   if (!removed.length) return { s: s0, removed };
-  const permissions = { ...omit(perm, ...(dropMode ? ['defaultMode'] : [])), ...(badRules.length ? { allow: perm.allow.filter(r => !ALLOW.includes(r)) } : {}) };
+  const permissions = { ...omit(perm, ...(dropMode ? ['defaultMode'] : [])), ...(badRules.length ? { allow: perm.allow.filter(r => !badRules.includes(r)) } : {}) };
   const leftMarks = arr(s0[M_ALLOW]).filter(r => !badRules.includes(r));
   const s = { ...omit(s0, 'permissions', M_ALLOW, ...(dropMode ? [M_MODE] : [])), permissions, ...(leftMarks.length ? { [M_ALLOW]: leftMarks } : {}) };
   return { s, removed };
@@ -58,19 +62,27 @@ export function stripExcess(s0, level) {
 export const writeSettings = (sp, s) => { fs.mkdirSync(path.dirname(sp), { recursive: true }); fs.writeFileSync(sp, JSON.stringify(s, null, 2) + '\n', 'utf8'); };
 const stamp = () => new Date().toISOString().replace(/[:.]/g, '-');
 
-// SessionStart: srovná settings.local.json s platnou úrovní. Mění soubor JEN když je co odebrat (záloha <soubor>.bak-<čas>, řádek do
-// <ws>/AUDIT/_zmeny-nastaveni.log). → { changed, removed?, bak?, chyba? }
+
+export const settingsSharedPath = repo => path.join(repo, '.claude', 'settings.json');
+// SessionStart: srovná settings.local.json I sdílené settings.json s platnou úrovní (A-031). Mění soubor JEN když je co odebrat (záloha <soubor>.bak-<čas>,
+// řádek do <ws>/AUDIT/_zmeny-nastaveni.log). → { changed, files: [{ file, removed, bak }], removed?, bak?, chyba? } (removed/bak = souhrn, zpětně kompatibilní)
 export function syncSettings(ws, repo, level) {
-  const sp = settingsPath(repo);
-  let cur; try { cur = readSettings(sp); } catch (e) { return { changed: false, chyba: e.message }; }
-  if (cur.raw === null) return { changed: false };
-  const r = stripExcess(cur.s, level); if (!r.removed.length) return { changed: false };
-  const bak = `${sp}.bak-${stamp()}`;
-  fs.writeFileSync(bak, cur.raw, 'utf8');
-  writeSettings(sp, r.s);
-  try {
-    fs.mkdirSync(path.join(ws, 'AUDIT'), { recursive: true });
-    fs.appendFileSync(path.join(ws, 'AUDIT', '_zmeny-nastaveni.log'), `${new Date().toISOString()}  opravneni=srovnano  soubor=${sp}  plati=kapitan${level}  odebrano=${r.removed.join(' | ')}  zaloha=${path.basename(bak)}\n`, 'utf8');
-  } catch { }
-  return { changed: true, removed: r.removed, bak };
+  const files = [], chyby = [];
+  for (const sp of [settingsPath(repo), settingsSharedPath(repo)]) {
+    let cur; try { cur = readSettings(sp); } catch (e) { chyby.push(e.message); continue; }
+    if (cur.raw === null) continue;
+    const r = stripExcess(cur.s, level); if (!r.removed.length) continue;
+    const bak = `${sp}.bak-${stamp()}`;
+    fs.writeFileSync(bak, cur.raw, 'utf8');
+    writeSettings(sp, r.s);
+    try {
+      fs.mkdirSync(path.join(ws, 'AUDIT'), { recursive: true });
+      fs.appendFileSync(path.join(ws, 'AUDIT', '_zmeny-nastaveni.log'), `${new Date().toISOString()}  opravneni=srovnano  soubor=${sp}  plati=kapitan${level}  odebrano=${r.removed.join(' | ')}  zaloha=${path.basename(bak)}\n`, 'utf8');
+    } catch { }
+    files.push({ file: sp, removed: r.removed, bak });
+  }
+  const out = { changed: files.length > 0, files };
+  if (files.length) { out.removed = files.flatMap(f => f.removed); out.bak = files[0].bak; }
+  if (chyby.length) out.chyba = chyby.join(' ');
+  return out;
 }

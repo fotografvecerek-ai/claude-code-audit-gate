@@ -87,8 +87,32 @@ if (!CODEX) {
     const { syncSettings } = await import('./opravneni-pravidla.mjs');
     const canon = p => { try { return fs.realpathSync.native(p); } catch { return p; } };
     const plati = lvlOk ? lvl : 1; const r = syncSettings(ws, canon(process.env.CLAUDE_PROJECT_DIR || process.cwd()), plati);
-    if (r.changed) out.unshift(`[OPRÁVNĚNÍ] ⚠ .claude/settings.local.json měl oprávnění nad schválenou samostatnost Kapitána (${plati}) — odebráno: ${r.removed.join(', ')}; záloha ${path.basename(r.bak)}. Změna mimo START: ohlas ji hned vlastníkovi; vyšší samostatnost nastaví jen on (START → [7]).`);
-    else if (r.chyba) out.push(`[OPRÁVNĚNÍ] ⚠ ${r.chyba}`);
+    // A-031: settings.local.json I sdílené settings.json; varování jde i do AUDIT/VAROVANI-oprávnění.md (hlásí se při dalším startu)
+    const { writeWarning } = await import('./varovani.mjs');
+    if (r.changed) {
+      for (const f of r.files) {
+        const txt = `${path.basename(f.file)} měl oprávnění nad schválenou samostatnost Kapitána (${plati}) — odebráno: ${f.removed.join(', ')}; záloha ${path.basename(f.bak)}`;
+        out.unshift(`[OPRÁVNĚNÍ] ⚠ .claude/${txt}. Změna mimo START: ohlas ji hned vlastníkovi; vyšší samostatnost nastaví jen on (START → [7]).`);
+        writeWarning(ws, `.claude/${txt}`);
+      }
+    } else if (r.chyba) out.push(`[OPRÁVNĚNÍ] ⚠ ${r.chyba}`);
+    if (r.changed && r.chyba) out.push(`[OPRÁVNĚNÍ] ⚠ ${r.chyba}`);
+    // A-031: ~/.claude/settings.json (uživatelské nastavení) se NIKDY nemění — jen čtení a hlášení; blokuje guard Kapitána (kapitan-audit-guard.js)
+    if (plati < 3) {
+      const home = process.env.USERPROFILE || process.env.HOME || (await import('node:os')).homedir();
+      let us = null; try { us = JSON.parse(fs.readFileSync(path.join(home, '.claude', 'settings.json'), 'utf8').replace(/^﻿/, '')); } catch { }
+      if (us && us.permissions && us.permissions.defaultMode === 'bypassPermissions') {
+        const txt = `~/.claude/settings.json má defaultMode=bypassPermissions nad schválenou samostatností Kapitána (${plati}) — soubor neměním; guard v tomto projektu blokuje nástroje při bypassu. Nastavení je tvoje (START → [7] zvýší samostatnost, nebo bypass v ~/.claude/settings.json vypni).`;
+        out.unshift(`[OPRÁVNĚNÍ] ⚠ ${txt}`); writeWarning(ws, txt);
+      }
+    }
+    // A-031: spouštěč start-*.cmd/.sh proti schválenému otisku vlastníka — neshoda = varování + obnova ze šablony (volby vlastníka zůstávají)
+    const pr = await import('./prisnost.mjs'); const it = pr.integrity(ws);
+    if (it.git && it.spoustec && !it.spoustec.ok) {
+      const rl = pr.restoreLaunchers(ws);
+      const txt = `spouštěč (${it.spoustec.rozdily.join(', ')}) se lišil od schváleného otisku vlastníka — ${rl.ok ? 'obnoven ze šablony' : 'obnova selhala: ' + rl.chyba}`;
+      out.unshift(`[OPRÁVNĚNÍ] ⚠ ${txt}. Změna mimo START: ohlas ji hned vlastníkovi.`); writeWarning(ws, txt);
+    }
   } catch (e) { out.push(`[OPRÁVNĚNÍ] ⚠ kontrola oprávnění Claude Code selhala: ${e.message} — ohlas vlastníkovi.`); }
 }
 console.log(out.join('\n'));

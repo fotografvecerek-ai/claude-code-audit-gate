@@ -11,6 +11,7 @@
 // K4: git nefunguje (chybí, přesunut, poškozen, mimo PATH) → FAIL-CLOSED: max(BĚŽNÝ, disk), Kapitán 1, varování při každém startu + log.
 // `potvrd` = vlastník v terminálu potvrdí nastavení na disku (update-install, instalátor, START → [7]).
 import fs from 'node:fs'; import path from 'node:path'; import { spawnSync } from 'node:child_process'; import { fileURLToPath } from 'node:url';
+import { F_SPOUSTEC, compareFingerprint, regenLaunchers } from './spoustec.mjs'; import { warningLine } from './varovani.mjs';   // A-031
 
 export const LEVELS = ['prototyp', 'osobni', 'bezny', 'kriticky'];
 export const DEFAULT_LEVEL = 'bezny';
@@ -37,7 +38,7 @@ const TOOL = { name: 'auditor (dluh-uzavren)', email: 'dluh@auditor.local' };
 const INSTALL = { name: 'auditor', email: 'auditor@local' };
 const APPROVED = new Set([OWNER.email, TOOL.email]);
 const F_REZIM = '.rezim.json', F_OPR = '.opravneni.json', F_DLUH = 'AUDIT/.prisnost.json';
-const INTEGRITY_FILES = [F_REZIM, F_OPR, F_DLUH];
+const INTEGRITY_FILES = [F_REZIM, F_OPR, F_DLUH, F_SPOUSTEC];   // A-031: .spoustec.json = otisk spouštěčů start-*.cmd/.sh (spoustec.mjs)
 const gitEnv = () => Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^GIT_/i.test(k)));   // GIT_DIR/GIT_WORK_TREE apod. by přesměrovaly kontrolu
 function git(ws, args) {
   const r = spawnSync('git', ['-C', ws, ...args], { encoding: 'utf8', env: gitEnv(), windowsHide: true });
@@ -76,7 +77,7 @@ export function integrity(ws) {
   const dl = levOf(parseJson(readRaw(ws, F_REZIM))), dk = kapOf(parseJson(readRaw(ws, F_OPR))), dd = debtOf(parseJson(readRaw(ws, F_DLUH)));
   const disk = { level: dl, kapitan: dk };
   const st = gitState(ws);
-  if (!st.ok) return { git: false, duvod: st.duvod, level: stricter(DEFAULT_LEVEL, dl), kapitan: 1, debt: dd, disk, zmeny: [] };   // K4: fail-closed
+  if (!st.ok) return { git: false, duvod: st.duvod, level: stricter(DEFAULT_LEVEL, dl), kapitan: 1, debt: dd, disk, zmeny: [], spoustec: { ok: true, rozdily: [] } };   // K4: fail-closed
   const head = rel => parseJson(approvedBlob(ws, rel));
   const hl = levOf(head(F_REZIM)), hk = kapOf(head(F_OPR)), hd = debtOf(head(F_DLUH));
   const level = dl === hl ? dl : stricter(hl, DEFAULT_LEVEL, dl), kapitan = Math.min(hk, dk), debt = hd.otevren ? hd : dd;
@@ -84,8 +85,16 @@ export function integrity(ws) {
   if (dl !== hl) zmeny.push({ rel: F_REZIM, z: hl, na: dl, plati: level, label: LABELS[level] });
   if (dk !== hk) zmeny.push({ rel: F_OPR, z: String(hk), na: String(dk), plati: String(kapitan), label: `samostatnost Kapitána ${kapitan}` });
   if (debtKey(dd) !== debtKey(hd)) zmeny.push({ rel: F_DLUH, z: debtKey(hd), na: debtKey(dd), plati: debtKey(debt), label: `audit dluhu ${debt.otevren ? 'otevřen' : 'uzavřen'}` });
-  return { git: true, level, kapitan, debt, disk, zmeny };
+  // A-031: spouštěče na disku proti schválenému otisku (bez schváleného otisku = starší instalace, nic ke kontrole)
+  const approvedSp = approvedBlob(ws, F_SPOUSTEC), spRaw = readRaw(ws, F_SPOUSTEC);
+  const spoustec = compareFingerprint(approvedSp == null ? null : parseJson(approvedSp), ws);
+  if (!spoustec.ok) zmeny.push({ rel: F_SPOUSTEC, z: 'schválený otisk', na: `jiný obsah: ${spoustec.rozdily.join(', ')}`, plati: 'obnova ze šablony', label: 'spouštěče', spoustec: true, rozdily: spoustec.rozdily });
+  const spoustecNeschvaleny = spRaw !== null && spRaw !== approvedSp;
+  return { git: true, level, kapitan, debt, disk, zmeny, spoustec, spoustecNeschvaleny };
 }
+export const approvedSpoustec = ws => { const raw = approvedBlob(ws, F_SPOUSTEC); return raw == null ? null : parseJson(raw); };
+export const spoustecRepo = ws => { const a = approvedSpoustec(ws), d = parseJson(readRaw(ws, F_SPOUSTEC)); return String((a && a.repo) || (d && d.repo) || ''); };
+export function restoreLaunchers(ws) { const r = spoustecRepo(ws); return r ? regenLaunchers(ws, r, approvedSpoustec(ws)) : { ok: false, chyba: 'repo projektu není známé (.spoustec.json)' }; }
 export const summary = it => `platí ${LABELS[it.level]}, samostatnost Kapitána ${it.kapitan}; na disku ${LABELS[it.disk.level]}, samostatnost ${it.disk.kapitan}${it.git ? '' : `; ${it.duvod}`}`;
 // Commit nastavení do gitu ws (K4: NEexportováno). Jen vyjmenované soubory — cizí přepis se tím neschválí.
 function commitAs(ws, msg, files, who) {
@@ -149,11 +158,12 @@ export function ownerApprove(ws, msg, files = INTEGRITY_FILES) {
 // `potvrd`: vlastník potvrdí nastavení, která jsou na disku (update-install, START → [7], instalátor po založení gitu). --instalator + TTY = bez dalšího dotazu.
 export function confirmCurrent(ws, { instalator = false } = {}) {
   const g = ensureWsGit(ws); if (!g.ok) { console.error(`  ⚠ ${g.duvod}`); return false; }
-  const it = integrity(ws); if (!it.zmeny.length) { console.log('  ✅ nastavení auditora je schválené vlastníkem'); return true; }
+  const it = integrity(ws); if (!it.zmeny.length && !it.spoustecNeschvaleny) { console.log('  ✅ nastavení auditora je schválené vlastníkem'); return true; }
   console.log(`  Nastavení auditora nejsou schválená vlastníkem (${summary(it)}):`);
   for (const z of it.zmeny) console.log(`    ${z.rel}: schváleno ${z.z}, na disku ${z.na}`);
   const bl = blocked(); if (bl) { console.error(`  ⚠ neschváleno: ${bl} — ${NO_TTY}`); return false; }
   if (!(instalator && process.stdin.isTTY)) { const c = ttyConfirm('Potvrdit nastavení na disku jako tvoje?'); if (!c.ok) { console.error(`  ⚠ neschváleno: ${c.duvod}`); return false; } }
+  if (fs.existsSync(path.join(ws, F_SPOUSTEC))) { const rl = restoreLaunchers(ws); if (!rl.ok) console.error(`  ⚠ spouštěče se nepodařilo obnovit ze šablony: ${rl.chyba}`); }
   const ok = commitAs(ws, 'vlastník: potvrzení nastavení na disku', INTEGRITY_FILES, OWNER); console.log(ok ? '  ✅ nastavení potvrzeno' : '  ⚠ commit potvrzení selhal'); return ok;
 }
 const safe = (f, dflt) => { try { return f(); } catch { return dflt; } };
@@ -189,7 +199,7 @@ function integrityNotes(ws, it) {
     logNoGit(ws, it);
     return [`[PŘÍSNOST] ⚠ kontrola integrity nastavení nefunguje: ${it.duvod} — platí přísnější nastavení (${LABELS[it.level]}, samostatnost Kapitána ${it.kapitan}). Ohlas vlastníkovi; oprava: START → [7] v terminálu (obnoví git workspace a vlastník potvrdí nastavení).`];
   }
-  return it.zmeny.map(z => { logIntegrity(ws, z); return `[PŘÍSNOST] ⚠ nastavení změněno mimo START (neschváleno vlastníkem) — platí ${z.label} (${z.rel}: schváleno ${z.z}, na disku ${z.na}). Ohlas vlastníkovi; potvrdit změnu může jen on přes START.`; });
+  return it.zmeny.map(z => { logIntegrity(ws, z); if (z.spoustec) return `[PŘÍSNOST] ⚠ spouštěč (${z.rozdily.join(', ')}) se liší od schváleného otisku vlastníka — změna mimo START; SessionStart Kapitána ho obnoví ze šablony. Ohlas vlastníkovi.`; return `[PŘÍSNOST] ⚠ nastavení změněno mimo START (neschváleno vlastníkem) — platí ${z.label} (${z.rel}: schváleno ${z.z}, na disku ${z.na}). Ohlas vlastníkovi; potvrdit změnu může jen on přes START.`; });
 }
 
 // Trvalá evidence dluhu: AUDIT/.prisnost.json → { audit_dluhu: { otevren, uroven, od } } (mimo NOVE_CILE.md, které update přepisuje).
@@ -212,6 +222,7 @@ export function contextLine(level, ws, it = ws ? safe(() => integrity(ws), null)
   const ch = ws ? lastChange(ws) : null;
   if (ch) out.push(`[PŘÍSNOST] Poslední změna přísnosti: ${ch.cas.slice(0, 16).replace('T', ' ')} UTC ${lbl(ch.z)} → ${lbl(ch.na)} (${ch.zdroj}) — nečekanou změnu ohlas vlastníkovi.`);
   if (it) out.push(...integrityNotes(ws, it));
+  const wl = ws ? warningLine(ws) : ''; if (wl) out.push(wl);
   return out.join('\n');
 }
 
@@ -248,7 +259,8 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     else if (cmd === 'nastav') {
       const r = setLevel(ws, String(arg || '').toLowerCase(), { vlastnik });
       console.log(`Přísnost auditu nastavena: ${LABELS[r.level]}.${r.raised ? ' Založen úkol „audit dluhu" v AUDIT/NOVE_CILE.md.' : ''}`);
-    } else if (cmd === 'dluh-uzavren') console.log(closeDebt(ws) ? 'Audit dluhu uzavřen.' : 'Žádný otevřený audit dluhu.');
+    } else if (cmd === 'kapitan-uroven') console.log(String(kapitanLevel(ws)));
+    else if (cmd === 'dluh-uzavren') console.log(closeDebt(ws) ? 'Audit dluhu uzavřen.' : 'Žádný otevřený audit dluhu.');
     else if (cmd === 'potvrd') process.exit(confirmCurrent(ws, { instalator: rest.includes('--instalator') }) ? 0 : 2);
     else { console.error('Použití: node tools/prisnost.mjs [--ws <cesta>] stav | kontext | nastav <prototyp|osobni|bezny|kriticky> [--vlastnik] | dluh-uzavren | potvrd [--instalator]'); process.exit(1); }
   } catch (e) { console.error(e.message); process.exit(1); }

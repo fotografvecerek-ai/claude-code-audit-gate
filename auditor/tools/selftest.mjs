@@ -1233,7 +1233,7 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
   T('OPR: DELETE s WHERE povolen', hook(KG, bash(repo, 'psql -c "delete from denicek_posts where id = 5;"')), 0); }
 
 // --- A-029 kolo 5: oprávnění Claude Code (settings.local.json) jen po schválení vlastníka; SessionStart Kapitána srovná settings.local.json s integritou
-{ const b5 = path.join(tmp, 'opr5'), TP5 = path.join(pkg, 'tools'); const COPY5 = f => /^(opravneni|prisnost|opravneni-pravidla|kapitan-role)\.mjs$/.test(f);
+{ const b5 = path.join(tmp, 'opr5'), TP5 = path.join(pkg, 'tools'); const COPY5 = f => /^(opravneni|prisnost|opravneni-pravidla|opravneni-vzor|spoustec|varovani|write-launchers|kapitan-role)\.mjs$/.test(f);
   const copyTools = dst => { fs.mkdirSync(dst, { recursive: true }); for (const f of fs.readdirSync(TP5)) if (COPY5(f)) fs.copyFileSync(path.join(TP5, f), path.join(dst, f)); };
   const gw = (w, ...a) => spawnSync('git', ['-C', w, ...a], { encoding: 'utf8' });
   const own5 = (w, kap) => { fs.writeFileSync(path.join(w, '.opravneni.json'), JSON.stringify({ kapitan: kap }) + '\n', 'utf8'); gw(w, 'add', '-f', '.opravneni.json'); gw(w, '-c', 'user.name=vlastník', '-c', 'user.email=vlastnik@auditor.local', '-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '-m', 'vlastník: test'); };
@@ -1525,7 +1525,7 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
   { // A-029 kolo 3 (ZMĚNA METODY): integrita nastavení vlastníka proti git HEAD workspace auditora — obchvaty z verdiktu provedené SKUTEČNĚ
     const ib = path.join(tmp, 'integrita'); const iapp = path.join(ib, 'app'), iws = path.join(ib, 'app-audit');
     fs.mkdirSync(iapp, { recursive: true }); fs.mkdirSync(path.join(iws, 'AUDIT'), { recursive: true }); fs.mkdirSync(path.join(iws, 'tools'), { recursive: true });
-    fs.copyFileSync(PR, path.join(iws, 'tools', 'prisnost.mjs'));
+    for (const m of ['prisnost', 'spoustec', 'varovani']) fs.copyFileSync(path.join(pkg, 'tools', m + '.mjs'), path.join(iws, 'tools', m + '.mjs'));
     const OK_REZ = '{\n  "prisnost": "kriticky",\n  "jazyk": "cs"\n}\n', OK_OPR = '{"kapitan":2}\n', OK_DLUH = '{"audit_dluhu":{"otevren":true,"uroven":"kriticky","od":"2026-09-29T00:00:00.000Z"}}\n';
     const put = () => { fs.writeFileSync(path.join(iws, '.rezim.json'), OK_REZ); fs.writeFileSync(path.join(iws, '.opravneni.json'), OK_OPR); fs.writeFileSync(path.join(iws, 'AUDIT', '.prisnost.json'), OK_DLUH); };
     const gi = (w, ...a) => String(spawnSync('git', ['-C', w, ...a], { encoding: 'utf8' }).stdout || '').trim();
@@ -1550,7 +1550,7 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
       ['5 odkaz (ln -s / junction) se složeným jménem', `${lnk} && echo ${P} > lnk2/.rezim.json`],
       ['6 node -e se složenou cestou', `node -e "require('fs').writeFileSync('../app-'+'audit/.rezim.json', JSON.stringify({prisnost:'prototyp'}))"`],
       ['7 import setLevel z prisnost.mjs', `node -e "import('../app-'+'audit/tools/prisnost.mjs').then(m=>m.setLevel('../app-'+'audit','prototyp'))"`],
-      ['7b kopie prisnost.mjs + nastav --vlastnik bez terminálu vlastníka', `cp ../app-audit/tools/prisnost.mjs ./p.mjs && D=app; node p.mjs --ws ../\${D}-audit nastav prototyp --vlastnik`],
+      ['7b kopie prisnost.mjs + nastav --vlastnik bez terminálu vlastníka', `cp ../app-audit/tools/prisnost.mjs ./p.mjs && cp ../app-audit/tools/spoustec.mjs ../app-audit/tools/varovani.mjs . && D=app; node p.mjs --ws ../\${D}-audit nastav prototyp --vlastnik`],
     ];
     for (const [nm, cmd] of OBCHVATY) {
       put(); unlink(path.join(iapp, 'lnk2')); const before = rdLog().length;
@@ -1944,6 +1944,8 @@ if (!process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL) {
 // A-026: kotva důvěry — stavy, dvě repa, kanonizace, obchvaty guardu, skutečný push do bare origin (vlastní modul kvůli délce souboru)
 try { (await import('./selftest-a026.mjs')).runA026({ T, KOTVA, pkg, tmp, git, isWin, norm, gitBash, env, hook, bash, write, KG, setupWsSide, DNES, wt, repo }); }
 catch (e) { T('A-026 sekce samotestu doběhla bez výjimky', String(e && e.stack || e).slice(0, 400), ''); }
+try { await (await import('./selftest-a031.mjs')).runA031({ T, KOTVA, pkg, tmp, git, isWin, norm, gitBash, env, hook, bash, write, KG, setupWsSide, DNES, wt, repo }); }
+catch (e) { T('A-031 sekce samotestu doběhla bez výjimky', String(e && e.stack || e).slice(0, 400), ''); }
 
 if (isWin && realDesktopBefore) {
   let novéNaPloše = [];

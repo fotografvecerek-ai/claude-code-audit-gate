@@ -402,3 +402,15 @@ Opravy z vlastního auditu balíku (nálezy A-001 až A-023, ověřeno auditorem
   hygieny; cizí `pre-push` se zazálohuje do `pre-push.bak-<čas>` s varováním. Po aktualizaci z 1.8.8: jednou spusť START → [9] u každého
   projektu. CI (`auditor-gate.yml`) už nečte `AUDITOR_WORKSPACE` z env. Samotest 897 (testy se skutečným pushem do bare origin: X28, X28b,
   X29, P19, P21, legitimní 🟢 push).
+
+- **A-031: oprávnění Claude Code pod schválenou samostatností Kapitána.** (1) `bypassPermissions` ve sdíleném `.claude/settings.json` se při startu
+  Kapitána odebere nad schválenou úrovní (záloha `.bak-<čas>`, řádek `[OPRÁVNĚNÍ] ⚠`, log v `AUDIT/_zmeny-nastaveni.log`), stejně jako u `settings.local.json`.
+  (2) Allow pravidla se vyhodnocují VZOREM (`tools/opravneni-vzor.mjs`), ne přesným řetězcem: nad úrovní 1 se odeberou `Bash(*)`, `Bash`, `mcp__*__*`,
+  `mcp__…__execute_sql`, `Bash(rm:*)`, push v `Bash(...)`, `Bash(psql:*)` a další široká; úzká (`Bash(node selftest.mjs)`, `Bash(git status)`) zůstanou.
+  (3) `~/.claude/settings.json` se nikdy nemění: při bypassu se jen hlásí vlastníkovi a pojistka Kapitána (jen v projektu Kapitána) blokuje nástroje.
+  (4) Spouštěče `start-*.cmd/.sh`: otisk sha256 schváleného stavu (`.spoustec.json`, schvaluje vlastník přes START jako ostatní nastavení); neshoda =
+  varování + obnova z tabulky (vlastníkovy volby zůstanou), podstrčený spouštěč se smaže; pojistka blokuje zápis do spouštěčů i přes proměnnou, glob a `node -e`.
+  (5) Pojistka čte `permission_mode` ze vstupu a blokuje jen při `bypassPermissions` nad schválenou úrovní (jiná hodnota nebo chybějící pole = neblokuje).
+  (6) Varování vlastníkovi mechanicky: soubor `AUDIT/VAROVANI-oprávnění.md`, hlášený při dalším startu. (7) Schválená úroveň 2/3 = žádné varování ani změna.
+  Zbytková rizika: nastavení se čte při startu session, bypass zapsaný za běhu platí do konce session; matcher pojistky nepokrývá MCP nástroje ani Read;
+  podvržení commitu vlastníka na stejném účtu OS je přijato. PowerShell tool je pokryt matcherem (`Edit|Write|NotebookEdit|Bash|PowerShell`). Samotest 942.

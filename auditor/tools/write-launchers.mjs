@@ -97,4 +97,6 @@ if (process.platform === 'win32') {
     fs.writeFileSync(path.join(ws, 'start-projekt.sh'), pj.join('\n')); fs.chmodSync(path.join(ws, 'start-projekt.sh'), 0o755);
   } else { try { fs.unlinkSync(path.join(ws, 'start-projekt.sh')); } catch { } }
 }
+// A-031: otisk spouštěčů (sha256) — schvaluje ho vlastník commitem spolu s nastavením (prisnost.mjs potvrd); neshoda disku se schváleným otiskem = varování + obnova.
+try { const { writeFingerprint } = await import('./spoustec.mjs'); writeFingerprint(ws, repo); } catch (e) { console.error(`  ⚠ otisk spouštěčů se nepodařilo zapsat: ${e.message}`); }
 console.log('spouštěče auditora a Kapitána zapsány');

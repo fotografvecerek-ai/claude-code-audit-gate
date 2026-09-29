@@ -50,9 +50,11 @@ const UNTRUSTED_ENV = ['AUDITOR_WORKSPACE', 'AUDITOR_TARGET_REPO', 'GATE_MAX_AGE
 const ANCHOR_RE = /auditor-?kotv|kotva\.json/i;
 const flat = s => String(s || '').replace(/["'`+\s\\]/g, '');
 const IN_GIT_DIR = /(^|\/)\.git(\/|$)/i;
-const PROTECTED_NAMES = ['.git', '.claude', '.codex', 'hooks', 'settings.json', 'settings.local.json', 'auditor-kotva.json'];
+const PROTECTED_NAMES = ['.git', '.claude', '.codex', 'hooks', 'settings.json', 'settings.local.json', 'auditor-kotva.json', 'start-kapitan.cmd', 'start-kapitan.sh', 'start-projekt.cmd', 'start-projekt.sh', 'start-auditor.cmd', 'start-auditor.sh'];
 const globRe = seg => new RegExp('^' + seg.replace(/[.+^${}()|\\]/g, '\\$&').replace(/\*/g, '.*').replace(/\?/g, '.') + '$', 'i');
 const globHitsProtected = p => String(p || '').split('/').some(seg => /[*?[]/.test(seg) && (() => { try { const re = globRe(seg); return PROTECTED_NAMES.some(n => re.test(n)); } catch { return true; } })());
+// A-031: spouštěče start-kapitan/projekt/auditor (.cmd/.sh) — přepsat je smí jen START (vlastník); otisk hlídá prisnost.mjs
+const LAUNCHER_RE = /start-?(kapitan|projekt|auditor)\.(cmd|sh)/i;
 let HOOK_CWD = process.cwd();
 // A-023 AK4 fix (a): DEPLOY se vyhodnocuje jen když PRVNÍ SLOVO segmentu (c.w, případně skutečný interpret u -e/-c) odpovídá nástroji —
 // dřív regex běžel nad celým textem segmentu (včetně obsahu v uvozovkách), takže echo/grep/git commit -m se slovem „vercel --prod" apod. blokovaly (KH11, KH12, K35, K40).
@@ -409,10 +411,12 @@ function anchorViolations(cmd, wt, varMap) {
   if (/\$\(|`/.test(cmd) && /rev-parse[\s\S]*--(git-common-dir|git-dir|absolute-git-dir|git-path)/i.test(cmd) && anyWriter) return 'cesta do .git z $(git rev-parse …) u zapisujícího příkazu';
   const fromSubst = new Set([...cmd.matchAll(/([A-Za-z_]\w*)=(\$\(|`)/g)].map(m => m[1].toLowerCase()));
   const lockOnly = c => ['rm', 'del', 'unlink'].includes(c.w);
+  if (wt.length > 0 && (LAUNCHER_RE.test(flat(cmd)) || LAUNCHER_RE.test(flat(subst)))) return 'příkaz zapisuje a zmiňuje spouštěč Kapitána (start-*.cmd/.sh) — mění ho jen vlastník přes START (A-031)';
   for (const t of wt) {
-    if (t.inline) { if (ANCHOR_RE.test(flat(t.text)) || INLINE_GIT.test(t.text) || INLINE_GIT.test(flat(t.text))) return `inline skript (${t.cmd}) zapisuje do .git nebo kotvy`; continue; }
+    if (t.inline) { if (LAUNCHER_RE.test(flat(t.text))) return `inline skript (${t.cmd}) zapisuje spouštěč Kapitána (A-031)`; if (ANCHOR_RE.test(flat(t.text)) || INLINE_GIT.test(t.text) || INLINE_GIT.test(flat(t.text))) return `inline skript (${t.cmd}) zapisuje do .git nebo kotvy`; continue; }
     if (!t.path) continue;
     const p = t.path, pc = canonN(p);
+    if (LAUNCHER_RE.test(p.split('/').pop()) || LAUNCHER_RE.test(pc.split('/').pop())) return `zápis spouštěče Kapitána („${t.tok}") — mění ho jen vlastník přes START (A-031)`;
     if (ANCHOR_RE.test(p.split('/').pop()) || ANCHOR_RE.test(pc.split('/').pop())) return `zápis kotvy („${t.tok}")`;
     if ((IN_GIT_DIR.test(p) || IN_GIT_DIR.test(pc)) && !(/\.lock$/.test(p) && ['rm', 'del', 'unlink'].includes(t.cmd))) return `zápis dovnitř .git („${t.tok}")`;
     if (globHitsProtected(p)) return `cíl zápisu s globem může mířit na chráněnou cestu („${t.tok}")`;
@@ -450,6 +454,12 @@ process.stdin.on('end', () => {
   const cwdRaw = input.cwd || process.cwd(); HOOK_CWD = cwdRaw;
   if (!ws || /\[DOPLŇ|\[DOPLN/.test(ws) || !repo) block('AUDITOR_WORKSPACE / AUDITOR_TARGET_REPO nejsou nastaveny (fail-closed) — spusť setup-auditor, nebo hook odstraň ze settings.');
   if (!R) block('hygiene-rules.json nenalezen (fail-closed) — spusť setup-auditor (kopíruje pravidla do .claude/hooks/).');
+  // A-031: bypassPermissions (Claude Code payload má permission_mode) nad schválenou samostatností Kapitána z integrity → blok. Pole chybí nebo jiná
+  // hodnota (default, acceptEdits, plan, auto) = neblokuje. Úroveň čte prisnost.mjs kapitan-uroven (schválená vlastníkem v gitu ws; chyba = 1).
+  if (input.permission_mode === 'bypassPermissions') {
+    let lv = 1; try { lv = parseInt(String(execFileSync(process.execPath, [path.join(process.env.AUDITOR_WORKSPACE || '', 'tools', 'prisnost.mjs'), '--ws', process.env.AUDITOR_WORKSPACE || '', 'kapitan-uroven'], { encoding: 'utf8', timeout: 8000, windowsHide: true })).trim(), 10) || 1; } catch { lv = 1; }
+    if (lv < 3) block(`BYPASS OPRÁVNĚNÍ: okno běží v režimu bypassPermissions, ale schválená samostatnost Kapitána je ${lv} (platí jen 3 PLNÝ). Ukonči bypass (Shift+Tab nebo restart bez --dangerously-skip-permissions; případně smaž defaultMode v ~/.claude/settings.json) — samostatnost zvýší jen vlastník: START → [7] (A-031).`);
+  }
   if (['Edit', 'Write', 'NotebookEdit', 'MultiEdit'].includes(tool)) {
     const fp = norm(collapse(ti.file_path || ti.notebook_path || ''));
     // DELEGACE: Kapitán běží na silném modelu kvůli plánování a rozhovoru s vlastníkem — kód píšou subagenti (implementator, model sonnet).
@@ -468,6 +478,7 @@ process.stdin.on('end', () => {
     }
     // A-026: kotva důvěry a vnitřek jakéhokoli .git (config, hooks, kotva) — doslovně i kanonicky (symlink/junction do .git)
     const fpc = canonN(fp);
+    if (LAUNCHER_RE.test(fp.split('/').pop()) || LAUNCHER_RE.test(fpc.split('/').pop())) block(`SPOUŠTĚČ: ${fp} — spouštěč Kapitána mění jen vlastník přes START (A-031).`);
     if (ANCHOR_RE.test(fp.split('/').pop()) || ANCHOR_RE.test(fpc.split('/').pop())) block(`KOTVA DŮVĚRY: ${fp} — kotvu mění jen vlastník (START → [9]), ne agent (A-026).`);
     if (IN_GIT_DIR.test(fp) || IN_GIT_DIR.test(fpc)) block(`SELF-PROTECT: ${fp} — vnitřek .git (config, hooks, kotva důvěry) agent nemění (A-026).`);
     if (repo && fp.startsWith(repo + '/')) {

@@ -59,4 +59,6 @@ console.log(`  ✅ Kapitán: ${NAMES[level]} (${sp}) — platí od příštího 
 // role Kapitána v CLAUDE.md projektu podle nové úrovně (jen když je nainstalovaná strana Kapitána)
 // spouštěče: Kapitán v Codexu má sandbox a schvalování podle úrovně přímo v příkazu codex
 try { const wl = [path.join(ws, 'tools', 'write-launchers.mjs'), path.join(path.dirname(fileURLToPath(import.meta.url)), 'write-launchers.mjs')].find(f => fs.existsSync(f)); if (wl && fs.existsSync(path.join(ws, '.agents.json'))) spawnSync(process.execPath, [wl, ws, repo], { stdio: 'ignore' }); } catch { }
+// A-031: přegenerovaný spouštěč + jeho otisk (.spoustec.json) schvaluje vlastník v terminálu stejně jako volbu samostatnosti
+if (ASK && fs.existsSync(path.join(ws, '.spoustec.json'))) ownerApprove(ws, 'vlastník: spouštěč Kapitána', ['.spoustec.json']);
 if (fs.existsSync(path.join(repo, '.claude', 'hooks', 'kapitan-audit-guard.js'))) spawnSync(process.execPath, [path.join(path.dirname(fileURLToPath(import.meta.url)), 'kapitan-role.mjs'), ws, '--claude-md', repo], { stdio: 'ignore' });
