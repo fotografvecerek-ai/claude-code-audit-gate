@@ -195,7 +195,7 @@ Auditor nikdy nezapisuje mimo `AUDIT/` a `tools/`; Kapitán zapisuje jen do `03_
 - Opravy z vlastního auditu balíku (A-001 až A-023): těsnější pojistky Kapitána a auditora (detekce git mutací/odeslání podle skutečně spouštěného příkazu, zápis přesměrováním mimo workspace fail-closed, allowlist `git`/`gh` i podle argumentů), opravená pre-push pojistka (refy ze stdin), bezpečné zámky mostu (`bus.mjs` pod zámkem, atomický zápis, retry na Windows), aktualizace instalace nikdy nepřepíše cizí hook beze zálohy a přerušenou instalaci sama doplní nebo zřetelně varuje, katalog zvládá frontmatter s CRLF, dokumentace (README/CONTRIBUTING) odpovídá realitě. Samotest 703.
 - Kolo 3 (A-008, poslední): instalace bez markeru + vlastní `.gitattributes` vlastníka už nedostane naše git hooky proti jeho volbě, samotest
   přesměrovává `HOME`/`USERPROFILE` do dočasné složky všude, kde spouští instalátor (pojistka hlídá hash skutečného `~/.claude.json`
-  před/po celém běhu), a starý marker dokončené instalace se maže hned na začátku instalace, ne až na konci. Samotest 721.
+  před/po celém běhu), a starý marker dokončené instalace se maže hned na začátku instalace, ne až na konci. Samotest 722.
 
 ## Změny v1.8.7
 - Pojistky a pluginy pro celý počítač (běží ve všech projektech): detekce, upozornění při startu, průvodce přesunem se zálohou. Kapitán pojistky neobchází. Samotest 225.

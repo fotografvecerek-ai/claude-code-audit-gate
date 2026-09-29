@@ -355,4 +355,7 @@ Opravy z vlastního auditu balíku (nálezy A-001 až A-023, ověřeno auditorem
   přesměrovává `HOME`/`USERPROFILE` na dočasnou složku ve všech scénářích, které spouštějí instalátor/`trust-folders.mjs`, a nová pojistka
   (hash skutečného `~/.claude.json` před/po celém samotestu) hlásí FAIL, pokud by se přece jen zapsalo mimo sandbox; starý marker
   `hotovo:true` z přerušené instalace se maže hned na začátku `setup-auditor.ps1`/`.sh`, ne až na konci.
-- Samotest 721.
+- **Samotest po aktualizaci v instalovaném workspace** (A-027, e2e CI na 3 OS): `update-install.mjs` spuštěný z nainstalovaného
+  workspace (ne z balíku) už nekopíruje jeho živý `AUDIT/` (intake, marker instalace) do cíle jako šablonu — dřív to maskovalo přerušenou
+  instalaci jako dokončenou; hláška „SAMOTEST NEPROŠEL po aktualizaci (…)“ vždy uvede důvod (souhrn, exit kód/signál, konec chybového výstupu).
+- Samotest 722.

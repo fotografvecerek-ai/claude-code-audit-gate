@@ -1575,6 +1575,21 @@ if (!process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL) {
   T('UPDATE-INSTALL A-008 kolo 2 (P4b): přerušeno u otázky na Kapitána (prázdná .claude/hooks, žádný marker/Kapitán/remote) → nikdy tiché OK',
     `exit=${p6.status !== 0},varovani=${/NEDOKONČ/.test(p6.stdout + p6.stderr)}`, 'exit=true,varovani=true');
 
+  // 6b) A-027 (e2e CI, 3 OS): samotest po aktualizaci běží z NAINSTALOVANÉHO workspace — tam je pkg = ws a pkg/AUDIT je ŽIVÝ
+  //     audit (00_intake.md, marker .instalace.json hotovo:true), ne šablona. copyMissing ho dřív zkopíroval do cíle → přerušená
+  //     instalace vypadala jako dokončená/rozjetá (tiché OK) a cizí audit prosákl do jiného workspace. Simulace: kopie balíku
+  //     s markery instalovaného workspace, z ní spuštěný update-install nad přerušenou instalací (stav jako scénář 1).
+  { const pw = path.join(tmp, 'ui-pkgws'), { copyTree: ct } = await import(pathToFileURL(path.join(pkg, 'tools', 'fs-bezpecne.mjs')).href); fs.mkdirSync(pw, { recursive: true });
+    for (const d of ['CLAUDE.md', '.claude', 'checklists', 'templates', 'tools', 'kapitan-side', 'starter', 'katalog', 'AUDIT'])
+      if (fs.existsSync(path.join(pkg, d))) ct(path.join(pkg, d), path.join(pw, d), s => !/[\\/]node_modules([\\/]|$)/.test(s));
+    fs.writeFileSync(path.join(pw, 'AUDIT', '.instalace.json'), JSON.stringify({ hotovo: true, kapitan: 'ano', hygiena: 'ano', cas: new Date().toISOString() }));
+    fs.writeFileSync(path.join(pw, 'AUDIT', '00_intake.md'), '# intake jineho projektu\n');
+    const rw = path.join(tmp, 'ui-pw'), ww = path.join(tmp, 'ui-pw-audit'); uiRepo(rw); uiWs(ww);
+    const pp = spawnSync(process.execPath, [path.join(pw, 'tools', 'update-install.mjs'), rw, ww], { encoding: 'utf8', env: uiEnv, timeout: 240000 });
+    T('UPDATE-INSTALL A-027: spuštěno z instalovaného workspace — živý AUDIT/ se do cíle nekopíruje a přerušená instalace není tiché OK',
+      `exit=${pp.status !== 0},varovani=${/NEDOKONČ/.test(pp.stdout + pp.stderr)},intake=${fs.existsSync(path.join(ww, 'AUDIT', '00_intake.md'))},marker=${fs.existsSync(path.join(ww, 'AUDIT', '.instalace.json'))}`,
+      'exit=true,varovani=true,intake=false,marker=false'); }
+
   // 7) A-008 kolo 2 (C5, regrese testu 3 výš): vlastník má VLASTNÍ .gitattributes (nesouvisí s auditorem) a hygienu vědomě
   //    ODMÍTL (marker hygiena:"ne") — na rozdíl od testu 3 (hygiena OPRAVDU byla nainstalována, jen hooky chybí). Stará
   //    logika (hygienaByla = existuje .gitattributes) by si spletla cizí soubor s potvrzenou hygienou a hooky nainstalovala

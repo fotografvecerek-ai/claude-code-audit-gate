@@ -69,7 +69,11 @@ if (keptOnly.length) ok(`soubory upravené auditorem ponechány (${keptOnly.leng
 if (mergeNew.length) warn(`upravené soubory, které mění i nová verze (${mergeNew.length}): tvoje funkční verze zůstala, nová leží vedle jako .new — sloučit ručně (úkol v NOVE_CILE.md)`);
 if (savedTools.length) warn(`upravené pojistky (${savedTools.length}) nahrazeny verzí balíku, tvoje verze v AUDIT/_nastroje-zaloha/${stamp}/ (úkol v NOVE_CILE.md)`);
 const copyMissing = (src, dst) => { for (const e of fs.readdirSync(src, { withFileTypes: true })) { const s = path.join(src, e.name), d = path.join(dst, e.name); if (e.isDirectory()) { fs.mkdirSync(d, { recursive: true }); copyMissing(s, d); } else if (!fs.existsSync(d)) fs.copyFileSync(s, d); } };
-if (fs.existsSync(path.join(pkg, 'AUDIT'))) copyMissing(path.join(pkg, 'AUDIT'), path.join(ws, 'AUDIT'));
+// A-027: pkg/AUDIT je šablona JEN ve skutečném balíku. Běží-li tento soubor z NAINSTALOVANÉHO workspace (kopie ws/tools/ —
+// např. samotest po aktualizaci volá ws/tools/update-install.mjs), je pkg/AUDIT ŽIVÝ audit jiného projektu (intake, nálezy,
+// marker .instalace.json): kopie by ho zanesla do cíle a přerušenou instalaci by maskovala jako dokončenou/rozjetou.
+const pkgIsWorkspace = ['tools/.balik-otisky.json', 'AUDIT/.balik.json', 'AUDIT/.instalace.json'].some(f => fs.existsSync(path.join(pkg, f)));
+if (!pkgIsWorkspace && fs.existsSync(path.join(pkg, 'AUDIT'))) copyMissing(path.join(pkg, 'AUDIT'), path.join(ws, 'AUDIT'));
 { const gi = path.join(ws, '.gitignore'); let g = rd(gi); for (const l of ['AUDIT/bus/.notified-*', '.preflight.json', '.bin/']) if (!g.split(/\r?\n/).includes(l)) g = g.replace(/\s*$/, '\n') + l + '\n'; fs.writeFileSync(gi, g); }
 if (!tryRun(process.execPath, [path.join(ws, 'tools', 'write-auditor-settings.mjs'), ws, repo, model])) { console.error('Zápis nastavení auditora selhal.'); process.exit(1); }
 tryRun(process.execPath, [path.join(ws, 'tools', 'write-launchers.mjs'), ws, repo]);
@@ -223,9 +227,17 @@ tryRun(process.execPath, [path.join(ws, 'tools', 'trust-folders.mjs'), ws, repo]
 // v produkci) — přeskočí ho úplně, ne jen rekurzivní UPDATE-INSTALL sekci uvnitř.
 say('\n  Probíhá závěrečná kontrola (samotest, na Windows 1–3 min) — nic nedělej, počkej na „AKTUALIZOVÁNO"...');
 const st = process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL ? { ok: true, out: '(vynechán uvnitř samotestu — AUDITOR_SELFTEST_NO_UPDATE_INSTALL)' }
-  : (() => { try { return { ok: true, out: execFileSync(process.execPath, [path.join('tools', 'selftest.mjs')], { cwd: ws, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }) }; } catch (e) { return { ok: false, out: String(e.stdout || '') + String(e.stderr || '') }; } })();
+  : (() => { try { return { ok: true, out: execFileSync(process.execPath, [path.join('tools', 'selftest.mjs')], { cwd: ws, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], maxBuffer: 64 * 1024 * 1024 }) }; }
+    catch (e) { return { ok: false, out: String(e.stdout || '') + String(e.stderr || ''), err: String(e.stderr || ''), status: e.status, signal: e.signal, code: e.code }; } })();
 const sum = process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL ? '(vynecháno)' : (st.out.match(/\d+\/\d+ PASS.*/) || [''])[0];
-if (!st.ok) { console.error(`  ❌ SAMOTEST NEPROŠEL po aktualizaci (${sum}). Pošli tento výpis:\n${st.out.split('\n').filter(l => /^FAIL/.test(l)).join('\n')}`); process.exit(1); }
+if (!st.ok) {
+  // A-027: důvod v závorce vždy — souhrn PASS, jinak exit kód / signál / chyba spuštění (dřív prázdné „()", např. macOS v CI);
+  // bez řádků FAIL (pád, výjimka) se ukáže konec chybového výstupu samotestu
+  const why = sum || [st.status != null && `exit ${st.status}`, st.signal && `signál ${st.signal}`, st.code && `chyba ${st.code}`].filter(Boolean).join(', ') || 'bez souhrnu';
+  const fails = st.out.split('\n').filter(l => /^FAIL/.test(l));
+  const detail = fails.length ? fails : st.err.split('\n').filter(l => l.trim()).slice(-15);
+  console.error(`  ❌ SAMOTEST NEPROŠEL po aktualizaci (${why}). Pošli tento výpis:\n${detail.join('\n')}`); process.exit(1);
+}
 ok(`samotest ${sum}`);
 say(`\n================ AKTUALIZOVÁNO: ${name} (${ver}) ================`);
 say('  Audit pokračuje tam, kde byl. Nic se neopakuje, intake ani instalace znovu neproběhnou.');
