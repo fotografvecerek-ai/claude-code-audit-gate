@@ -1,26 +1,26 @@
 #!/usr/bin/env node
 // GATE-CHECK — technická bariéra proti vydání bez verdiktu auditora (i když ji chce obejít člověk kliknutím na .bat).
 // Použití v DEPLOY_SEKVENCI Kapitána (první krok) a v deploy skriptech/.bat:  node <auditor-ws>/kapitan-side/gate-check.mjs <repo>  || exit 1
-// PASS (exit 0) jen když AUDIT/05_release_gate.md obsahuje řádek `Verdikt: 🟢` A `commit <hash>` shodný s aktuálním HEAD repa A není starší než GATE_MAX_AGE_H (výchozí 72 h, env GATE_MAX_AGE_H).
+// PASS (exit 0) jen když AUDIT/05_release_gate.md obsahuje řádek `Verdikt: 🟢` A `commit <hash>` shodný s aktuálním HEAD repa A není starší než GATE_MAX_AGE_H (výchozí 72 h, jinak gateMaxAgeH z kotvy důvěry).
 // Cokoliv jiného = exit 2 se zprávou. Chybějící soubor = exit 2 (fail-closed). Žádná výjimka „jen tentokrát".
-import fs from 'node:fs'; import path from 'node:path'; import { execFileSync } from 'node:child_process';
+import fs from 'node:fs'; import path from 'node:path'; import { execFileSync } from 'node:child_process'; import { createRequire } from 'node:module'; import { fileURLToPath } from 'node:url';
 // git voláme bez shellu (execFileSync): na Windows by cmd.exe znak ^ v `HEAD^{tree}` sežral a gate by falešně selhal
 const git = (args, cwd) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-const repo = path.resolve(process.argv[2] || process.env.AUDITOR_TARGET_REPO || '.');
-const ws = process.env.AUDITOR_WORKSPACE || path.resolve(repo, '..', path.basename(repo) + '-audit');
+const failEarly = m => { console.error(`GATE-CHECK FAIL: ${m}
+→ vydání zakázáno.`); process.exit(2); };
+// A-026: workspace auditora, limit stáří i PROD větve jen z KOTVY DŮVĚRY (`.git/auditor-kotva.json`, viz kotva.cjs) —
+// ne z env (X32: AUDITOR_WORKSPACE/GATE_MAX_AGE_H si nastaví kdokoliv, kdo gate-check spouští) ani z commitnutého
+// .claude/settings.json (A-026: HEAD změní Kapitán commitem). Bez kotvy (CI checkout, deploy wrapper u staré instalace)
+// jen samo-lokalizace: tento soubor leží v <ws>/kapitan-side/ a vedle je <ws>/AUDIT/ → ws = rodič; jinak fail-closed.
+const here = path.dirname(fileURLToPath(import.meta.url));
+let K; try { K = createRequire(import.meta.url)('./kotva.cjs'); } catch { failEarly(`vedle ${here}${path.sep}gate-check.mjs chybí kotva.cjs — přeinstaluj stranu Kapitána (START → [2])`); }
+const repo = path.resolve(process.argv[2] || '.');
+const kotva = K.verifyAnchor(repo);
+let ws = '', maxAgeH = K.DEFAULT_MAX_AGE_H;
+if (kotva.ok) { ws = kotva.ws; maxAgeH = kotva.maxAgeH; }
+else if (kotva.stav === 'chybi' && path.basename(here) === 'kapitan-side' && fs.existsSync(path.join(here, '..', 'AUDIT'))) ws = path.resolve(here, '..');
+else failEarly(kotva.msg);
 const gate = path.join(ws, 'AUDIT', '05_release_gate.md');
-// A-023 kolo 3 (X14): GATE_MAX_AGE_H se dřív dalo přebít přes process.env — kdokoliv, kdo spouští gate-check.mjs
-// (přímo, nebo shellem před `git push`), si nastaví GATE_MAX_AGE_H=999999 a starou/vypršenou bránu tím obnoví.
-// Jediný důvěryhodný zdroj je COMMITNUTÝ .claude/settings.json (`git show HEAD:...`, ne fs.readFileSync working
-// tree — X26), stejně jako AUDITOR_WORKSPACE/PROD_BRANCHES v pre-push-guard.mjs. Neplatná/chybějící hodnota = fail-safe na 72 h.
-const DEFAULT_MAX_AGE_H = 72;
-function readTrustedSettings(dir) {
-  try { return JSON.parse(git(['show', 'HEAD:.claude/settings.json'], dir).replace(/^﻿/, '')); }
-  catch { return null; }
-}
-const trustedSettings = readTrustedSettings(repo);
-const cfgMaxAge = trustedSettings && trustedSettings.env && +trustedSettings.env.GATE_MAX_AGE_H;
-const maxAgeH = Number.isFinite(cfgMaxAge) && cfgMaxAge > 0 ? cfgMaxAge : DEFAULT_MAX_AGE_H;
 const fail = m => { console.error(`GATE-CHECK FAIL: ${m}\n→ vydání zakázáno. Požádej auditora o release gate pro aktuální HEAD (bus: STATUS/EVIDENCE).`); process.exit(2); };
 if (!fs.existsSync(gate)) fail(`chybí ${gate}`);
 const txt = fs.readFileSync(gate, 'utf8');
@@ -52,7 +52,7 @@ if (iso) {
 }
 if (isNaN(when)) when = fs.statSync(gate).mtimeMs;
 const age = (Date.now() - when) / 36e5;
-if (age > maxAgeH) fail(`gate je ${Math.round(age)} h starý (limit ${maxAgeH} h; GATE_MAX_AGE_H)`);
+if (age > maxAgeH) fail(`gate je ${Math.round(age)} h starý (limit ${maxAgeH} h)`);
 if (age < -1) fail('gate má datum v budoucnosti');
 try { const dirty = git(['status', '--porcelain'], repo); if (dirty) fail('pracovní strom není čistý — vydává se jiný kód než auditovaný'); } catch { }
 console.log(`GATE-CHECK PASS: 🟢 pro ${head.slice(0, 12)} (${Math.round(age)} h)`); process.exit(0);

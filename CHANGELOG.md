@@ -359,3 +359,58 @@ Opravy z vlastního auditu balíku (nálezy A-001 až A-023, ověřeno auditorem
   workspace (ne z balíku) už nekopíruje jeho živý `AUDIT/` (intake, marker instalace) do cíle jako šablonu — dřív to maskovalo přerušenou
   instalaci jako dokončenou; hláška „SAMOTEST NEPROŠEL po aktualizaci (…)“ vždy uvede důvod (souhrn, exit kód/signál, konec chybového výstupu).
 - Samotest 722.
+
+## Rozpracováno (příští verze 1.8.9)
+
+- **Úroveň přísnosti auditu za projekt** (K-002): `.rezim.json` → `prisnost` = prototyp / osobní / běžný (výchozí) / kritický (standard OWASP ASVS L1/L2/L3). Nový `tools/prisnost.mjs` (`stav`, `nastav`, `kontext`) — jediné místo pravdy; auditor úroveň vidí na startu jako řádek `[PŘÍSNOST]`. U prototypu a osobní úrovně neblokující nálezy jdou do `AUDIT/DLUH.md`; přepnutí na vyšší úroveň založí v `AUDIT/NOVE_CILE.md` úkol „audit dluhu“. Instalátor se ptá (`-Prisnost` / `--prisnost`, `-Yes` = běžný), START má volbu [10] Přísnost auditu. Samotest 735.
+- **Pojistka Kapitána: workspace auditora jen ke čtení (A-029, P1).** Místo výčtu zakázaných souborů platí allowlist: Kapitán (Claude Code i Codex — stejná pojistka) smí ve workspace auditora zapisovat jen do `AUDIT/03_dukazy/**` a zprávy posílat jen přes `bus.mjs post|ack|inbox|wait|nove-id` / `.claude/hooks/auditor-bus.mjs`. Shellový zápis (`>`, `tee`, `cp`, `mv`, `rm`, `sed -i`, `node -e`, `python -c`, PowerShell…) jinam i příkaz, u kterého nejde ověřit, že do workspace nepíše, se blokuje; čtení (`cat`, `grep`, `gate-check`, `prisnost stav|kontext`) projde. `prisnost.mjs nastav` z agenta je blokované vždy. Každá změna přísnosti se zapíše do `AUDIT/_zmeny-nastaveni.log` (čas, z → na, zdroj START/instalátor/cli) a auditor ji na startu ohlásí, je-li mladší než 7 dní. Cesty do workspace se porovnávají v kanonickém tvaru (8.3 krátká jména jako RUNNER~1, macOS /var → /private/var, symlink/junction); `~` uprostřed cesty už není „nerozvinutá proměnná“. Samotest 747.
+- **Přísnost: trvalý dluh, volba v instalačních tocích, kategorie P0 (K-002 K2).** Zvýšení úrovně zapíše `AUDIT/.prisnost.json` (`audit_dluhu: {otevren, uroven, od}`); aktualizace ho nepřepisuje a úkol „audit dluhu“ do `NOVE_CILE.md` při každém update znovu založí, dokud auditor nespustí `node tools/prisnost.mjs dluh-uzavren` (řádek `[PŘÍSNOST]` mezitím připisuje „audit dluhu otevřen“). INSTALL.cmd, install.sh, install-multi (ps1/sh), new-project a audit z GitHubu se ptají na přísnost a předávají ji průvodci (bez klávesnice = běžný; audit z GitHubu zapisuje jen do workspace auditora, ne do repa klienta). Šablona nálezu má pole `kategorie_p0` (data|tajemstvi|stroj|—); v PROTOTYPu blokuje jen otevřený P0 s vyplněnou kategorií. Samotest 765.
+- **Přísnost: kontrola integrity nastavení vlastníka proti gitu workspace auditora (A-029 kolo 3, změna metody; K-002 K3).** Pojistka shellu zůstává
+  první vrstvou, rozhoduje ale git: `.rezim.json`, `.opravneni.json` a `AUDIT/.prisnost.json` platí jen ve verzi ze schváleného commitu (autor
+  „vlastník“ — START [10]/[7] a instalátory s `--vlastnik`, jen z terminálu; nástroj `dluh-uzavren`; první commit instalace). Přepis jinudy (proměnná,
+  glob, zpětné apostrofy, odkaz, `node -e`, import `setLevel`, kopie nástroje) → start auditora (SessionStart, Codex, preflight) vypíše
+  „[PŘÍSNOST] ⚠ nastavení změněno mimo START (neschváleno vlastníkem)“, platí přísnější z (schválená, BĚŽNÝ, disk), u Kapitána nižší samostatnost,
+  otevřený dluh zůstává otevřený; řádek `soubor=…` v `AUDIT/_zmeny-nastaveni.log`. `AUDITOR_ZDROJ` z prostředí je jen tvrzení — bez commitu
+  vlastníka se loguje jako `neověřeno(…)`. Workspace bez gitu (stará instalace) funguje dál, jednou upozorní. `kategorie_p0` je orientační pole,
+  o blokaci rozhoduje verdikt auditora. Po aktualizaci: hlásí-li start ⚠, potvrď úroveň znovu přes START [10] (případně [7]). Samotest 787.
+- **Přísnost: selhání gitu workspace = fail-closed, schválení jen z terminálu vlastníka, migrace voleb (A-029 kolo 4).** Když kontrola integrity
+  nefunguje (git mimo PATH, `.git` smazán/přesunut/poškozený, workspace uvnitř cizího repa, stará instalace bez gitu), platí přísnější z (BĚŽNÝ,
+  disk) a samostatnost Kapitána 1; start to hlásí při KAŽDÉM spuštění („[PŘÍSNOST] ⚠ kontrola integrity nastavení nefunguje: … START → [7]“)
+  a zapíše řádek `integrita=bez-gitu` do `AUDIT/_zmeny-nastaveni.log`. Marker `AUDIT/.integrita-bez-gitu` se už nepoužívá a nic neumlčí.
+  Schválení: `commitSettings` už není exportovaná, schvaluje jen `ownerApprove` (terminál vlastníka: stdin TTY, jinak výslovné „ano“ z `/dev/tty`
+  resp. `CONIN$`; z Claude Code a samotestu vždy odmítne) a kořenový commit (instalace, `checkout --orphan`) nic neschvaluje. Nový příkaz
+  `prisnost.mjs potvrd [--instalator]`: instalátory po založení gitu, `opravneni.mjs --ask` (START → [7]) a update-install nabídnou potvrdit
+  nastavení na disku; update-install dá staré instalaci git, bez terminálu jen vypíše, co platí, a instrukci START → [7] — úroveň nikdy tiše
+  nemění. `start.sh` v Git Bash (mintty) spouští node přes `winpty`. Zbytkové riziko: kdo má stejný účet OS, může commit s autorem vlastníka
+  podvrhnout gitem přímo (jde o zmírnění, ne kryptografické schválení — rozhodne vlastník). Samotest 799.
+- **Oprávnění Claude Code jen po schválení vlastníka; SessionStart srovná settings.local.json s integritou (A-029 kolo 5).** `opravneni.mjs`
+  zapíše do `<repo>/.claude/settings.local.json` vyšší samostatnost (pravidla skriptů/DB, `bypassPermissions`), než jaká platí podle kontroly
+  integrity, jen po schválení vlastníka (`ownerApprove` — terminál; z Claude Code ani samotestu nikdy). Jinak nic nezmění (`.opravneni.json` vrátí)
+  a skončí kódem 3 s hláškou „spusť START → [7]“ — i když ho agent spustí přes proměnnou, glob, absolutní cestu nebo kopii skriptu. Tabulka
+  pravidel úrovní 1/2/3 je nově jen v `tools/opravneni-pravidla.mjs`. SessionStart Kapitána (`kapitan-role.mjs`) porovná `settings.local.json`
+  s platnou samostatností a nadbytek odebere (`bypassPermissions` pod úrovní 3, pravidla z tabulky pod úrovní 2) — záloha
+  `settings.local.json.bak-<čas>`, varování „[OPRÁVNĚNÍ] ⚠“ a řádek `opravneni=srovnano` do `AUDIT/_zmeny-nastaveni.log`; cizí klíče
+  a pravidla nechá, a když nastavení s úrovní sedí, soubor nemění. Zbytkové riziko: odebrání platí od příštího startu okna; oprávnění
+  mimo tabulku balíku (např. vlastní `Bash(*)`) nebo v `.claude/settings.json` srovnání neřeší. Samotest 805.
+- **Kotva důvěry brány vydání mimo repo aplikace (A-026, P1; zbytky A-023).** Workspace auditora, otisk `gate-check.mjs`, produkční větve
+  a limit stáří brány už neurčuje `.claude/settings.json` (ani commitnutý, ani podvržený plumbingem), pracovní strom ani proměnné prostředí:
+  platí jen kotva `<git-common-dir>/auditor-kotva.json` (sdílená všemi worktree repa). Zapisuje ji jen vlastník v terminálu přes START → [9]
+  (`tools/kotva.mjs nastav`, potvrzení z TTY; pod Claude Code, v samotestu, v CI a bez terminálu odmítne hned, bez odpovědi do 120 s odmítne). Pojistka Kapitána blokuje zápis kotvy,
+  `.git/config`, `core.hooksPath` a git hooků i přes proměnné, glob, `$(rev-parse)`, here-string, heredoc, `xargs sh -c`, alias v `-c`/`--config-env`,
+  `node -e`/`python -c` se skládáním řetězců a uložené skripty. Chybějící, poškozená, cizí nebo neshodná kotva = push do produkčních větví
+  odmítnut (fail-closed) s návodem „spusť START → [9]“; feature větve fungují dál. `pre-push` hook (brána vydání) se instaluje vždy, i bez
+  hygieny; cizí `pre-push` se zazálohuje do `pre-push.bak-<čas>` s varováním. Po aktualizaci z 1.8.8: jednou spusť START → [9] u každého
+  projektu. CI (`auditor-gate.yml`) už nečte `AUDITOR_WORKSPACE` z env. Samotest 897 (testy se skutečným pushem do bare origin: X28, X28b,
+  X29, P19, P21, legitimní 🟢 push).
+
+- **A-031: oprávnění Claude Code pod schválenou samostatností Kapitána.** (1) `bypassPermissions` ve sdíleném `.claude/settings.json` se při startu
+  Kapitána odebere nad schválenou úrovní (záloha `.bak-<čas>`, řádek `[OPRÁVNĚNÍ] ⚠`, log v `AUDIT/_zmeny-nastaveni.log`), stejně jako u `settings.local.json`.
+  (2) Allow pravidla se vyhodnocují VZOREM (`tools/opravneni-vzor.mjs`), ne přesným řetězcem: nad úrovní 1 se odeberou `Bash(*)`, `Bash`, `mcp__*__*`,
+  `mcp__…__execute_sql`, `Bash(rm:*)`, push v `Bash(...)`, `Bash(psql:*)` a další široká; úzká (`Bash(node selftest.mjs)`, `Bash(git status)`) zůstanou.
+  (3) `~/.claude/settings.json` se nikdy nemění: při bypassu se jen hlásí vlastníkovi a pojistka Kapitána (jen v projektu Kapitána) blokuje nástroje.
+  (4) Spouštěče `start-*.cmd/.sh`: otisk sha256 schváleného stavu (`.spoustec.json`, schvaluje vlastník přes START jako ostatní nastavení); neshoda =
+  varování + obnova z tabulky (vlastníkovy volby zůstanou), podstrčený spouštěč se smaže; pojistka blokuje zápis do spouštěčů i přes proměnnou, glob a `node -e`.
+  (5) Pojistka čte `permission_mode` ze vstupu a blokuje jen při `bypassPermissions` nad schválenou úrovní (jiná hodnota nebo chybějící pole = neblokuje).
+  (6) Varování vlastníkovi mechanicky: soubor `AUDIT/VAROVANI-oprávnění.md`, hlášený při dalším startu. (7) Schválená úroveň 2/3 = žádné varování ani změna.
+  Zbytková rizika: nastavení se čte při startu session, bypass zapsaný za běhu platí do konce session; matcher pojistky nepokrývá MCP nástroje ani Read;
+  podvržení commitu vlastníka na stejném účtu OS je přijato. PowerShell tool je pokryt matcherem (`Edit|Write|NotebookEdit|Bash|PowerShell`). Samotest 942.

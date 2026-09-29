@@ -14,7 +14,10 @@ $r = $json | ConvertFrom-Json
 Write-Host "  kopie repa: $($r.repo)  (větev $($r.branch), commit $($r.commit))" -ForegroundColor Green
 $ws = Join-Path (Split-Path $r.repo -Parent) "$($r.name)-audit"
 if (Test-Path (Join-Path $ws '.claude\settings.json')) { node (Join-Path $pkg 'tools\update-install.mjs') $r.repo $ws; Write-Host "  Kód klienta stažen znovu (commit $($r.commit)). Napiš auditorovi: Repo aktualizováno, zkontroluj změny." -ForegroundColor Green; Start-Process cmd.exe -ArgumentList '/k', "`"$ws\start-auditor.cmd`""; exit 0 }
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkg 'setup-auditor.ps1') -Repo $r.repo -Workspace $ws -Yes -Model 'opus' -Kapitan ne -Hygiena ne -CI ne
+# K-002: přísnost auditu (zapisuje se jen do workspace auditora vedle klonu, nikdy do repa klienta; bez klávesnice = běžný)
+$prisnost = '3'
+if ([Environment]::UserInteractive -and -not [Console]::IsInputRedirected) { $pr = Read-Host 'Přísnost auditu: [1] Prototyp [2] Osobní [3] Běžný [4] Kritický (Enter = 3)'; if ($pr) { $prisnost = $pr.Trim() } }
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $pkg 'setup-auditor.ps1') -Repo $r.repo -Workspace $ws -Yes -Model 'opus' -Kapitan ne -Hygiena ne -CI ne -Prisnost $prisnost
 if ($LASTEXITCODE -ne 0) { Write-Host "Instalace auditora selhala." -ForegroundColor Red; exit 1 }
 # režim vzdáleného auditu: auditor ví, že Kapitán není a výstup je pro klienta
 $remote = [ordered]@{ url = $r.url; branch = $r.branch; commit = $r.commit; stazeno = (Get-Date).ToString('s'); klon = $r.repo }
