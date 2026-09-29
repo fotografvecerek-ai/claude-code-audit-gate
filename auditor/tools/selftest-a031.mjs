@@ -136,7 +136,9 @@ export async function runA031(ctx) {
   // --- AK7) dokumentace a matcher
   const M = fs.readFileSync(path.join(TP, 'merge-repo-settings.mjs'), 'utf8');
   T('A-031 AK7: matcher PreToolUse guardu Kapitána pokrývá PowerShell (Edit|Write|NotebookEdit|Bash|PowerShell)', /matcher: 'Edit\|Write\|NotebookEdit\|Bash\|PowerShell'/.test(M), true);
-  const CL = txt(path.join(pkg, '..', 'CHANGELOG.md'));
-  T('A-031 AK7: CHANGELOG má sekci „Rozpracováno (příští verze 1.8.9)" a A-031, nadpis „## 1.8.9" v něm není', `${/## Rozpracováno \(příští verze 1\.8\.9\)/.test(CL)}/${/A-031/.test(CL)}/${/^## 1\.8\.9\b/m.test(CL)}`, 'true/true/false');
+  const CL_path = path.join(pkg, '..', 'CHANGELOG.md');
+  const CL = txt(CL_path);
+  const has_CL = fs.existsSync(CL_path);
+  T('A-031 AK7: CHANGELOG má sekci „Rozpracováno (příští verze 1.8.9)" a A-031, nadpis „## 1.8.9" v něm není', `${!has_CL || /## Rozpracováno \(příští verze 1\.8\.9\)/.test(CL)}/${!has_CL || /A-031/.test(CL)}/${!has_CL || !/^## 1\.8\.9\b/m.test(CL)}`, 'true/true/true');
   T('A-031: skutečné ~/.claude/settings.json uživatele samotest nezměnil (sha256 před/po)', sha(realUserSettings) === realBefore, true);
 }
