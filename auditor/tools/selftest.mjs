@@ -1211,12 +1211,58 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
 { const orp = path.join(tmp, 'opr'), orw = path.join(tmp, 'opr-audit'); fs.mkdirSync(path.join(orp, '.claude'), { recursive: true }); fs.mkdirSync(orw, { recursive: true });
   fs.writeFileSync(path.join(orp, '.claude', 'settings.local.json'), JSON.stringify({ permissions: { allow: ['Bash(moje:*)'] } }));
   const op = lv => spawnSync(process.execPath, [path.join(pkg, 'tools/opravneni.mjs'), orw, orp, '--level', lv], { encoding: 'utf8' });
+  // A-029 kolo 5: vyšší úroveň platí (a zapíše se do settings.local.json) jen se schválením vlastníka — samotest terminál nemá → commit vlastníka gitem přímo (vzor K4)
+  spawnSync('git', ['-C', orw, 'init', '-q']); fs.writeFileSync(path.join(orw, '.opravneni.json'), '{"kapitan":2}\n', 'utf8'); spawnSync('git', ['-C', orw, 'add', '-f', '.opravneni.json']); spawnSync('git', ['-C', orw, '-c', 'user.name=vlastník', '-c', 'user.email=vlastnik@auditor.local', '-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '-m', 'vlastník: test']);
   const al = () => JSON.parse(fs.readFileSync(path.join(orp, '.claude', 'settings.local.json'), 'utf8')).permissions.allow;
   op('2'); T('OPR: SAMOSTATNÝ povolí skripty a databázi', al().includes('Bash(psql:*)') && al().includes('Bash(node scripts/:*)') ? 1 : 0, 1);
   op('1'); T('OPR: OPATRNÝ je zase odebere, cizí pravidla zůstanou', !al().includes('Bash(psql:*)') && al().includes('Bash(moje:*)') ? 1 : 0, 1);
   T('OPR: DROP TABLE blokován i u samostatného Kapitána', hook(KG, bash(repo, 'psql $DB -c "DROP TABLE users"')), 2);
   T('OPR: DELETE bez WHERE blokován', hook(KG, bash(repo, 'psql -c "delete from denicek_posts;"')), 2);
   T('OPR: DELETE s WHERE povolen', hook(KG, bash(repo, 'psql -c "delete from denicek_posts where id = 5;"')), 0); }
+
+// --- A-029 kolo 5: oprávnění Claude Code (settings.local.json) jen po schválení vlastníka; SessionStart Kapitána srovná settings.local.json s integritou
+{ const b5 = path.join(tmp, 'opr5'), TP5 = path.join(pkg, 'tools'); const COPY5 = f => /^(opravneni|prisnost|opravneni-pravidla|kapitan-role)\.mjs$/.test(f);
+  const copyTools = dst => { fs.mkdirSync(dst, { recursive: true }); for (const f of fs.readdirSync(TP5)) if (COPY5(f)) fs.copyFileSync(path.join(TP5, f), path.join(dst, f)); };
+  const gw = (w, ...a) => spawnSync('git', ['-C', w, ...a], { encoding: 'utf8' });
+  const own5 = (w, kap) => { fs.writeFileSync(path.join(w, '.opravneni.json'), JSON.stringify({ kapitan: kap }) + '\n', 'utf8'); gw(w, 'add', '-f', '.opravneni.json'); gw(w, '-c', 'user.name=vlastník', '-c', 'user.email=vlastnik@auditor.local', '-c', 'commit.gpgsign=false', 'commit', '-q', '--no-verify', '-m', 'vlastník: test'); };
+  const FOREIGN = { permissions: { allow: ['Bash(moje:*)'], deny: ['Bash(rm -rf:*)'] }, model: 'x', jine: 'ščřžýáíéúůďťňĚŠČŘŽ' };
+  const mk5 = name => { const d = path.join(b5, name), r = path.join(d, 'app'), w = path.join(d, 'app-audit'); fs.mkdirSync(path.join(r, '.claude'), { recursive: true }); copyTools(path.join(w, 'tools')); fs.mkdirSync(path.join(w, 'AUDIT'), { recursive: true });
+    gw(w, 'init', '-q'); gw(w, '-c', 'user.name=auditor', '-c', 'user.email=auditor@local', '-c', 'commit.gpgsign=false', 'commit', '-q', '--allow-empty', '-m', 'init');
+    fs.writeFileSync(path.join(r, '.claude', 'settings.local.json'), JSON.stringify(FOREIGN, null, 2) + '\n', 'utf8'); return { r, w }; };
+  const SL5 = r => path.join(r, '.claude', 'settings.local.json'); const rs5 = r => JSON.parse(fs.readFileSync(SL5(r), 'utf8'));
+  const esc5 = r => { const s = rs5(r); return s.permissions?.defaultMode === 'bypassPermissions' || (s.permissions?.allow || []).some(x => /psql|supabase|npm run/.test(x)); };
+  const agentEnv = { ...process.env, CLAUDECODE: '1', CLAUDE_CODE_ENTRYPOINT: 'cli' };
+  const bashOk5 = !isWin && spawnSync('bash', ['-c', 'exit 0']).status === 0;   // na Windows může `bash` být WSL (jiné cesty) — tam node s vyřešenou cestou
+  const viaShell = (cwd, shellCmd, script, args) => bashOk5 ? spawnSync('bash', ['-c', shellCmd], { cwd, env: agentEnv, encoding: 'utf8' }) : spawnSync(process.execPath, [script, ...args], { cwd, env: agentEnv, encoding: 'utf8' });
+  const res5 = (p, r) => `${esc5(p.r)}/${r.status !== 0 && r.status !== null}/${/START → \[7\]/.test(String(r.stderr))}`;
+  { const p = mk5('v1'); const r = viaShell(p.r, 'D=app; node ../${D}-audit/tools/opravneni.mjs ../${D}-audit . --level 3', '../app-audit/tools/opravneni.mjs', ['../app-audit', '.', '--level', '3']);
+    const q = mk5('v2'); const r2 = viaShell(q.r, 'node ../*-audit/tools/opravneni.mjs ../*-audit . --level 3', '../app-audit/tools/opravneni.mjs', ['../app-audit', '.', '--level', '3']);
+    const t = mk5('v3'); const r3 = spawnSync(process.execPath, [path.join(t.w, 'tools', 'opravneni.mjs'), t.w, t.r, '--level', '3'], { cwd: t.r, env: agentEnv, encoding: 'utf8' });
+    const u = mk5('v4'); const cp = path.join(b5, 'kopie-tools'); copyTools(cp); const r4 = spawnSync(process.execPath, [path.join(cp, 'opravneni.mjs'), u.w, u.r, '--level', '2'], { cwd: u.r, env: agentEnv, encoding: 'utf8' });
+    T('A-029 kolo 5: Kapitán (${D}, glob, absolutní cesta, kopie skriptu v temp) nezíská bypassPermissions ani psql — exit ≠ 0, hláška START → [7]', [res5(p, r), res5(q, r2), res5(t, r3), res5(u, r4)].join(','), 'false/true/true,false/true/true,false/true/true,false/true/true');
+    T('A-029 kolo 5: odmítnutá volba nezmění .opravneni.json ani cizí nastavení v settings.local.json (UTF-8)', `${fs.existsSync(path.join(p.w, '.opravneni.json'))}/${JSON.stringify(rs5(p.r)) === JSON.stringify(FOREIGN)}`, 'false/true'); }
+  { // obchvat mimo opravneni.mjs (upravená kopie, přímý zápis): SessionStart Kapitána nadbytek proti integritě odebere, zálohu nechá, varuje, zapíše log
+    const p = mk5('ss1'); fs.writeFileSync(path.join(p.w, '.opravneni.json'), '{"kapitan":3}\n', 'utf8');
+    const bad = { ...FOREIGN, permissions: { ...FOREIGN.permissions, defaultMode: 'bypassPermissions', allow: ['Bash(moje:*)', 'Bash(psql:*)', 'Bash(npm run:*)', 'mcp__supabase'] } };
+    fs.writeFileSync(SL5(p.r), JSON.stringify(bad, null, 2) + '\n', 'utf8');
+    const o = spawnSync(process.execPath, [path.join(p.w, 'tools', 'kapitan-role.mjs'), p.w], { cwd: p.r, env: { ...process.env, CLAUDE_PROJECT_DIR: p.r }, encoding: 'utf8' });
+    const s = rs5(p.r), baks = fs.readdirSync(path.join(p.r, '.claude')).filter(f => /^settings\.local\.json\.bak-/.test(f));
+    const lg = (() => { try { return fs.readFileSync(path.join(p.w, 'AUDIT', '_zmeny-nastaveni.log'), 'utf8'); } catch { return ''; } })();
+    T('A-029 kolo 5: SessionStart odebere bypassPermissions a allow z tabulky (kapitán=1), cizí klíče zůstanou, záloha .bak, ⚠, log', `${s.permissions.defaultMode ?? '-'}/${s.permissions.allow.join('+')}/${s.permissions.deny.join('+')}/${s.jine === FOREIGN.jine && s.model === 'x'}/${baks.length}/${baks.length ? JSON.parse(fs.readFileSync(path.join(p.r, '.claude', baks[0]), 'utf8')).permissions.defaultMode : '-'}/${/⚠/.test(o.stdout)}/${/opravneni=srovnano/.test(lg)}`, '-/Bash(moje:*)/Bash(rm -rf:*)/true/1/bypassPermissions/true/true'); }
+  { // schválená SAMOSTATNÝ (2) + podvržený bypass → odebere jen bypass, pravidla úrovně 2 zůstanou
+    const p = mk5('ss2'); own5(p.w, 2); fs.writeFileSync(SL5(p.r), JSON.stringify({ permissions: { defaultMode: 'bypassPermissions', allow: ['Bash(psql:*)'] } }) + '\n', 'utf8');
+    spawnSync(process.execPath, [path.join(p.w, 'tools', 'kapitan-role.mjs'), p.w], { cwd: p.r, env: { ...process.env, CLAUDE_PROJECT_DIR: p.r }, encoding: 'utf8' });
+    T('A-029 kolo 5: SessionStart u schválené úrovně 2 odebere jen bypassPermissions', `${rs5(p.r).permissions.defaultMode ?? '-'}/${rs5(p.r).permissions.allow.join('+')}`, '-/Bash(psql:*)'); }
+  { // legitimní cesta vlastníka: schválená volba (commit vlastníka, vzor K4) → opravneni.mjs zapíše; SessionStart pak nic nemění (bajtově, bez .bak)
+    const p = mk5('own'); own5(p.w, 3); const r = spawnSync(process.execPath, [path.join(p.w, 'tools', 'opravneni.mjs'), p.w, p.r, '--level', '3'], { cwd: p.r, encoding: 'utf8' });
+    const before = fs.readFileSync(SL5(p.r), 'utf8'); const s = rs5(p.r);
+    spawnSync(process.execPath, [path.join(p.w, 'tools', 'kapitan-role.mjs'), p.w], { cwd: p.r, env: { ...process.env, CLAUDE_PROJECT_DIR: p.r }, encoding: 'utf8' });
+    const baks = fs.readdirSync(path.join(p.r, '.claude')).filter(f => /\.bak-/.test(f)).length;
+    T('A-029 kolo 5: schválená úroveň 3 (vlastník) se zapíše a SessionStart ji nechá beze změny', `${r.status}/${s.permissions.defaultMode}/${s.permissions.allow.includes('Bash(psql:*)')}/${s.permissions.allow.includes('Bash(moje:*)')}/${s.jine === FOREIGN.jine}/${fs.readFileSync(SL5(p.r), 'utf8') === before}/${baks}`, '0/bypassPermissions/true/true/true/true/0');
+    const q = mk5('own1'); const before1 = fs.readFileSync(SL5(q.r), 'utf8');
+    spawnSync(process.execPath, [path.join(q.w, 'tools', 'kapitan-role.mjs'), q.w], { cwd: q.r, env: { ...process.env, CLAUDE_PROJECT_DIR: q.r }, encoding: 'utf8' });
+    T('A-029 kolo 5: SessionStart nemění settings.local.json, který sedí s úrovní (kapitán=1, jen cizí pravidla)', `${fs.readFileSync(SL5(q.r), 'utf8') === before1}/${fs.readdirSync(path.join(q.r, '.claude')).filter(f => /\.bak-/.test(f)).length}`, 'true/0'); }
+}
 
 // --- ROLE KAPITÁNA (agent musí vědět, že je Kapitán — CLAUDE.md blok + SessionStart hook)
 { const kr = path.join(tmp, 'role'); fs.mkdirSync(kr, { recursive: true }); fs.writeFileSync(path.join(kr, 'CLAUDE.md'), '# App\n\n## Audit režim (závazné)\nExistuje-li starý text.\n\n## Jiné\nx\n');

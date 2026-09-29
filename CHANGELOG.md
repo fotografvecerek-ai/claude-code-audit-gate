@@ -383,3 +383,12 @@ Opravy z vlastního auditu balíku (nálezy A-001 až A-023, ověřeno auditorem
   nastavení na disku; update-install dá staré instalaci git, bez terminálu jen vypíše, co platí, a instrukci START → [7] — úroveň nikdy tiše
   nemění. `start.sh` v Git Bash (mintty) spouští node přes `winpty`. Zbytkové riziko: kdo má stejný účet OS, může commit s autorem vlastníka
   podvrhnout gitem přímo (jde o zmírnění, ne kryptografické schválení — rozhodne vlastník). Samotest 799.
+- **Oprávnění Claude Code jen po schválení vlastníka; SessionStart srovná settings.local.json s integritou (A-029 kolo 5).** `opravneni.mjs`
+  zapíše do `<repo>/.claude/settings.local.json` vyšší samostatnost (pravidla skriptů/DB, `bypassPermissions`), než jaká platí podle kontroly
+  integrity, jen po schválení vlastníka (`ownerApprove` — terminál; z Claude Code ani samotestu nikdy). Jinak nic nezmění (`.opravneni.json` vrátí)
+  a skončí kódem 3 s hláškou „spusť START → [7]“ — i když ho agent spustí přes proměnnou, glob, absolutní cestu nebo kopii skriptu. Tabulka
+  pravidel úrovní 1/2/3 je nově jen v `tools/opravneni-pravidla.mjs`. SessionStart Kapitána (`kapitan-role.mjs`) porovná `settings.local.json`
+  s platnou samostatností a nadbytek odebere (`bypassPermissions` pod úrovní 3, pravidla z tabulky pod úrovní 2) — záloha
+  `settings.local.json.bak-<čas>`, varování „[OPRÁVNĚNÍ] ⚠“ a řádek `opravneni=srovnano` do `AUDIT/_zmeny-nastaveni.log`; cizí klíče
+  a pravidla nechá, a když nastavení s úrovní sedí, soubor nemění. Zbytkové riziko: odebrání platí od příštího startu okna; oprávnění
+  mimo tabulku balíku (např. vlastní `Bash(*)`) nebo v `.claude/settings.json` srovnání neřeší. Samotest 805.

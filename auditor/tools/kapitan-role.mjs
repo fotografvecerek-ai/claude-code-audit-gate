@@ -10,7 +10,7 @@ const CODEX = iA > 0 || process.argv.includes('--codex');
 const posix = p => { p = p.replace(/\\/g, '/'); const m = p.match(/^([A-Za-z]):\/(.*)$/); return m ? `/${m[1].toLowerCase()}/${m[2]}` : p; };
 const W = posix(ws);
 let SOUB = 3; try { SOUB = Math.max(1, +JSON.parse(fs.readFileSync(path.join(ws, '.rezim.json'), 'utf8')).soubeh?.kapitan || 3); } catch { }
-let lvl = 1; try { lvl = (await import('./prisnost.mjs')).kapitanLevel(ws); } catch { try { lvl = JSON.parse(fs.readFileSync(path.join(ws, '.opravneni.json'), 'utf8')).kapitan || 1; } catch { } }   // A-029 K3: platí verze schválená vlastníkem
+let lvl = 1, lvlOk = false; try { lvl = (await import('./prisnost.mjs')).kapitanLevel(ws); lvlOk = true; } catch { try { lvl = JSON.parse(fs.readFileSync(path.join(ws, '.opravneni.json'), 'utf8')).kapitan || 1; } catch { } }   // A-029 K3: platí verze schválená vlastníkem
 const LV = lvl >= 2 ? `- **Samostatnost (vlastník zvolil ${lvl === 3 ? 'PLNÝ' : 'SAMOSTATNÝ'}):** skripty projektu a databázové příkazy spouštíš SÁM — vlastníka o spuštění
   nežádej a nepiš mu příkazy do terminálu. Před zápisem do ostré databáze ulož zálohu dotčených dat (select/export) do \`${W}/AUDIT/03_dukazy/<ID>/\`,
   pak zápis, pak ověření dotazem; výsledek nahlas auditorovi. Destruktivní SQL (DROP, TRUNCATE, DELETE/UPDATE bez WHERE) pojistka blokuje — to dělá jen vlastník.
@@ -80,4 +80,15 @@ out.push(ho ? `[AUDIT] Handoff od auditora: ${W}/AUDIT/02_HANDOFF.md — otevře
 if (gate) out.push(/Verdikt:\s*🟢/.test(gate) ? '[AUDIT] Release gate: 🟢 (platí jen pro auditovaný commit; gate-check ověří).' : '[AUDIT] Release gate: 🔴 — vydání zakázáno.');
 { const repo = process.env.CLAUDE_PROJECT_DIR || process.cwd(); const posouzeno = ['.claude', '.codex'].some(d => { try { return !!JSON.parse(rd(path.join(repo, d, 'katalog.json'))).posouzeno; } catch { return false; } });
   if (!posouzeno && fs.existsSync(path.join(ws, 'tools', 'katalog.mjs'))) out.push(`[KATALOG] Jednou posuď volitelné skilly/agenty/pravidla pro tento projekt: node "${W}/tools/katalog.mjs" doporuc --cil . — aktivuj jen to, co projekt opravdu použije (každá položka stojí kontext v každém kroku); hooky aktivuje vlastník. Po posouzení se tahle věta přestane zobrazovat.`); }
+// A-029 kolo 5: oprávnění Claude Code (settings.local.json) nad platnou samostatnost (integrita, schválená vlastníkem) ODEBER — záloha .bak-<čas>,
+// varování agentovi, řádek do AUDIT/_zmeny-nastaveni.log. Bez načtené kontroly integrity fail-closed = úroveň 1. Codex settings.local.json nepoužívá.
+if (!CODEX) {
+  try {
+    const { syncSettings } = await import('./opravneni-pravidla.mjs');
+    const canon = p => { try { return fs.realpathSync.native(p); } catch { return p; } };
+    const plati = lvlOk ? lvl : 1; const r = syncSettings(ws, canon(process.env.CLAUDE_PROJECT_DIR || process.cwd()), plati);
+    if (r.changed) out.unshift(`[OPRÁVNĚNÍ] ⚠ .claude/settings.local.json měl oprávnění nad schválenou samostatnost Kapitána (${plati}) — odebráno: ${r.removed.join(', ')}; záloha ${path.basename(r.bak)}. Změna mimo START: ohlas ji hned vlastníkovi; vyšší samostatnost nastaví jen on (START → [7]).`);
+    else if (r.chyba) out.push(`[OPRÁVNĚNÍ] ⚠ ${r.chyba}`);
+  } catch (e) { out.push(`[OPRÁVNĚNÍ] ⚠ kontrola oprávnění Claude Code selhala: ${e.message} — ohlas vlastníkovi.`); }
+}
 console.log(out.join('\n'));
