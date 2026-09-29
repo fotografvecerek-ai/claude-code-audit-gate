@@ -64,4 +64,4 @@ function main() {
   console.error('použití: kotva.mjs stav [--repo R] | nastav --repo R [--ws W] [--instalace]'); return 2;
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) process.exit(main());
+if (process.argv[1] && ((p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } })(process.argv[1]) === fileURLToPath(import.meta.url)) process.exit(main());

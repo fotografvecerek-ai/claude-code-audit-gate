@@ -249,7 +249,7 @@ export function setLevel(ws, level, { vlastnik = false } = {}) {
   return { level, prev, raised, owner };
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+if (process.argv[1] && ((p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } })(process.argv[1]) === fileURLToPath(import.meta.url)) {
   const a = process.argv.slice(2); const wi = a.indexOf('--ws'); const vlastnik = a.includes('--vlastnik');
   const ws = path.resolve(wi >= 0 ? a[wi + 1] : '.'); const rest = a.filter((x, i) => (wi < 0 || (i !== wi && i !== wi + 1)) && x !== '--vlastnik');
   const [cmd, arg] = rest;

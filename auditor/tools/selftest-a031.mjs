@@ -94,6 +94,11 @@ export async function runA031(ctx) {
     T('A-031 AK3: bez bypassu se nic neblokuje — default, acceptEdits, plan, auto, pole chybí, prázdná hodnota (úroveň 1)', ['default', 'acceptEdits', 'plan', 'auto', undefined, '', null].map(m => guard(g1, inp(g1, m)).status).join(','), '0,0,0,0,0,0,0');
     T('A-031 AK5: bypass s jiným písmem (např. „bypasspermissions") se nepovažuje za bypass — tolerantní, neblokuje', guard(g1, inp(g1, 'bypasspermissions')).status, 0); }
 
+  // macOS: temp leží pod symlinkem (/var → /private/var); CLI nástroje se spouští přes cestu se symlinkem/junctionem — vstupní bod musí poznat sám sebe (realpath)
+  { const p = mk('sym', { kap: 3 }); const lnk = path.join(base, 'sym', 'odkaz'); let ok = true; try { fs.symlinkSync(path.join(p.w, 'tools'), lnk, 'junction'); } catch { ok = false; }
+    if (ok) { const r = spawnSync(process.execPath, [path.join(lnk, 'prisnost.mjs'), '--ws', p.w, 'kapitan-uroven'], { env: homeEnv, encoding: 'utf8' });
+      T('A-031 symlink: prisnost.mjs spuštěný přes symlink/junction cestu se chová jako přímo (kapitan-uroven 3, ne prázdný výstup)', r.stdout.trim(), '3'); } }
+
   // --- AK4) spouštěč: otisk schváleného spouštěče, obnova, guard proti zápisu
   const SP = await import(pathToFileURL(path.join(TP, 'spoustec.mjs')).href);
   const gen = p => spawnSync(process.execPath, [path.join(p.w, 'tools', 'write-launchers.mjs'), p.w, p.r], { env: homeEnv, encoding: 'utf8' });
