@@ -51,7 +51,7 @@ echo   ----------------------------------------------------------
 echo   [4] Napoveda   [5] Samotest bran   [6] Telegram bot
 echo   [7] Samostatnost Kapitana (smi sam spoustet skripty a databazi?)
 echo   [8] Codex - auditor nebo Kapitan v OpenAI Codex misto Claude Code
-echo   [9] Katalog - skilly, agenti, pravidla a pojistky na miru projektu   [0] Konec
+echo   [9] Katalog + kotva duvery - skilly, agenti, pravidla, pojistky   [0] Konec
 echo   [10] Prisnost auditu - jak prisne se projekt kontroluje (prototyp az kriticky)
 echo.
 set "V="
@@ -139,6 +139,9 @@ set /p "R=Cesta k projektu, Enter = zpet: "
 if not defined R goto menu
 set "R=%R:"=%"
 if "%R:~-1%"=="\" set "R=%R:~0,-1%"
+rem A-026: kotva duvery (workspace auditora + otisk gate-check) - zapise ji jen vlastnik tady v terminalu
+for %%I in ("%R%") do set "WS=%%~dpI%%~nxI-audit"
+if exist "%WS%\tools\kotva.mjs" (node "%WS%\tools\kotva.mjs" nastav --repo "%R%") else (echo Kotva duvery: workspace %WS% nenalezen - nejdriv volba [2].)
 node "%~dp0auditor\tools\katalog.mjs" pruvodce --cil "%R%"
 pause
 goto menu

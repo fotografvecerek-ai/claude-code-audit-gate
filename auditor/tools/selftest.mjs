@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // SELFTEST — regresní sada pro brány balíku. Spouští oba hooky, gate-check, pre-commit check a bus v dočasném prostředí.
 // node tools/selftest.mjs        → tabulka PASS/FAIL, exit 1 při jakémkoliv FAIL. Spouštěj po instalaci a po každé změně hooků.
-import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync as _rawSpawnSync, execSync as _rawExecSync, spawn as _rawSpawn } from 'node:child_process'; import { fileURLToPath, pathToFileURL } from 'node:url'; import { createHash } from 'node:crypto';
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync as _rawSpawnSync, execSync as _rawExecSync, spawn as _rawSpawn } from 'node:child_process'; import { fileURLToPath, pathToFileURL } from 'node:url'; import { createHash } from 'node:crypto'; import { createRequire } from 'node:module';
 // A-027: žádné dítě samotestu nesmí viset bez časového stropu — macOS CI job bez vlastního timeout-minutes takhle
 // běžel, dokud ho po 6 h nezabil tvrdý strop GitHub Actions (nešlo poznat, který test/proces visí). Výchozí strop
 // jde přebít explicitním `timeout`/`killSignal` na konkrétním volání (např. UPDATE-INSTALL má vlastních 240000 ms).
@@ -25,6 +25,7 @@ function spawn(cmd, args, opts = {}) {
   return cp;
 }
 const pkg = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const KOTVA = createRequire(import.meta.url)(path.join(pkg, 'kapitan-side', 'kotva.cjs')); // A-026 kotva důvěry
 // A-029 K4: samotest nikdy nečeká na potvrzení vlastníka z konzole (/dev/tty, CONIN$) — dědí všechny procesy spuštěné níž (proměnná jen ZAKAZUJE schválení)
 process.env.AUDITOR_BEZ_TTY = '1';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-selftest-')); const ws = path.join(tmp, 'x-audit'); const repo = path.join(tmp, 'x'); const wt = path.join(tmp, 'wt-a');
@@ -35,9 +36,13 @@ fs.mkdirSync(guardTmp, { recursive: true });
 const isWin = process.platform === 'win32'; const norm = p => p.replace(/\\/g, '/');
 const gitBash = p => isWin ? '/' + p[0].toLowerCase() + p.slice(2).replace(/\\/g, '/') : p; // Windows cesta → git-bash styl /c/Users/... (A-005 regrese)
 fs.mkdirSync(path.join(ws, 'AUDIT', 'bus'), { recursive: true }); fs.mkdirSync(path.join(ws, 'build'), { recursive: true }); fs.mkdirSync(path.join(repo, '.claude', 'hooks'), { recursive: true });
-for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'pre-push-guard.mjs', 'hygiene/hygiene-rules.js', 'hygiene/hygiene-rules.json', 'hygiene/pre-commit-check.mjs', 'hygiene/hooks-package.json']) fs.copyFileSync(path.join(pkg, 'kapitan-side', f), path.join(repo, '.claude', 'hooks', f === 'hygiene/hooks-package.json' ? 'package.json' : path.basename(f)));
+for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'pre-push-guard.mjs', 'kotva.cjs', 'hygiene/hygiene-rules.js', 'hygiene/hygiene-rules.json', 'hygiene/pre-commit-check.mjs', 'hygiene/hooks-package.json']) fs.copyFileSync(path.join(pkg, 'kapitan-side', f), path.join(repo, '.claude', 'hooks', f === 'hygiene/hooks-package.json' ? 'package.json' : path.basename(f)));
 const git = (c, cwd = repo) => execSync(`git ${c}`, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 git('init -q'); git('config user.email t@t'); git('config user.name t'); git('checkout -q -b main'); fs.writeFileSync(path.join(repo, 'README.md'), '# x'); fs.writeFileSync(path.join(repo, '.gitignore'), '.tmp/\n'); git('add -A'); git('-c user.name=t -c user.email=t@t commit -qm init');
+// A-026: strana Kapitána ve ws (kapitan-side/gate-check.mjs + kotva.cjs, .claude/settings.json s AUDITOR_TARGET_REPO) a kotva důvěry repa.
+// Schválení vlastníka (START → [9], TTY) samotest simuluje přímým writeAnchor() — AUDITOR_BEZ_TTY=1 potvrzení z konzole zakazuje.
+const setupWsSide = (w, r) => { fs.mkdirSync(path.join(w, 'kapitan-side'), { recursive: true }); for (const f of KOTVA.HASHED_FILES) fs.copyFileSync(path.join(pkg, 'kapitan-side', f), path.join(w, 'kapitan-side', f)); fs.mkdirSync(path.join(w, '.claude'), { recursive: true }); fs.writeFileSync(path.join(w, '.claude', 'settings.json'), JSON.stringify({ env: { AUDITOR_TARGET_REPO: norm(r) } }, null, 2)); };
+setupWsSide(ws, repo); KOTVA.writeAnchor(repo, ws);
 git(`init -q`, ws); git('config user.email t@t', ws); git('config user.name t', ws); git('add -A', ws); git('-c user.name=t -c user.email=t@t commit -qm init --allow-empty', ws);
 git('worktree add -q ../wt-a -b feat/a');
 const env = { ...process.env, AUDITOR_WORKSPACE: norm(ws), AUDITOR_TARGET_REPO: norm(repo), HYGIENE_RULES: path.join(pkg, 'kapitan-side/hygiene/hygiene-rules.json'), TMPDIR: guardTmp, TEMP: guardTmp, TMP: guardTmp };
@@ -710,12 +715,14 @@ T('K: A-023 AK4 K40 — grep -rn "gh release create" docs/ není vydání', hook
     const appHooks = path.join(appDir, '.claude', 'hooks'); fs.mkdirSync(appHooks, { recursive: true });
     fs.copyFileSync(path.join(pkg, 'kapitan-side/pre-push-guard.mjs'), path.join(appHooks, 'pre-push-guard.mjs'));
     fs.copyFileSync(path.join(pkg, 'kapitan-side/gate-check.mjs'), path.join(appHooks, 'gate-check.mjs'));
+    fs.copyFileSync(path.join(pkg, 'kapitan-side/kotva.cjs'), path.join(appHooks, 'kotva.cjs'));
     fs.mkdirSync(path.join(appDir, '.git', 'hooks'), { recursive: true });
     fs.copyFileSync(path.join(pkg, 'kapitan-side/pre-push-guard.sh'), path.join(appDir, '.git', 'hooks', 'pre-push'));
     if (!isWin) fs.chmodSync(path.join(appDir, '.git', 'hooks', 'pre-push'), 0o755);
     fs.writeFileSync(path.join(appDir, 'a.txt'), '1'); git('add -A', appDir); git('-c user.name=t -c user.email=t@t commit -qm c1', appDir);
     const shaE2E = git('rev-parse HEAD', appDir);
     const appWs = path.join(e2e, 'app-audit'); fs.mkdirSync(path.join(appWs, 'AUDIT'), { recursive: true });
+    setupWsSide(appWs, appDir); KOTVA.writeAnchor(appDir, appWs); // A-026: ws určuje kotva, ne samo-lokalizace ani env
     const push = () => spawnSync('git', ['push', 'origin', 'main'], { cwd: appDir, encoding: 'utf8', env: { ...process.env, AUDITOR_WORKSPACE: undefined, AUDITOR_TARGET_REPO: undefined } });
     fs.writeFileSync(path.join(appWs, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES}\nAuditovaný commit: \`neexistujiciHash\`\nVerdikt: 🔴 NESMÍ VYDAT\n`);
     T('A-023 AK3 kolo2 e2e: skutečný git push přes .sh wrapper bez zelené brány → blokován', push().status !== 0, true);
@@ -758,13 +765,18 @@ T('K: A-023 AK4 K40 — grep -rn "gh release create" docs/ není vydání', hook
   T('K: A-023 kolo3 X14 — 10denní zelená brána bez env → FAIL (výchozí 72 h)', spawnSync(process.execPath, [GC, repo], { env, encoding: 'utf8' }).status, 2);
   T('K: A-023 kolo3 X14 — GATE_MAX_AGE_H=99999 v env IGNOROVÁN, brána dál FAIL (regrese)', spawnSync(process.execPath, [GC, repo], { env: { ...env, GATE_MAX_AGE_H: '99999' }, encoding: 'utf8' }).status, 2);
 
-  // pozitivní kontrola: STEJNÁ hodnota + rozšířený PROD_BRANCHES (o "staging"), ale COMMITNUTÁ v .claude/settings.json — config funguje, env ne
+  // A-026 (mutace X28/X28b/X29): hodnota COMMITNUTÁ v .claude/settings.json už bránu NEMĚNÍ — čtení HEAD:settings.json by tenhle test shodilo.
   fs.writeFileSync(path.join(repo, '.claude', 'settings.json'), JSON.stringify({ env: { GATE_MAX_AGE_H: '99999', PROD_BRANCHES: '^(main|master|production|prod|release|staging)$' } }));
   git('add -A'); git('-c user.name=t -c user.email=t@t commit -qm "cfg kolo3 test"');
   fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${staleStr}\nAuditovaný commit: \`${git('rev-parse --short HEAD')}\`\nVerdikt: 🟢 SMÍ VYDAT\n`);
-  T('K: A-023 kolo3 X14 — GATE_MAX_AGE_H=99999 COMMITNUTÝ v settings.json brána projde (config funguje)', spawnSync(process.execPath, [GC, repo], { env, encoding: 'utf8' }).status, 0);
+  T('K: A-026 X28 mutace — GATE_MAX_AGE_H=99999 jen COMMITNUTÝ v settings.json (bez kotvy) → brána dál FAIL', spawnSync(process.execPath, [GC, repo], { env, encoding: 'utf8' }).status, 2);
+  // pozitivní kontrola: stejná hodnota převzatá do KOTVY při schválení vlastníkem (START → [9]) funguje
+  KOTVA.writeAnchor(repo, ws, KOTVA.readConfigFromRepoSettings(repo));
+  T('K: A-026 — GATE_MAX_AGE_H=99999 schválený v kotvě → brána projde (config z kotvy funguje)', spawnSync(process.execPath, [GC, repo], { env, encoding: 'utf8' }).status, 0);
   fs.writeFileSync(path.join(ws, 'AUDIT', '05_release_gate.md'), `# Release gate — ${DNES}\nAuditovaný commit: \`neexistujiciHash\`\nVerdikt: 🔴 NESMÍ VYDAT\n`);
-  T('K: A-023 kolo3 X15/X17 — PROD_BRANCHES COMMITNUTÝ rozšířený o "staging" — push tam se teď taky gatuje', hook(KG, bash(repo, 'git push origin staging')), 2);
+  T('K: A-026 — PROD_BRANCHES rozšířený o "staging" schválený v kotvě — push tam se teď taky gatuje', hook(KG, bash(repo, 'git push origin staging')), 2);
+  KOTVA.writeAnchor(repo, ws); // kotva zpět na výchozí config
+  T('K: A-026 X28 mutace — PROD_BRANCHES jen commitnutý (kotva bez něj) → push na "staging" se NEgatuje', hook(KG, bash(repo, 'git push origin staging')), 0);
   git('reset -q --hard HEAD~1'); // vrátit repo do stavu bez settings.json
 
   // X26 (doplněk kolo 3): i SPRÁVNĚ vybraný (skutečný) gate-check.mjs dřív dostával beze změny process.env — podvržený
@@ -1300,7 +1312,7 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
     const ws27 = path.join(link27, 'x-audit'), repo27 = path.join(link27, 'x');
     fs.mkdirSync(path.join(real27, 'x-audit', 'AUDIT', 'bus'), { recursive: true }); fs.mkdirSync(path.join(real27, 'x-audit', 'build'), { recursive: true });
     fs.mkdirSync(path.join(real27, 'x', '.claude', 'hooks'), { recursive: true });
-    for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'pre-push-guard.mjs', 'hygiene/hygiene-rules.js', 'hygiene/hygiene-rules.json', 'hygiene/pre-commit-check.mjs', 'hygiene/hooks-package.json'])
+    for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'pre-push-guard.mjs', 'kotva.cjs', 'hygiene/hygiene-rules.js', 'hygiene/hygiene-rules.json', 'hygiene/pre-commit-check.mjs', 'hygiene/hooks-package.json'])
       fs.copyFileSync(path.join(pkg, 'kapitan-side', f), path.join(real27, 'x', '.claude', 'hooks', f === 'hygiene/hooks-package.json' ? 'package.json' : path.basename(f)));
     git('init -q', path.join(real27, 'x')); git('config user.email t@t', path.join(real27, 'x')); git('config user.name t', path.join(real27, 'x'));
     fs.writeFileSync(path.join(real27, 'x', 'README.md'), '# x'); git('add -A', path.join(real27, 'x')); git('-c user.name=t -c user.email=t@t commit -qm init', path.join(real27, 'x'));
@@ -1847,9 +1859,9 @@ if (!process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL) {
   fs.writeFileSync(path.join(r7, '.gitattributes'), '* text=auto\n');
   fs.writeFileSync(path.join(w7, 'AUDIT', '.instalace.json'), JSON.stringify({ hotovo: true, kapitan: 'ano', hygiena: 'ne', cas: new Date().toISOString() }));
   const p7 = runUI(r7, w7);
-  T('UPDATE-INSTALL A-008 kolo 2 (C5): vlastníkovo vlastní .gitattributes + hygiena vědomě odmítnuta (marker) → hooky se NEinstalují',
+  T('UPDATE-INSTALL A-008 kolo 2 (C5): vlastníkovo vlastní .gitattributes + hygiena vědomě odmítnuta (marker) → pre-commit se NEinstaluje, pre-push (brána vydání, A-026) ano',
     `exit=${p7.status},pre-commit=${hookMarker(path.join(r7, '.git', 'hooks', 'pre-commit'), 'pre-commit')},pre-push=${hookMarker(path.join(r7, '.git', 'hooks', 'pre-push'), 'pre-push')},prerušeno=${/přerušená dřívější instalace/.test(p7.stdout)}`,
-    'exit=0,pre-commit=false,pre-push=false,prerušeno=false');
+    'exit=0,pre-commit=false,pre-push=true,prerušeno=false');
 
   // 8) A-008 kolo 2 (P5b / A-023): přerušeno MEZI pre-commit a pre-push (bez .gitattributes a bez markeru — legitimní starý
   //    profil, ne C5). pre-commit je náš (marker), pre-push úplně chybí → nasPreCommit dá nezávislý důkaz, že hygiena
@@ -1904,14 +1916,35 @@ if (!process.env.AUDITOR_SELFTEST_NO_UPDATE_INSTALL) {
   fs.writeFileSync(path.join(r10, '.gitattributes'), '* text=auto\n');
   // žádný AUDIT/.instalace.json ve w10 — to je přesně ta „stará instalace bez markeru"
   const p10 = runUI(r10, w10);
-  T('UPDATE-INSTALL A-008 kolo 3 (C5L): stará instalace BEZ markeru + vlastní .gitattributes (bez našeho pre-commit) → hooky se NEinstalují',
+  T('UPDATE-INSTALL A-008 kolo 3 (C5L): stará instalace BEZ markeru + vlastní .gitattributes (bez našeho pre-commit) → pre-commit se NEinstaluje, pre-push (brána vydání, A-026) ano',
     `exit=${p10.status},pre-commit=${hookMarker(path.join(r10, '.git', 'hooks', 'pre-commit'), 'pre-commit')},pre-push=${hookMarker(path.join(r10, '.git', 'hooks', 'pre-push'), 'pre-push')},prerušeno=${/přerušená dřívější instalace/.test(p10.stdout)}`,
-    'exit=0,pre-commit=false,pre-push=false,prerušeno=false');
+    'exit=0,pre-commit=false,pre-push=true,prerušeno=false');
+
+  // 11) A-026 AK3: CIZÍ pre-push (bez našeho markeru) → zazálohuje se do pre-push.bak-<čas>, nainstaluje se náš a vypíše varování.
+  const r11 = path.join(tmp, 'ui-11'), w11 = path.join(tmp, 'ui-11-audit'); uiRepo(r11); uiWs(w11);
+  fs.mkdirSync(path.join(r11, '.claude', 'hooks'), { recursive: true });
+  fs.copyFileSync(path.join(pkg, 'kapitan-side', 'kapitan-audit-guard.js'), path.join(r11, '.claude', 'hooks', 'kapitan-audit-guard.js'));
+  fs.mkdirSync(path.join(r11, '.git', 'hooks'), { recursive: true }); fs.writeFileSync(path.join(r11, '.git', 'hooks', 'pre-push'), '#!/bin/sh\necho cizi-hook\n');
+  const p11 = runUI(r11, w11);
+  const bak11 = fs.readdirSync(path.join(r11, '.git', 'hooks')).filter(f => /^pre-push\.bak-\d{14}$/.test(f));
+  T('UPDATE-INSTALL A-026 AK3: cizí pre-push → záloha .bak-<čas> s původním obsahem, nainstalován náš, varování',
+    `exit=${p11.status},nas=${hookMarker(path.join(r11, '.git', 'hooks', 'pre-push'), 'pre-push')},zaloha=${bak11.length === 1 && /cizi-hook/.test(fs.readFileSync(path.join(r11, '.git', 'hooks', bak11[0] || 'x'), 'utf8'))},varovani=${/cizí git hook pre-push nahrazen/.test(p11.stdout + p11.stderr)}`,
+    'exit=0,nas=true,zaloha=true,varovani=true');
+  // 12) A-026 AK7 migrace z 1.8.8: repo BEZ kotvy, aktualizace mimo terminál vlastníka (samotest = AUDITOR_BEZ_TTY) → kotva se
+  //     NEzaloží, varování s návodem „START → [9]“ a brána push do main blokuje (fail-closed) se stejným návodem.
+  T('UPDATE-INSTALL A-026 migrace 1.8.8: bez terminálu vlastníka se kotva nezaloží a aktualizace řekne „spusť START → [9]“',
+    `kotva=${fs.existsSync(KOTVA.anchorPath(r11))},navod=${/kotva důvěry nezapsána[\s\S]*START → \[9\]/.test(p11.stdout + p11.stderr)}`, 'kotva=false,navod=true');
+  { const gc12 = spawnSync(process.execPath, [path.join(r11, '.claude', 'hooks', 'gate-check.mjs'), r11], { encoding: 'utf8', env: uiEnv });
+    T('UPDATE-INSTALL A-026 migrace 1.8.8: gate-check z repa (.claude/hooks) bez kotvy → FAIL s návodem START → [9]', `${gc12.status}/${/START → \[9\]/.test(gc12.stdout + gc12.stderr)}`, '2/true'); }
 }
 
 // A-008 kolo 2 (bod 3, POVINNÉ): uzávěrka bezpečnostního snapshotu z hlavičky sekce — ať selže cokoliv výš (mechanismus,
 // test, budoucí regrese), tenhle porovnávací krok to odhalí. Nikdy nic nemaže — existující soubory na skutečné ploše
 // vlastníka zůstávají netknuté; jde jen o POROVNÁNÍ seznamu před/po.
+// A-026: kotva důvěry — stavy, dvě repa, kanonizace, obchvaty guardu, skutečný push do bare origin (vlastní modul kvůli délce souboru)
+try { (await import('./selftest-a026.mjs')).runA026({ T, KOTVA, pkg, tmp, git, isWin, norm, gitBash, env, hook, bash, write, KG, setupWsSide, DNES, wt, repo }); }
+catch (e) { T('A-026 sekce samotestu doběhla bez výjimky', String(e && e.stack || e).slice(0, 400), ''); }
+
 if (isWin && realDesktopBefore) {
   let novéNaPloše = [];
   try { const after = fs.readdirSync(realDesktopBefore); novéNaPloše = after.filter(f => !realDesktopFilesBefore.has(f)); } catch { }

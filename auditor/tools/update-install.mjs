@@ -108,7 +108,14 @@ if (pz) {
   } catch (e) { const it2 = (() => { try { return pz.integrity(ws); } catch { return null; } })(); warn(`nastavení vlastníka nejsou schválená${it2 ? ` — ${pz.summary(it2)}` : ''}; potvrdit je můžeš jen ty: START → [7] v terminálu`); }
 }
 if (kapitan) {
-  for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'auditor-bus.mjs', 'pre-push-guard.mjs']) put(path.join(pkg, 'kapitan-side', f), `.claude/hooks/${f}`);
+  for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'auditor-bus.mjs', 'pre-push-guard.mjs', 'kotva.cjs']) put(path.join(pkg, 'kapitan-side', f), `.claude/hooks/${f}`);
+  // A-026: kotva důvěry (mimo repo, v git common dir). Aktualizace ji obnoví (nový otisk gate-check.mjs) jen v terminálu vlastníka;
+  // z agenta nebo bez terminálu se nezapíše → pojistky blokují push do produkčních větví, dokud ji vlastník nepotvrdí (START → [9]).
+  try {
+    const { ensureAnchor } = await import('./kotva.mjs'); const ka = ensureAnchor(repo, ws, { instalace: true });
+    if (!ka.ok) warn(`kotva důvěry nezapsána: ${ka.duvod} — push do produkčních větví zůstane zablokovaný, dokud ji nepotvrdíš: spusť START → [9]`);
+    else if (ka.zmena) ok('kotva důvěry zapsána (workspace auditora a otisk gate-check.mjs)');
+  } catch (e) { warn(`kotva důvěry: ${e.message} — spusť START → [9]`); }
   const sk = path.join(repo, '.claude', 'skills', 'audit-rezim', 'SKILL.md'); const before = rd(sk); fs.mkdirSync(path.dirname(sk), { recursive: true });
   fs.writeFileSync(sk, '---\nname: audit-rezim\ndescription: Závazný audit režim — stop-the-line při otevřených P0/P1 v AUDIT/02_HANDOFF.md, důkazy do AUDIT/03_dukazy, bus komunikace s auditorem, deploy jen po gate-check. Použij při startu každé dávky.\n---\n' + rd(path.join(pkg, 'kapitan-side', 'AUDIT_REZIM.md')));
   if (rd(sk) !== before) changed.push('.claude/skills/audit-rezim/SKILL.md');
@@ -151,14 +158,15 @@ if (kapitan || starter) {
   else if (!fs.existsSync(pc) && hygienaByla) { installGitHook(repo, path.join(HY, 'pre-commit-guard.sh'), 'pre-commit'); repaired.push('pre-commit'); }
   if (fs.existsSync(path.join(H, 'pre-commit-guard.sh'))) put(path.join(HY, 'pre-commit-guard.sh'), '.claude/hooks/pre-commit-guard.sh');
   if (kapitan) {
-    // A-023 K2 addendum: pre-push druhá linie — logika (pre-push-guard.mjs) už je v .claude/hooks/ vždy (viz výš); samotný
-    // git hook wrapper v .git/hooks/pre-push doinstaluj stejnou sdílenou funkcí (installGitHook) jako pre-commit výš, jen
-    // když hygiena skutečně proběhla (hygienaByla — marker, legacy .gitattributes, nebo náš pre-commit marker), nikdy proti
-    // vlastníkově volbě „ne" (C5).
+    // A-026 (AK3): pre-push je brána vydání (druhá linie za guardem), ne hygiena — instaluje se VŽDY, i když vlastník hygienu
+    // odmítl. Náš hook (marker) se přepíše; cizí se zazálohuje do pre-push.bak-<čas> (installGitHook) a nahradí naším s varováním;
+    // chybějící se doinstaluje. Push tak nikdy nezůstane bez gate-checku jen proto, že se hygiena nenainstalovala.
     const pp = path.join(repo, '.git', 'hooks', 'pre-push'), ppTxt = rd(pp);
-    if (hasMarker('pre-push', ppTxt)) { fs.copyFileSync(path.join(pkg, 'kapitan-side', 'pre-push-guard.sh'), pp); try { fs.chmodSync(pp, 0o755); } catch { } }
-    else if (!fs.existsSync(pp) && hygienaByla) { installGitHook(repo, path.join(pkg, 'kapitan-side', 'pre-push-guard.sh'), 'pre-push'); repaired.push('pre-push'); }
-    if (fs.existsSync(path.join(H, 'pre-push-guard.sh'))) put(path.join(pkg, 'kapitan-side', 'pre-push-guard.sh'), '.claude/hooks/pre-push-guard.sh');
+    const ppSrc = path.join(pkg, 'kapitan-side', 'pre-push-guard.sh');
+    if (hasMarker('pre-push', ppTxt)) { fs.copyFileSync(ppSrc, pp); try { fs.chmodSync(pp, 0o755); } catch { } }
+    else if (fs.existsSync(pp)) { const bak = installGitHook(repo, ppSrc, 'pre-push'); warn(`cizí git hook pre-push nahrazen pojistkou vydání auditora; původní je zazálohovaný v ${bak} — jeho kroky případně přidej do .claude/hooks/pre-push-guard.sh ručně`); }
+    else { installGitHook(repo, ppSrc, 'pre-push'); if (hygienaByla) repaired.push('pre-push'); else ok('pojistka vydání (git hook pre-push) doinstalována'); }
+    if (fs.existsSync(path.join(H, 'pre-push-guard.sh'))) put(ppSrc, '.claude/hooks/pre-push-guard.sh');
   }
   if (repaired.length) warn(`git hooky chyběly úplně (přerušená dřívější instalace) — doplněny: ${repaired.join(', ')}`);
   // KATALOG: aktivní položky na novou verzi (ručně upravené zůstanou); vlastníkovi jednou nabídnout doporučené (hooky smí aktivovat jen on)

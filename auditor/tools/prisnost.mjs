@@ -109,7 +109,7 @@ export function ensureWsGit(ws) {
 // stdin TTY (START.cmd, terminál) → vlastník volbu právě zadal; jinak (Git Bash/mintty: isTTY=false) výslovné „ano“ z konzole (/dev/tty, na Windows CONIN$).
 // AUDITOR_BEZ_TTY (samotest) a CLAUDECODE (proces z Claude Code) schválení vždy ZAKÁŽOU — proměnná nic nepovoluje, jen odebírá.
 const NO_TTY = 'schválení nastavení potřebuje terminál vlastníka — spusť START → [7] (samostatnost Kapitána) nebo [10] (přísnost) v okně terminálu (Windows: START.cmd dvojklikem).';
-const blocked = () => process.env.AUDITOR_BEZ_TTY ? 'samotest' : (process.env.CLAUDECODE || process.env.CLAUDE_CODE_ENTRYPOINT) ? 'běží z agenta (Claude Code)' : '';
+export const blocked = () => process.env.AUDITOR_BEZ_TTY ? 'samotest' : (process.env.CLAUDECODE || process.env.CLAUDE_CODE_ENTRYPOINT) ? 'běží z agenta (Claude Code)' : '';
 const TTY_IN = process.platform === 'win32' ? '\\\\.\\CONIN$' : '/dev/tty', TTY_OUT = process.platform === 'win32' ? '\\\\.\\CONOUT$' : '/dev/tty';
 export function ttyAvailable() { if (blocked()) return false; try { fs.closeSync(fs.openSync(TTY_IN, 'r')); return true; } catch { return false; } }
 export function readConfirm(fd) {   // jeden řádek z konzole (max 64 bajtů); platí jen „ano“

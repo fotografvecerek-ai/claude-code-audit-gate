@@ -73,15 +73,18 @@ if ($k -eq 'ano') {
   $hk = Join-Path $repo '.claude/hooks'; New-Item -ItemType Directory -Force -Path $hk | Out-Null
   Copy-Item (Join-Path $pkg 'kapitan-side/gate-check.mjs') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/auditor-bus.mjs') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/kapitan-audit-guard.js') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/hooks-package.json') (Join-Path $hk 'package.json') -Force
   Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/hygiene-rules.js') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/hygiene-rules.json') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/pre-commit-check.mjs') $hk -Force
+  # A-026: pre-push (brána vydání) a kotva důvěry VŽDY se stranou Kapitána — nezávisle na hygieně
+  Copy-Item (Join-Path $pkg 'kapitan-side/kotva.cjs') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/pre-push-guard.mjs') $hk -Force
+  node (Join-Path $ws 'tools/install-pre-commit-hook.mjs') $repo (Join-Path $pkg 'kapitan-side/pre-push-guard.sh') 'pre-push'
+  if ($LASTEXITCODE -ne 0) { throw "Instalace pre-push hooku selhala (exit $LASTEXITCODE)" }
+  node (Join-Path $ws 'tools/kotva.mjs') nastav --repo $repo --ws $ws --instalace
+  if ($LASTEXITCODE -ne 0) { Write-Host 'Kotva důvěry nezapsána - push do produkčních větví zůstane zablokovaný. Spusť START.cmd → [9] (dvojklikem, v terminálu).' -ForegroundColor Yellow; $global:LASTEXITCODE = 0 }
   node (Join-Path $ws 'tools/merge-repo-settings.mjs') $repo $ws; if ($LASTEXITCODE -ne 0) { Write-Host 'Sloučení settings Kapitána selhalo' -ForegroundColor Red }
   node (Join-Path $ws 'tools/kapitan-role.mjs') $ws --claude-md $repo; if ($LASTEXITCODE -ne 0) { Write-Host 'Zápis role Kapitána do CLAUDE.md selhal' -ForegroundColor Red }
   $h = if ($Yes) { $Hygiena } else { AskYN "Nainstalovat hygienu do repa (pre-commit guard, .gitattributes, .gitignore doplněk)?" "ano" }
   if ($h -eq 'ano') {
     node (Join-Path $ws 'tools/install-pre-commit-hook.mjs') $repo (Join-Path $pkg 'kapitan-side/hygiene/pre-commit-guard.sh') 'pre-commit'
     if ($LASTEXITCODE -ne 0) { throw "Instalace pre-commit hooku selhala (exit $LASTEXITCODE)" }
-    Copy-Item (Join-Path $pkg 'kapitan-side/pre-push-guard.mjs') $hk -Force
-    node (Join-Path $ws 'tools/install-pre-commit-hook.mjs') $repo (Join-Path $pkg 'kapitan-side/pre-push-guard.sh') 'pre-push'
-    if ($LASTEXITCODE -ne 0) { throw "Instalace pre-push hooku selhala (exit $LASTEXITCODE)" }
     if (-not (Test-Path (Join-Path $repo '.gitattributes'))) { Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/gitattributes.template') (Join-Path $repo '.gitattributes') }
     $gi = Join-Path $repo '.gitignore'; if (-not (Test-Path $gi) -or -not (Select-String -Path $gi -Pattern 'hygiena \(auditor\)' -Quiet)) { Get-Content (Join-Path $pkg 'kapitan-side/hygiene/gitignore.addendum') | Add-Content $gi -Encoding UTF8 }
     Write-Host "Hygiena nainstalována (pre-commit + pre-push guard běží přes Git Bash, který Git for Windows používá pro hooky)."

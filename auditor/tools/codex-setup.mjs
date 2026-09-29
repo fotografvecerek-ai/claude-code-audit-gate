@@ -89,9 +89,9 @@ function prepareHD() {
   const cp = (src, name) => { if (fs.existsSync(src)) fs.copyFileSync(src, path.join(HD, name || path.basename(src))); };
   for (const f of ['codex-hook.mjs', 'codex-hooks-check.mjs', 'codex-start.mjs', 'bus-notify.mjs', 'bus-store.mjs', 'kapitan-role.mjs', 'bus.mjs', 'wait-idle.mjs']) cp(path.join(here, f), f);
   cp(path.join(pkgRoot, '.claude', 'hooks', 'auditor-guard.js'));
-  cp(path.join(pkgRoot, 'kapitan-side', 'kapitan-audit-guard.js')); cp(path.join(pkgRoot, 'kapitan-side', 'gate-check.mjs'));
+  cp(path.join(pkgRoot, 'kapitan-side', 'kapitan-audit-guard.js')); cp(path.join(pkgRoot, 'kapitan-side', 'gate-check.mjs')); cp(path.join(pkgRoot, 'kapitan-side', 'kotva.cjs')); // A-026: guard i gate-check čtou kotvu přes kotva.cjs
   for (const f of ['hygiene-rules.js', 'hygiene-rules.json']) cp(path.join(pkgRoot, 'kapitan-side', 'hygiene', f));
-  for (const f of ['codex-hook.mjs', 'kapitan-audit-guard.js', 'auditor-guard.js']) if (!fs.existsSync(path.join(HD, f))) { console.error(`  ❌ v balíku chybí ${f} — spusť z úplného balíku Auditoru`); process.exit(1); }
+  for (const f of ['codex-hook.mjs', 'kapitan-audit-guard.js', 'auditor-guard.js', 'kotva.cjs']) if (!fs.existsSync(path.join(HD, f))) { console.error(`  ❌ v balíku chybí ${f} — spusť z úplného balíku Auditoru`); process.exit(1); }
 }
 const H = f => path.join(HD, f);
 const guardEntry = guard => ['PreToolUse', 'Bash|apply_patch|Edit|Write', [{ type: 'command', command: ['node', q(H('codex-hook.mjs')), '--ws', q(ws), '--repo', q(repo), '--guard', q(H(guard))].join(' '), timeout: 30, statusMessage: 'Pojistka Auditoru' }]];
