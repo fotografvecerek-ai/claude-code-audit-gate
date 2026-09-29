@@ -87,7 +87,7 @@ function prepareHD() {
   rmTree(HD); fs.mkdirSync(HD, { recursive: true });
   fs.writeFileSync(path.join(HD, 'package.json'), '{ "type": "commonjs" }\n');   // pojistky .js jsou CommonJS
   const cp = (src, name) => { if (fs.existsSync(src)) fs.copyFileSync(src, path.join(HD, name || path.basename(src))); };
-  for (const f of ['codex-hook.mjs', 'codex-hooks-check.mjs', 'codex-start.mjs', 'bus-notify.mjs', 'kapitan-role.mjs', 'bus.mjs', 'wait-idle.mjs']) cp(path.join(here, f), f);
+  for (const f of ['codex-hook.mjs', 'codex-hooks-check.mjs', 'codex-start.mjs', 'bus-notify.mjs', 'bus-store.mjs', 'kapitan-role.mjs', 'bus.mjs', 'wait-idle.mjs']) cp(path.join(here, f), f);
   cp(path.join(pkgRoot, '.claude', 'hooks', 'auditor-guard.js'));
   cp(path.join(pkgRoot, 'kapitan-side', 'kapitan-audit-guard.js')); cp(path.join(pkgRoot, 'kapitan-side', 'gate-check.mjs'));
   for (const f of ['hygiene-rules.js', 'hygiene-rules.json']) cp(path.join(pkgRoot, 'kapitan-side', 'hygiene', f));

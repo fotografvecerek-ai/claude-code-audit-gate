@@ -15,9 +15,10 @@ try {
   const stF = path.join(bus, `.notified-${role}.json`); let st = { mtime: 0, ids: [] }; try { st = JSON.parse(fs.readFileSync(stF, 'utf8')); } catch { }
   const mt = fs.statSync(bus).mtimeMs; if (ev === 'post' && mt === st.mtime) process.exit(0);
   const seen = new Set(st.ids || []); const fresh = [];
-  for (const f of fs.readdirSync(bus).filter(f => f.endsWith('.json') && !f.startsWith('.')).sort()) {
-    if (seen.has(f) && ev !== 'stop') continue; let m; try { m = JSON.parse(fs.readFileSync(path.join(bus, f), 'utf8')); } catch { continue; }
-    if ((m.to === role || m.to === 'both') && m.from !== role && !(m.ack || []).some(x => x.by === role)) fresh.push({ f, m });
+  // jediné místo čtení zpráv + sloučení ack (legacy pole + sidecar soubory, A-027 kolo 4); dynamický import, ať chybějící soubor spadne do catch (exit 0)
+  const { readMessages } = await import('./bus-store.mjs');
+  for (const m of readMessages(bus, { skip: f => seen.has(f) && ev !== 'stop', warn: () => { } })) {
+    if ((m.to === role || m.to === 'both') && m.from !== role && !m.ack.some(x => x.by === role)) fresh.push({ f: m.file, m });
   }
   let stopped = new Set(st.stopped || []);
   const save = () => { const ids = [...seen, ...fresh.map(x => x.f)].slice(-2000); fs.writeFileSync(stF, JSON.stringify({ mtime: mt, ids, stopped: [...stopped].slice(-2000) })); };

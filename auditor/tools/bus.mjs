@@ -24,6 +24,7 @@
 //   node tools/bus.mjs nove-id [--prefix K]                                         # další volné ID úlohy vlastníka (K-001, K-002…)
 // Vlastnictví: zprávy s from=auditor smí psát jen auditor, from=kapitan jen Kapitán — hlídají hooky obou stran (auditor-guard.js, kapitan-audit-guard.js).
 import fs from 'node:fs'; import path from 'node:path'; import { execSync } from 'node:child_process';
+import { TRANSIENT_CODES, sleepMs, withRetry, readMessages, writeAck } from './bus-store.mjs';
 
 const ROOT = process.env.AUDITOR_WORKSPACE && fs.existsSync(process.env.AUDITOR_WORKSPACE) ? process.env.AUDITOR_WORKSPACE : findRoot(process.cwd());
 const BUS = path.join(ROOT, 'AUDIT', 'bus'); fs.mkdirSync(BUS, { recursive: true });
@@ -34,17 +35,8 @@ const STAGES = ['zapsano', 'doruceno', 'implementovano', 'nezavisle_overeno', 's
 function findRoot(d) { for (let i = 0; i < 6; i++) { if (fs.existsSync(path.join(d, 'AUDIT'))) return d; const p = path.dirname(d); if (p === d) break; d = p; } return process.cwd(); }
 function parse(a) { const o = { _: [] }; for (let i = 0; i < a.length; i++) { if (a[i].startsWith('--')) { const k = a[i].slice(2); const v = a[i + 1] && !a[i + 1].startsWith('--') ? a[++i] : true; o[k] = v; } else o._.push(a[i]); } return o; }
 
-// A-010 kolo 2: pomocné funkce pro bezpečný zámek + atomický zápis přes reálné (i Windows) přechodné chyby.
-// sleepMs = synchronní spánek (žádný busy-loop). withRetry = obal na EPERM/EBUSY/EACCES (antivir/otevřený handle drží
-// soubor na zlomek sekundy) — zkusí to znovu s narůstajícím backoffem místo okamžitého pádu na exit 1.
-function sleepMs(ms) { Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms); }
-const TRANSIENT_CODES = new Set(['EPERM', 'EBUSY', 'EACCES']);
-function withRetry(fn, { tries = 25, baseMs = 8, retryable = e => TRANSIENT_CODES.has(e.code) } = {}) {
-  for (let i = 1; ; i++) {
-    try { return fn(); }
-    catch (e) { if (i >= tries || !retryable(e)) throw e; sleepMs(Math.min(baseMs * i, 200) + Math.floor(Math.random() * baseMs)); }
-  }
-}
+// A-010 kolo 2: sleepMs / withRetry / TRANSIENT_CODES (retry přes přechodné Windows chyby) jsou v bus-store.mjs.
+// Zámek níž už chrání jen LEDGER.md; potvrzení (ack) zámek nepoužívají (A-027 kolo 4, append-only soubory).
 // A-027: na Windows (Node 20/libuv 1.46 = klasická sémantika mazání) zámek, který vlastník právě smazal, zatímco ho jiný
 // proces měl otevřený (stat/read), zůstává chvíli "delete pending": stat i create pak hlásí EPERM místo ENOENT/EEXIST.
 // Reprodukce: 2/1000 procesů exit 1 na `EPERM: stat …json.lock` (stress-ack, 2 CPU). Znamená to "zámek právě mizí" —
@@ -65,13 +57,8 @@ function claimStaleLock(lockPath) {
   try { withRetry(() => fs.rmSync(grave, { recursive: true, force: true })); } catch { }
   return true;
 }
-// Čtenář nesmí zprávu tiše ztratit jen kvůli přechodné kolizi se souběžným zápisem (Windows EPERM/EBUSY při
-// rename přes otevřený handle) — pár rychlých pokusů, teprve pak vzdát a nahlásit (ne tiše zahodit).
-function readMsg(f) {
-  try { return withRetry(() => ({ file: f, ...JSON.parse(fs.readFileSync(path.join(BUS, f), 'utf8')) }), { tries: 15, baseMs: 8, retryable: e => TRANSIENT_CODES.has(e.code) || e.code === 'ENOENT' }); }
-  catch (e) { if (e.code !== 'ENOENT') console.error(`bus: přeskakuji nečitelnou zprávu ${f}: ${e.message}`); return null; }
-}
-function all() { return fs.readdirSync(BUS).filter(f => f.endsWith('.json')).sort().map(readMsg).filter(r => r && typeof r.ts === 'string' && r.ts); }   // záznam bez ts (ruční/poškozený) by shodil ack/ledger
+// Všechny zprávy se sloučeným ack (legacy pole + sidecar soubory) — jediné místo čtení je bus-store.mjs.
+function all() { return readMessages(BUS).filter(r => typeof r.ts === 'string' && r.ts); }   // záznam bez ts (ruční/poškozený) by shodil ack/ledger
 function sinceTs(s) { if (!s) return 0; const m = String(s).match(/^(\d+)d$/); return m ? Date.now() - m[1] * 864e5 : Date.parse(s); }
 function git(c) { try { return execSync(`git ${c}`, { cwd: ROOT, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim(); } catch (e) { return `ERR: ${String(e.stderr || e.message).trim().split('\n')[0]}`; } }
 function ledger() {
@@ -193,9 +180,10 @@ switch (cmd) {
     if (args.brief && total > limit) console.log(`(${total - limit} starších zpráv skryto — bus.mjs inbox --for ${role} --limit ${total})`);
     out(args.brief ? rows.map(r => `${r.ts.slice(0, 16)} ${r.from}→${role} ${r.type} ${r.id} ${r.verdict || r.status || ''} ${r.text.slice(0, 90)} ${r.ref ? '→ ' + r.ref : ''}`).join('\n') || '(inbox prázdný)' : rows); break;
   }
-  case 'ack': { const p = path.join(BUS, path.basename(args.msg || '')); if (!fs.existsSync(p)) die('zpráva nenalezena');
-    withLock(p, () => { const m = JSON.parse(withRetry(() => fs.readFileSync(p, 'utf8'))); (m.ack ||= []).push({ by: args.by, ts: new Date().toISOString() }); atomicWrite(p, JSON.stringify(m, null, 2) + '\n'); });
-    // potvrzení už je trvale zapsané v samotné zprávě — ledger je jen pomocný přehled, jeho selhání ack nesmí shodit
+  case 'ack': { const f = path.basename(args.msg || ''); const p = path.join(BUS, f); if (!f.endsWith('.json') || f.startsWith('.') || !fs.existsSync(p)) die('zpráva nenalezena');
+    // A-027 kolo 4: append-only sidecar (temp + rename), zprávu nečte ani nepřepisuje, žádný zámek → souběžná ack se nemůžou ztratit
+    writeAck(BUS, f, args.by);
+    // potvrzení už je trvale zapsané (sidecar soubor) — ledger je jen pomocný přehled, jeho selhání ack nesmí shodit
     try { ledger(); } catch (e) { console.error(`bus: LEDGER.md se nepodařilo aktualizovat (ack pro ${path.basename(p)} je zapsané): ${e.message}`); }
     out({ acked: p }); break; }
   case 'thread': out(all().filter(r => r.id === args.id)); break;

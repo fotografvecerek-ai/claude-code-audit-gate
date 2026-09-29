@@ -899,6 +899,8 @@ const busDir = path.join(ws, 'AUDIT', 'bus');
 const ackErr = { first: '' };
 const errLine = (code, sig, err) => { const ls = String(err).split('\n').map(l => l.trim()).filter(Boolean); return `exit=${code} signal=${sig} stderr: ${ls.find(l => /\b(\w*Error|bus:)/.test(l)) || ls[0] || '(prázdný)'}`; };
 const ackOne = (msg, by) => new Promise(resolve => { const cp = spawn(process.execPath, [path.join(pkg, 'tools/bus.mjs'), 'ack', '--msg', msg, '--by', by], { cwd: ws, env }); let err = ''; cp.stdout.resume(); cp.stderr.on('data', d => { err += d; }); cp.on('close', (code, sig) => { if (code !== 0 && !ackErr.first) ackErr.first = errLine(code, sig, err); resolve(code); }); });
+// A-027 kolo 4: ack je append-only sidecar — počítá se přes CLI (thread → bus-store.readMessages), stejně jako v produkci
+const acksOf = (msg, id) => { try { const r = JSON.parse(bus('thread', '--id', id).stdout).find(x => x.file === msg); return r ? r.ack : null; } catch { return null; } };
 const ackErrTag = () => { const t = ackErr.first ? ` [${ackErr.first}]` : ''; ackErr.first = ''; return t; };
 T('BUS: EVIDENCE bez --sha odmítnuta', bus('post', '--from', 'kapitan', '--type', 'EVIDENCE', '--id', 'A-1', '--ref', 'AUDIT/03_dukazy/A-1/').status, 1);
 T('BUS: EVIDENCE se sha přijata', bus('post', '--from', 'kapitan', '--type', 'EVIDENCE', '--id', 'A-1', '--ref', 'AUDIT/03_dukazy/A-1/', '--sha', head).status, 0);
@@ -916,7 +918,7 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
   T('BUS: ZADANI od Kapitána odmítnuto', bus('post', '--from', 'kapitan', '--type', 'ZADANI', '--citace', 'x').status, 1);
   T('A: zápis zprávy na most mimo bus.mjs blokován (i vlastní)', [hook(AG, write(ws, path.join(ws, 'AUDIT', 'bus', '2026_auditor_HANDOFF_X-1.json'))), hook(AG, bash(ws, `echo {} > ${norm(ws)}/AUDIT/bus/2026_auditor_HANDOFF_X-1.json`))].join(','), '2,2');
 }
-{ // A-010: 50 souběžných `ack` na TUTÉŽ zprávu (skuteční child procesi produkčního bus.mjs) → zámek + atomický zápis, žádné ztracené potvrzení
+{ // A-010: 50 souběžných `ack` na TUTÉŽ zprávu (skuteční child procesi produkčního bus.mjs) → append-only sidecar soubory (A-027 kolo 4), žádné ztracené potvrzení
   const post010 = bus('post', '--from', 'auditor', '--type', 'NOTE', '--id', 'A-010', '--text', 'zprava pro test souběžných ack');
   const msg010 = JSON.parse(post010.stdout).posted;
   const N010 = 50;
@@ -925,14 +927,15 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
   let msgObj010 = null, validJson010 = true;
   try { msgObj010 = JSON.parse(fs.readFileSync(path.join(ws, 'AUDIT', 'bus', msg010), 'utf8')); } catch { validJson010 = false; }
   T('BUS A-010: zpráva po 50 souběžných ack zůstává validní JSON', validJson010, true);
-  T('BUS A-010: 50 souběžných ack → 50/50 záznamů (žádná ztráta)', msgObj010 ? (msgObj010.ack || []).length : -1, N010);
-  T('BUS A-010: 50 souběžných ack → 50 unikátních "by"', msgObj010 ? new Set((msgObj010.ack || []).map(a => a.by)).size : -1, N010);
+  T('BUS A-010: ack zprávu nepřepisuje (pole ack v souboru zprávy zůstává prázdné — žádný read-modify-write)', msgObj010 ? (msgObj010.ack || []).length : -1, 0);
+  const acks010 = acksOf(msg010, 'A-010');
+  T('BUS A-010: 50 souběžných ack → 50/50 záznamů (žádná ztráta)', acks010 ? acks010.length : -1, N010);
+  T('BUS A-010: 50 souběžných ack → 50 unikátních "by"', acks010 ? new Set(acks010.map(a => a.by)).size : -1, N010);
 }
-{ // A-010 kolo2 bod 1 (verdikt AUDIT/04_verdikty/A-010.md): stale-lock race — age() při ENOENT vracelo Infinity, takže
-  // stará withLock v tom zmatku smazala i PRÁVĚ vzniklý CIZÍ zámek → dva procesy naráz v kritické sekci → ztracené ack.
-  // Zámek uměle "zestárneme" (mtime do minulosti), aby VŠECHNY souběžné procesy narazily na stejné rozhodovací okno
-  // najednou (bez čekání na reálných 10 s staleMs) — víc opakování, aby test spolehlivě chytil i řídký race.
-  const REPS_A = 4, N_A = 60; let badExitA = false, totalAckA = 0, expectAckA = 0;
+{ // A-010 kolo2 bod 1 / A-027 kolo 4: dřív stale-lock race při převzetí zámku (dva držitelé naráz → lost update, 239/240 na CI).
+  // Ack už zámek nepoužívá (append-only sidecar), takže zbylý zestárlý .lock soubor z pádu dřívější verze nesmí ack nijak
+  // ovlivnit: všichni skončí exit 0, žádné potvrzení se neztratí a cizího zámku se ack ani nedotkne.
+  const REPS_A = 4, N_A = 60; let badExitA = false, totalAckA = 0, expectAckA = 0, lockTouchedA = false;
   for (let rep = 0; rep < REPS_A; rep++) {
     const postA = bus('post', '--from', 'auditor', '--type', 'NOTE', '--id', `A-010K2A-${rep}`, '--text', 'stale-lock race');
     const msgA = JSON.parse(postA.stdout).posted;
@@ -940,11 +943,14 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
     fs.writeFileSync(lockA, 'orphan'); fs.utimesSync(lockA, staleT, staleT);
     const codes = await Promise.all(Array.from({ length: N_A }, (_, i) => ackOne(msgA, `raceworker-${rep}-${i}`)));
     if (codes.some(c => c !== 0)) badExitA = true;
-    let obj = null; try { obj = JSON.parse(fs.readFileSync(path.join(busDir, msgA), 'utf8')); } catch { }
-    totalAckA += obj ? (obj.ack || []).length : 0; expectAckA += N_A;
+    let lockNow = ''; try { lockNow = fs.readFileSync(lockA, 'utf8'); } catch { }
+    if (lockNow !== 'orphan') lockTouchedA = true;
+    fs.rmSync(lockA, { force: true });
+    totalAckA += (acksOf(msgA, `A-010K2A-${rep}`) || []).length; expectAckA += N_A;
   }
-  T(`BUS A-010 kolo2: uměle zestárlý zámek + N souběžných ack — všechny procesy bez chyby${ackErrTag()}`, badExitA, false);
-  T('BUS A-010 kolo2: uměle zestárlý zámek + N souběžných ack — 0 ztracených potvrzení napříč běhy', totalAckA, expectAckA);
+  T(`BUS A-010 kolo2: zbylý zestárlý .lock z pádu + N souběžných ack — všechny procesy bez chyby${ackErrTag()}`, badExitA, false);
+  T('BUS A-010 kolo2: zbylý zestárlý .lock z pádu + N souběžných ack — 0 ztracených potvrzení napříč běhy', totalAckA, expectAckA);
+  T('BUS A-027 kolo 4: ack se cizího zámku nedotkne (žádné převzetí stale zámku = žádný souběh dvou držitelů)', lockTouchedA, false);
 }
 { // A-010 kolo2 bod 3: `post` regeneruje LEDGER.md — stará verze to dělala BEZ zámku, takže souběžné posty na sobě
   // navzájem shazovaly renameSync (Windows EPERM/EBUSY) a celý `post` skončil exit 1, i když zprávu už trvale zapsal
@@ -970,9 +976,10 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
   const lockC = path.join(busDir, `${msgC}.lock`); fs.mkdirSync(lockC, { recursive: true });
   const staleT = new Date(Date.now() - 11000); fs.utimesSync(lockC, staleT, staleT);
   const rC = spawnSync(process.execPath, [path.join(pkg, 'tools/bus.mjs'), 'ack', '--msg', msgC, '--by', 'dirworker'], { cwd: ws, env: { ...env, AUDITOR_BUS_LOCK_TIMEOUT_MS: '4000' }, encoding: 'utf8', timeout: 6000 });
-  T('BUS A-010 kolo2: zámek jako adresář se bezpečně odklidí, ne věčná smyčka (exit 0 do 6s)', rC.status, 0);
-  let ackedC = false; try { ackedC = (JSON.parse(fs.readFileSync(path.join(busDir, msgC), 'utf8')).ack || []).some(a => a.by === 'dirworker'); } catch { }
-  T('BUS A-010 kolo2: ack po odklizení adresářového zámku je opravdu zapsané', ackedC, true);
+  T('BUS A-010 kolo2: zámek jako adresář (pozůstatek pádu) ack nezablokuje, ne věčná smyčka (exit 0 do 6s)', rC.status, 0);
+  const ackedC = (acksOf(msgC, 'A-010K2C') || []).some(a => a.by === 'dirworker');
+  T('BUS A-010 kolo2: ack vedle adresářového zámku je opravdu zapsané', ackedC, true);
+  fs.rmSync(lockC, { recursive: true, force: true });
 }
 { // A-010 kolo2 bod 2: souběžný ČTENÁŘ (inbox) při N souběžných ack — Windows EPERM/EBUSY na rename/open bez retry
   // (verdikt: 241/250, horší než bez zámku). Čtenář nesmí spadnout a zapisovatel nesmí ztratit potvrzení.
@@ -987,12 +994,41 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
     const codes = await Promise.all([...Array.from({ length: N_D }, (_, i) => ackOne(msgD, `readworker-${rep}-${i}`)), ...Array.from({ length: R_D }, () => readerOne())]);
     if (codes.slice(0, N_D).some(c => c !== 0)) badAckExitD = true;
     if (codes.slice(N_D).some(c => c !== 0)) badReaderExitD = true;
-    let obj = null; try { obj = JSON.parse(fs.readFileSync(path.join(busDir, msgD), 'utf8')); } catch { }
-    totalAckD += obj ? (obj.ack || []).length : 0; expectAckD += N_D;
+    totalAckD += (acksOf(msgD, `A-010K2D-${rep}`) || []).length; expectAckD += N_D;
   }
   T(`BUS A-010 kolo2: souběžný čtenář + N ack — čtenář nikdy nespadne (exit 0)${readerErrD ? ' [' + readerErrD + ']' : ''}`, badReaderExitD, false);
   T(`BUS A-010 kolo2: souběžný čtenář + N ack — zapisovatelé nikdy nespadnou (exit 0)${ackErrTag()}`, badAckExitD, false);
   T('BUS A-010 kolo2: souběžný čtenář + N ack — 0 ztracených potvrzení napříč běhy', totalAckD, expectAckD);
+}
+{ // A-027 kolo 4: staré zprávy s polem ack fungují beze změny (žádná migrace) + sloučení se sidecar ack, idempotence podle by,
+  // sidecar ani dočasný soubor se nikde neobjeví jako zpráva, jediné místo sloučení platí i pro bus-notify (hook).
+  const ws27 = path.join(tmp, 'bus-ack-ws'); const bd27 = path.join(ws27, 'AUDIT', 'bus'); fs.mkdirSync(bd27, { recursive: true });
+  const env27 = { ...env, AUDITOR_WORKSPACE: norm(ws27) };
+  const b27 = (...a) => spawnSync(process.execPath, [path.join(pkg, 'tools/bus.mjs'), ...a], { cwd: ws27, env: env27, encoding: 'utf8' });
+  const m27 = '2026-01-01T00-00-00-000Z_auditor_NOTE_A-2701.json';
+  const raw27 = JSON.stringify({ msgId: m27, ts: '2026-01-01T00:00:00.000Z', from: 'auditor', to: 'kapitan', type: 'NOTE', id: 'A-2701', text: 'stara zprava', ack: [{ by: 'owner', ts: '2026-01-01T00:00:01.000Z' }] }, null, 2) + '\n';
+  fs.writeFileSync(path.join(bd27, m27), raw27);
+  const th27 = () => { try { return JSON.parse(b27('thread', '--id', 'A-2701').stdout); } catch { return []; } };
+  const unacked27 = () => { try { return JSON.parse(b27('inbox', '--for', 'kapitan', '--unacked').stdout).length; } catch { return -1; } };
+  T('BUS A-027: stará zpráva jen s polem ack se čte beze změny', JSON.stringify(th27().map(r => r.ack.map(a => a.by))), '[["owner"]]');
+  T('BUS A-027: nepotvrzená stará zpráva je v inbox --unacked', unacked27(), 1);
+  fs.copyFileSync(path.join(pkg, 'tools/bus-notify.mjs'), path.join(ws27, 'bus-notify.mjs')); fs.copyFileSync(path.join(pkg, 'tools/bus-store.mjs'), path.join(ws27, 'bus-store.mjs'));
+  const bn27 = () => spawnSync(process.execPath, [path.join(ws27, 'bus-notify.mjs'), '--ws', ws27, '--for', 'kapitan', '--event', 'stop'], { input: '{}', encoding: 'utf8' }).status;
+  T('BUS A-027: bus-notify před ack zastaví konec tahu (zpráva nepotvrzená)', bn27(), 2);
+  const codes27 = [b27('ack', '--by', 'kapitan', '--msg', m27).status, b27('ack', '--by', 'kapitan', '--msg', m27).status, b27('ack', '--by', 'owner', '--msg', m27).status];
+  T('BUS A-027: ack (i opakované) skončí exit 0', codes27.join(','), '0,0,0');
+  T('BUS A-027: legacy pole ack + sidecar ack sloučeno, dvojí ack téhož by = jeden záznam (první ts zůstává)', JSON.stringify(th27().map(r => r.ack.map(a => a.by + '@' + (a.ts === '2026-01-01T00:00:01.000Z' ? 'legacy' : 'nove')))), '[["owner@legacy","kapitan@nove"]]');
+  T('BUS A-027: soubor zprávy se ackem nemění (žádná migrace, žádný přepis)', fs.readFileSync(path.join(bd27, m27), 'utf8') === raw27, true);
+  T('BUS A-027: po ack zpráva zmizí z inbox --unacked', unacked27(), 0);
+  T('BUS A-027: bus-notify vidí sidecar ack (jediné místo sloučení) → konec tahu nezastaví', bn27(), 0);
+  // nečitelný sidecar (ruční zásah/poškození) potvrzení neztratí — by se vezme ze jména; rozepsaný temp soubor není ack ani zpráva
+  fs.writeFileSync(path.join(bd27, m27 + '.ack.auditor.1700000000000.1.zz'), '');
+  fs.writeFileSync(path.join(bd27, m27 + '.ack-pending.tmp-1-1-zz'), '{"by":"ghost"');
+  T('BUS A-027: prázdný sidecar se počítá podle jména (řazeno podle času), rozepsaný temp se ignoruje', JSON.stringify(th27().map(r => r.ack.map(a => a.by))), '[["owner","auditor","kapitan"]]');
+  let inbox27 = []; try { inbox27 = JSON.parse(b27('inbox', '--for', 'kapitan').stdout); } catch { }
+  T('BUS A-027: sidecar/temp soubory se v inbox nezobrazí jako zprávy', inbox27.length + '/' + inbox27.filter(r => /\.ack/.test(r.file)).length, '1/0');
+  let st27 = {}; try { st27 = JSON.parse(b27('status').stdout); } catch { }
+  T('BUS A-027: status/ledger vidí jen skutečné zprávy', Object.keys(st27).join(',') + '/' + (fs.readFileSync(path.join(bd27, 'LEDGER.md'), 'utf8').match(/\| A-2701 \|/g) || []).length, 'A-2701/1');
 }
 // --- GATE-CHECK přímo
 T('GATE: chybí gate → FAIL', (fs.unlinkSync(path.join(ws, 'AUDIT', '05_release_gate.md')), spawnSync(process.execPath, [path.join(pkg, 'kapitan-side/gate-check.mjs'), repo], { env, encoding: 'utf8' }).status), 2);
@@ -1063,14 +1099,14 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
 } else console.error('new-project selhal:\n' + (npr.stdout || '') + (npr.stderr || ''));
 
 // --- ZKRATKA KAPITÁNA NA MOST (.claude/hooks/auditor-bus.mjs): vždy jako Kapitán, i když se pokusí vydávat za auditora
-{ fs.mkdirSync(path.join(ws, 'tools'), { recursive: true }); fs.copyFileSync(path.join(pkg, 'tools/bus.mjs'), path.join(ws, 'tools/bus.mjs'));
+{ fs.mkdirSync(path.join(ws, 'tools'), { recursive: true }); fs.copyFileSync(path.join(pkg, 'tools/bus.mjs'), path.join(ws, 'tools/bus.mjs')); fs.copyFileSync(path.join(pkg, 'tools/bus-store.mjs'), path.join(ws, 'tools/bus-store.mjs'));
   const ab = spawnSync(process.execPath, [path.join(pkg, 'kapitan-side/auditor-bus.mjs'), 'post', '--from', 'auditor', '--type', 'STATUS', '--id', 'A-9', '--status', 'STARTED'], { env, encoding: 'utf8' });
   const f = fs.readdirSync(path.join(ws, 'AUDIT', 'bus')).filter(x => /A-9\.json$/.test(x)).pop() || '';
   T('BUS-K: zkratka posílá vždy jako Kapitán', ab.status === 0 && /_kapitan_STATUS_A-9/.test(f) ? 1 : 0, 1);
   T('BUS-K: neplatný stav (věta místo STARTED) odmítnut', spawnSync(process.execPath, [path.join(pkg, 'kapitan-side/auditor-bus.mjs'), 'post', '--type', 'STATUS', '--id', 'A-9', '--status', 'Všech 59 zpráv'], { env, encoding: 'utf8' }).status === 0 ? 0 : 1, 1); }
 
 // --- DORUČENÍ ZPRÁV BĚHEM PRÁCE (bus-notify): nová zpráva se oznámí jednou po nástroji; nepotvrzená zastaví konec tahu
-{ fs.copyFileSync(path.join(pkg, 'tools/bus-notify.mjs'), path.join(ws, 'tools/bus-notify.mjs')); const BN = path.join(ws, 'tools/bus-notify.mjs');
+{ fs.copyFileSync(path.join(pkg, 'tools/bus-notify.mjs'), path.join(ws, 'tools/bus-notify.mjs')); fs.copyFileSync(path.join(pkg, 'tools/bus-store.mjs'), path.join(ws, 'tools/bus-store.mjs')); const BN = path.join(ws, 'tools/bus-notify.mjs');
   bus('post', '--from', 'auditor', '--type', 'NOTE', '--id', 'A-7', '--text', 'nova zprava pro kapitana');
   const n = (ev, extra = {}) => spawnSync(process.execPath, [BN, '--for', 'kapitan', '--event', ev], { input: JSON.stringify(extra), encoding: 'utf8' });
   const p1 = n('post'); T('NOTIFY: nová zpráva doručena Kapitánovi během práce', /additionalContext/.test(p1.stdout) && /nova zprava pro kapitana/.test(p1.stdout) ? 1 : 0, 1);
@@ -1236,7 +1272,7 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
   T('CODEX: návrat do Claude Code odebere jen naše pojistky a vrátí spouštěče', `${/codex-hook/.test(JSON.stringify(hk2))}/${/echo cizi/.test(JSON.stringify(hk2))}/${/(\bclaude|"\$CB"|"%CB%") (--model \S+ |%MODARG%|\$\{MA\[@\]\+"\$\{MA\[@\]\}"\} )?["']/.test(L('start-kapitan'))}`, 'false/true/true');
   // most v Codexu: konec tahu zastaví každá zpráva jen jednou (Codex nemá stop_hook_active)
   fs.writeFileSync(path.join(cw, 'AUDIT', 'bus', '2026-01-01T00-00-00-000Z_auditor_NOTE_A-1.json'), JSON.stringify({ from: 'auditor', to: 'kapitan', type: 'NOTE', id: 'A-1', text: 'x', ack: [] }));
-  fs.copyFileSync(path.join(pkg, 'tools/bus-notify.mjs'), path.join(cw, 'tools/bus-notify.mjs'));
+  fs.copyFileSync(path.join(pkg, 'tools/bus-notify.mjs'), path.join(cw, 'tools/bus-notify.mjs')); fs.copyFileSync(path.join(pkg, 'tools/bus-store.mjs'), path.join(cw, 'tools/bus-store.mjs'));
   const st = () => spawnSync(process.execPath, [path.join(cw, 'tools/bus-notify.mjs'), '--for', 'kapitan', '--event', 'stop', '--once'], { input: '{}', encoding: 'utf8' }).status;
   T('CODEX: nepotvrzená zpráva zastaví konec tahu jen jednou (žádná smyčka)', `${st()}/${st()}`, '2/0'); }
 
