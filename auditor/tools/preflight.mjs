@@ -11,6 +11,7 @@
 // Nikdy neblokuje start (bez sítě, bez npm… jen upozorní). Hlášky jdou na stderr, stdout = „cesta ke claude|alias modelu" pro spouštěč (--bin).
 //   node tools/preflight.mjs <workspace> auditor|kapitan [--repo <repo>] [--bin] [--agent claude|codex] [--offline]
 import fs from 'node:fs'; import path from 'node:path'; import os from 'node:os'; import { spawnSync } from 'node:child_process';
+import { readLevel, contextLine } from './prisnost.mjs';
 const a = process.argv.slice(2); const ws = path.resolve(a[0] || '.'); const role = a[1] === 'kapitan' ? 'kapitan' : 'auditor';
 const val = k => { const i = a.indexOf(k); return i >= 0 ? a[i + 1] : ''; }; const has = k => a.includes(k);
 const repo = val('--repo') ? path.resolve(val('--repo')) : ''; const agent = val('--agent') || 'claude'; const OFF = has('--offline') || process.env.AUDITOR_PREFLIGHT_OFFLINE === '1';
@@ -178,6 +179,7 @@ try {
   if (agent === 'codex') codexCheck(); else { bin = claudeCheck(); model = modelPick(); }
   scopeCheck(); modelCheck(); await balikCheck(); if (role === 'auditor') novaCheck(); sdilenaCheck();
 } catch (e) { say(`  ⚠ kontrola před startem: ${e.message}`); }
+try { const lvl = readLevel(ws); out.prisnost = lvl; say('  ' + contextLine(lvl, ws).replace(/\n/g, '\n  ')); } catch { }
 try { fs.writeFileSync(sf, JSON.stringify({ ...st, posledni: out }, null, 2) + '\n'); } catch { }
 // stdout pro spouštěč: „<claude>|<alias modelu>" („-" = model podle nastavení); vždy neprázdné části (cmd for /f přeskočí prázdný token)
 if (has('--bin')) process.stdout.write(`${bin || 'claude'}|${model || '-'}`);

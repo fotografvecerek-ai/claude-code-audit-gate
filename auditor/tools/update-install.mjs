@@ -36,7 +36,7 @@ const walk = (d, pre = '') => { let o = []; for (const e of fs.readdirSync(d, { 
 const LAYERS = [['tools', ''], ['templates', 'templates/'], ['checklists', 'checklists/']];
 let manAll = {}; try { manAll = JSON.parse(rd(MF)); } catch { }
 const man = manAll.soubory || null, manO = manAll.ostatni || null;
-const ALWAYS = /^(fs-bezpecne|preflight|usporny-guard|bus|bus-notify|bus-store|codex-[\w-]+|write-[\w-]+|update-install|selftest|telegram-[\w-]+|kapitan-role|opravneni|wait-idle|merge-repo-settings|trust-folders|guard-check|katalog|sdilena-pravidla|jazyk|stav-session)\.mjs$|^VERZE$/;   // pojistky a spouštění: vždy verze balíku
+const ALWAYS = /^(fs-bezpecne|preflight|usporny-guard|bus|bus-notify|bus-store|codex-[\w-]+|write-[\w-]+|update-install|selftest|telegram-[\w-]+|kapitan-role|opravneni|wait-idle|merge-repo-settings|trust-folders|guard-check|katalog|sdilena-pravidla|jazyk|stav-session|prisnost).mjs$|^VERZE$/;   // pojistky a spouštění: vždy verze balíku
 let lastInst = 0; try { lastInst = fs.statSync(path.join(ws, 'CLAUDE.md')).mtimeMs; } catch { }
 const keep = new Set(), savedTools = [], mergeNew = []; const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
 const lineDiff = (f1, f2) => { const lc = f => new Set(rd(f).split(/\r?\n/)); const a = lc(f1), b = lc(f2); return `+${[...a].filter(l => !b.has(l)).length}/−${[...b].filter(l => !a.has(l)).length} ř.`; };
@@ -93,9 +93,29 @@ const remoteOrCombo = fs.existsSync(path.join(ws, 'AUDIT', '.remote.json')) || f
 // A-008 kolo 2: hoistnuto sem (dřív jen v sekci 2c) — použito i v looksIncomplete níž. „Rozjetý" audit (výsledky auditu
 // už existují) je silnější důkaz dokončené staré instalace bez markeru než pouhá existence tools/node_modules.
 const rozjety = ['00_intake.md', '02_HANDOFF.md', '05_release_gate.md', 'ZPRAVA.md', 'ZPRAVA.html'].some(f => fs.existsSync(path.join(ws, 'AUDIT', f))) || (() => { try { return fs.readdirSync(path.join(ws, 'AUDIT', '01_nalezy')).some(f => /^A-\d+\.md$/.test(f)); } catch { return false; } })();
-if (kapitan && !fs.existsSync(path.join(ws, '.opravneni.json'))) { if (process.stdin.isTTY) { try { execFileSync(process.execPath, [path.join(pkg, 'tools', 'opravneni.mjs'), ws, repo, '--ask'], { stdio: 'inherit' }); } catch { } } else warn('samostatnost Kapitána zatím nevybrána (OPATRNÝ) — START → [7]'); }
+// A-029 K4 (migrace): ws bez gitu (stará instalace) dostane git; volby vlastníka z doby před kontrolou integrity nikdy tiše nezměníme —
+// v terminálu je vlastník potvrdí, bez terminálu varování s tím, co teď platí, a instrukce START → [7]. Úroveň se tu nemění nahoru ani dolů.
+let pz = null; try { pz = await import('./prisnost.mjs'); } catch (e) { warn(`kontrola nastavení vlastníka se nenačetla: ${e.message}`); }
+if (pz) { try { const g = pz.ensureWsGit(ws); if (!g.ok) warn(g.duvod); else if (g.created) ok('workspace auditora dostal git (kontrola integrity nastavení vlastníka)'); } catch (e) { warn(`git workspace: ${e.message}`); } }
+if (kapitan && !fs.existsSync(path.join(ws, '.opravneni.json'))) { if (process.stdin.isTTY || (pz && pz.ttyAvailable())) { try { execFileSync(process.execPath, [path.join(pkg, 'tools', 'opravneni.mjs'), ws, repo, '--ask'], { stdio: 'inherit' }); } catch { } } else warn('samostatnost Kapitána zatím nevybrána (OPATRNÝ) — START → [7]'); }
+if (pz) {
+  try {
+    const it = pz.integrity(ws);
+    if (!it.git || it.zmeny.length) {
+      if (it.git && (process.stdin.isTTY || pz.ttyAvailable())) execFileSync(process.execPath, [path.join(pkg, 'tools', 'prisnost.mjs'), '--ws', ws, 'potvrd'], { stdio: 'inherit' });
+      else warn(`nastavení vlastníka nejsou schválená — ${pz.summary(it)}; potvrdit je můžeš jen ty: START → [7] v terminálu`);
+    }
+  } catch (e) { const it2 = (() => { try { return pz.integrity(ws); } catch { return null; } })(); warn(`nastavení vlastníka nejsou schválená${it2 ? ` — ${pz.summary(it2)}` : ''}; potvrdit je můžeš jen ty: START → [7] v terminálu`); }
+}
 if (kapitan) {
-  for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'auditor-bus.mjs', 'pre-push-guard.mjs']) put(path.join(pkg, 'kapitan-side', f), `.claude/hooks/${f}`);
+  for (const f of ['kapitan-audit-guard.js', 'gate-check.mjs', 'auditor-bus.mjs', 'pre-push-guard.mjs', 'kotva.cjs']) put(path.join(pkg, 'kapitan-side', f), `.claude/hooks/${f}`);
+  // A-026: kotva důvěry (mimo repo, v git common dir). Aktualizace ji obnoví (nový otisk gate-check.mjs) jen v terminálu vlastníka;
+  // z agenta nebo bez terminálu se nezapíše → pojistky blokují push do produkčních větví, dokud ji vlastník nepotvrdí (START → [9]).
+  try {
+    const { ensureAnchor } = await import('./kotva.mjs'); const ka = ensureAnchor(repo, ws, { instalace: true });
+    if (!ka.ok) warn(`kotva důvěry nezapsána: ${ka.duvod} — push do produkčních větví zůstane zablokovaný, dokud ji nepotvrdíš: spusť START → [9]`);
+    else if (ka.zmena) ok('kotva důvěry zapsána (workspace auditora a otisk gate-check.mjs)');
+  } catch (e) { warn(`kotva důvěry: ${e.message} — spusť START → [9]`); }
   const sk = path.join(repo, '.claude', 'skills', 'audit-rezim', 'SKILL.md'); const before = rd(sk); fs.mkdirSync(path.dirname(sk), { recursive: true });
   fs.writeFileSync(sk, '---\nname: audit-rezim\ndescription: Závazný audit režim — stop-the-line při otevřených P0/P1 v AUDIT/02_HANDOFF.md, důkazy do AUDIT/03_dukazy, bus komunikace s auditorem, deploy jen po gate-check. Použij při startu každé dávky.\n---\n' + rd(path.join(pkg, 'kapitan-side', 'AUDIT_REZIM.md')));
   if (rd(sk) !== before) changed.push('.claude/skills/audit-rezim/SKILL.md');
@@ -138,14 +158,15 @@ if (kapitan || starter) {
   else if (!fs.existsSync(pc) && hygienaByla) { installGitHook(repo, path.join(HY, 'pre-commit-guard.sh'), 'pre-commit'); repaired.push('pre-commit'); }
   if (fs.existsSync(path.join(H, 'pre-commit-guard.sh'))) put(path.join(HY, 'pre-commit-guard.sh'), '.claude/hooks/pre-commit-guard.sh');
   if (kapitan) {
-    // A-023 K2 addendum: pre-push druhá linie — logika (pre-push-guard.mjs) už je v .claude/hooks/ vždy (viz výš); samotný
-    // git hook wrapper v .git/hooks/pre-push doinstaluj stejnou sdílenou funkcí (installGitHook) jako pre-commit výš, jen
-    // když hygiena skutečně proběhla (hygienaByla — marker, legacy .gitattributes, nebo náš pre-commit marker), nikdy proti
-    // vlastníkově volbě „ne" (C5).
+    // A-026 (AK3): pre-push je brána vydání (druhá linie za guardem), ne hygiena — instaluje se VŽDY, i když vlastník hygienu
+    // odmítl. Náš hook (marker) se přepíše; cizí se zazálohuje do pre-push.bak-<čas> (installGitHook) a nahradí naším s varováním;
+    // chybějící se doinstaluje. Push tak nikdy nezůstane bez gate-checku jen proto, že se hygiena nenainstalovala.
     const pp = path.join(repo, '.git', 'hooks', 'pre-push'), ppTxt = rd(pp);
-    if (hasMarker('pre-push', ppTxt)) { fs.copyFileSync(path.join(pkg, 'kapitan-side', 'pre-push-guard.sh'), pp); try { fs.chmodSync(pp, 0o755); } catch { } }
-    else if (!fs.existsSync(pp) && hygienaByla) { installGitHook(repo, path.join(pkg, 'kapitan-side', 'pre-push-guard.sh'), 'pre-push'); repaired.push('pre-push'); }
-    if (fs.existsSync(path.join(H, 'pre-push-guard.sh'))) put(path.join(pkg, 'kapitan-side', 'pre-push-guard.sh'), '.claude/hooks/pre-push-guard.sh');
+    const ppSrc = path.join(pkg, 'kapitan-side', 'pre-push-guard.sh');
+    if (hasMarker('pre-push', ppTxt)) { fs.copyFileSync(ppSrc, pp); try { fs.chmodSync(pp, 0o755); } catch { } }
+    else if (fs.existsSync(pp)) { const bak = installGitHook(repo, ppSrc, 'pre-push'); warn(`cizí git hook pre-push nahrazen pojistkou vydání auditora; původní je zazálohovaný v ${bak} — jeho kroky případně přidej do .claude/hooks/pre-push-guard.sh ručně`); }
+    else { installGitHook(repo, ppSrc, 'pre-push'); if (hygienaByla) repaired.push('pre-push'); else ok('pojistka vydání (git hook pre-push) doinstalována'); }
+    if (fs.existsSync(path.join(H, 'pre-push-guard.sh'))) put(ppSrc, '.claude/hooks/pre-push-guard.sh');
   }
   if (repaired.length) warn(`git hooky chyběly úplně (přerušená dřívější instalace) — doplněny: ${repaired.join(', ')}`);
   // KATALOG: aktivní položky na novou verzi (ručně upravené zůstanou); vlastníkovi jednou nabídnout doporučené (hooky smí aktivovat jen on)
@@ -208,6 +229,11 @@ if (kapitan || starter) {
   // A-008 kolo 2: `rozjety` teď počítá výš (u remoteOrCombo) — použito i tam pro looksIncomplete, tady jen reuse (žádná duplicitní logika).
   const hotove = new Set(b.hotove || []); const nf = path.join(ws, 'AUDIT', 'NOVE_CILE.md');
   const pending = rozjety ? cile.filter(c => !hotove.has(c.id) && !(c.hotovo_kdyz || []).some(f => fs.existsSync(path.join(ws, f)))) : [];
+  // K-002: trvalý dluh přísnosti (AUDIT/.prisnost.json, tento soubor update nepřepisuje) — úkol se při každé aktualizaci založí znovu, dokud ho auditor neuzavře (`prisnost.mjs dluh-uzavren`)
+  { let d = null; try { d = (await import('./prisnost.mjs')).debtStatus(ws); } catch { try { d = JSON.parse(rd(path.join(ws, 'AUDIT', '.prisnost.json'))).audit_dluhu; } catch { } }   // A-029 K3: platí stav schválený (git ws)
+    const lv = { prototyp: 'PROTOTYP', osobni: 'OSOBNÍ', bezny: 'BĚŽNÝ', kriticky: 'KRITICKÝ' }[d && d.uroven];
+    if (d && d.otevren === true && lv) pending.push({ id: `DLUH-${lv}`, od_verze: ver, cil: `Audit dluhu (AUDIT/DLUH.md) podle úrovně ${lv} — release gate 🔴 do uzavření`,
+      postup: 'projdi celý AUDIT/DLUH.md podle nové úrovně; po uzavření auditor spustí `node tools/prisnost.mjs dluh-uzavren` (do té doby se úkol po každé aktualizaci vrací).', naklady: 'podle velikosti dluhu' }); }
   if (mergeNew.length && rozjety) pending.push({ id: `SLOUCIT-${stamp}`, od_verze: ver, cil: `sloučit ručně: ${mergeNew.join('; ')}`,
     postup: 'porovnej svou verzi s <soubor>.new; opravy balíku převezmi, úpravy pro projekt přesuň do tools/local/ (nástroje) nebo .claude/rules/*-projekt.md; pak <soubor>.new smaž. Do té doby běží tvoje verze.', naklady: 'malé (porovnání dvou verzí)' });
   if (savedTools.length && rozjety) pending.push({ id: `NASTROJE-${stamp}`, od_verze: ver, cil: `přenést tvoje úpravy nástrojů (${savedTools.join(', ')}) — aktualizace je nahradila novou verzí, tvoje verze leží v AUDIT/_nastroje-zaloha/${stamp}/`,
