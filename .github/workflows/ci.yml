@@ -172,6 +172,7 @@ jobs:
           cmd /c "`"$(Join-Path $ws 'start-kapitan.cmd')`" < NUL"; if ($LASTEXITCODE -eq 0) { throw "Kapitán bez složky projektu neskončil chybou" }
           if (Test-Path $log) { throw "Kapitán se spustil, přestože složka projektu neexistuje" }
           Write-Host "ok: diakritika + mezera + závorky, špatná složka = žádný start"
+          exit 0   # poslední cmd výše skončil záměrně chybou → jinak by krok převzal jeho $LASTEXITCODE
       - name: assert – workspace, brána, commit jen instalace, cizí soubory netknuté
         shell: bash
         run: |
