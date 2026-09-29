@@ -165,7 +165,7 @@ jobs:
           foreach ($f in 'start-auditor.cmd', 'start-kapitan.cmd') { cmd /c "`"$(Join-Path $ws $f)`" < NUL"; if ($LASTEXITCODE -ne 0) { throw "$f skončil chybou $LASTEXITCODE" } }
           $lines = [IO.File]::ReadAllLines($log, [Text.Encoding]::UTF8); $lines | ForEach-Object { Write-Host "  claude spuštěn v: $_" }
           if (-not ($lines | Where-Object { $_ -like "$ws|*Zacni intake*" })) { throw "auditor se nespustil ve workspace s diakritikou" }
-          if (-not ($lines | Where-Object { $_ -like "$repo|*" -and $_ -like "*--model sonnet*" -and $_ -like "*Jsi Kapitan*" })) { throw "Kapitán se nespustil v projektu s diakritikou (na modelu sonnet)" }
+          if (-not ($lines | Where-Object { $_ -like "$repo|*" -and $_ -like "*--model opus*" -and $_ -like "*Jsi Kapitan*" })) { throw "Kapitán se nespustil v projektu s diakritikou (na modelu opus)" }
           if (-not (Test-Path (Join-Path $ws 'start-projekt.cmd'))) { throw "chybí společný spouštěč start-projekt.cmd" }
           # nedostupná složka projektu → spouštěč agenta NESPUSTÍ (dřív pustil agenta v aktuální složce)
           Remove-Item -Recurse -Force $repo; Remove-Item $log
