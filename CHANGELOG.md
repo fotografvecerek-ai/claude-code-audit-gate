@@ -338,8 +338,10 @@ Opravy z vlastního auditu balíku (nálezy A-001 až A-023, ověřeno auditorem
   slova shellu a globální volby gitu v libovolném pořadí.
 - **Pre-push pojistka opravena** (A-023): čte tlačené refy ze stdin (dřív šlo obejít přes prostředí), detekce odeslání podle prvního
   slova příkazového segmentu, instalace hooku přes sdílenou funkci `installGitHook` — spolehlivá u prvoinstalace i aktualizace.
-- **Bezpečné zámky mostu** (A-010): `ack` v `bus.mjs` pod zámkem s atomickým zápisem (ověřeno 50 souběžných zápisů bez ztráty), bezpečný
-  stale lock, retry na Windows `EPERM`, čtenáři nikdy nevidí polovičatě zapsaný JSON.
+- **Bezpečné potvrzování zpráv mostu** (A-010, A-027): potvrzení (`ack`) se nově zapisuje jako samostatný malý soubor vedle zprávy
+  (dočasný soubor + přejmenování, bez zámku) a při čtení se slučuje bez duplicit (`tools/bus-store.mjs`) — žádná ztráta ani při
+  souběhu na Windows („delete pending" `EPERM`) a macOS; staré busy fungují beze změny. Výpis schránky snese neblokující rouru
+  (macOS `EAGAIN`). CI zelené na Linuxu, Windows i macOS (timeouty jobů, oprava junction testu a Codex testů na Windows/macOS).
 - **Aktualizace instalace úplná, cizí hooky se nepřepisují** (A-007, A-008): vlastní hook se pozná jen podle jednoznačného markeru
   (dřív podle podřetězce, který mohl mít i cizí hook — ten se přepsal beze zálohy); cizí `pre-commit` hook se při instalaci zálohuje do
   `.bak-<čas>` a nahlásí. Přerušená instalace (chybějící závislosti, git hooky chybějící navzdory potvrzené hygieně) se sama doplní,
