@@ -1377,6 +1377,29 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
   const a = jz({ LANG: 'cs_CZ.UTF-8' }), b = jz({ LANG: 'en_US.UTF-8' }), c = jz({ AUDITOR_LANG: 'sk' }); fs.writeFileSync(path.join(jw, '.rezim.json'), '{"jazyk":"en"}'); const d = jz({ LANG: 'cs_CZ.UTF-8' });
   T('JAZYK: cs/en podle systému, slovenština → cs, přepis v .rezim.json', `${a}/${b}/${c}/${d}`, 'cs/en/cs/en');
 }
+{ // PŘÍSNOST AUDITU (K-002): výchozí bezny, neplatná = bezny, zápis zachová klíče, zvýšení založí úkol dluhu, kontext na startu
+  const PR = path.join(pkg, 'tools', 'prisnost.mjs'); const pz = await import(pathToFileURL(PR).href); const cli = (w, ...args) => spawnSync(process.execPath, [PR, '--ws', w, ...args], { encoding: 'utf8' });
+  const pw = path.join(tmp, 'prisnost-ws'); fs.mkdirSync(pw, { recursive: true }); const rj = () => JSON.parse(fs.readFileSync(path.join(pw, '.rezim.json'), 'utf8')); const nc = path.join(pw, 'AUDIT', 'NOVE_CILE.md');
+  T('PŘÍSNOST: bez klíče = bezny (staré instalace beze změny)', pz.readLevel(pw), 'bezny');
+  fs.writeFileSync(path.join(pw, '.rezim.json'), '{"prisnost":"pruměrný","jazyk":"en"}'); T('PŘÍSNOST: neplatná hodnota = bezny', pz.readLevel(pw), 'bezny');
+  fs.writeFileSync(path.join(pw, '.rezim.json'), '{"jazyk":"en"}');
+  const first = cli(pw, 'nastav', 'prototyp'); T('PŘÍSNOST: nastav zapíše úroveň a zachová ostatní klíče', `${rj().prisnost}/${rj().jazyk}`, 'prototyp/en');
+  T('PŘÍSNOST: první nastavení není zvýšení (žádný úkol dluhu), DLUH.md se založí', `${fs.existsSync(nc)}/${fs.existsSync(path.join(pw, 'AUDIT', 'DLUH.md'))}/${/nastavena/.test(first.stdout)}`, 'false/true/true');
+  cli(pw, 'nastav', 'bezny'); const t1 = fs.existsSync(nc) ? fs.readFileSync(nc, 'utf8') : '';
+  T('PŘÍSNOST: zvýšení prototyp → bezny založí úkol „Audit dluhu“ v NOVE_CILE.md', /Audit dluhu \(AUDIT\/DLUH\.md\) podle úrovně BĚŽNÝ/.test(t1) && /🔴/.test(t1), true);
+  cli(pw, 'nastav', 'osobni'); T('PŘÍSNOST: snížení úkol nepřidá', fs.readFileSync(nc, 'utf8'), t1);
+  const bad = cli(pw, 'nastav', 'nesmysl'); T('PŘÍSNOST: neplatná úroveň v CLI = exit 1 se srozumitelnou hláškou', `${bad.status}/${/Neplatná úroveň/.test(bad.stderr)}`, '1/true');
+  T('PŘÍSNOST: neplatná úroveň nezměnila zápis', rj().prisnost, 'osobni');
+  T('PŘÍSNOST: pořadí úrovní a pravidla pro všechny úrovně', `${pz.LEVELS.join(',')}/${pz.LEVELS.every(l => pz.RULES[l])}`, 'prototyp,osobni,bezny,kriticky/true');
+  T('PŘÍSNOST: contextLine začíná [PŘÍSNOST] a jmenuje úroveň', /^\[PŘÍSNOST\] PROTOTYP — blokuje jen P0/.test(pz.contextLine('prototyp')), true);
+  T('PŘÍSNOST: CLI stav vypíše úroveň a pravidla', /OSOBNÍ/.test(cli(pw, 'stav').stdout), true);
+  const pf2 = spawnSync(process.execPath, [path.join(pkg, 'tools', 'preflight.mjs'), pw, 'auditor', '--agent', 'codex', '--offline'], { encoding: 'utf8', env: { ...process.env, AUDITOR_PREFLIGHT_OFFLINE: '1' } });
+  T('PŘÍSNOST: preflight vypíše řádek [PŘÍSNOST] s úrovní workspace', /\[PŘÍSNOST\] OSOBNÍ/.test(pf2.stderr || ''), true);
+  if (fs.existsSync(path.join(pkg, 'setup-auditor.ps1')) && fs.existsSync(path.join(pkg, 'setup-auditor.sh'))) {
+    const ps1 = fs.readFileSync(path.join(pkg, 'setup-auditor.ps1'), 'utf8'), sh = fs.readFileSync(path.join(pkg, 'setup-auditor.sh'), 'utf8');
+    T('PŘÍSNOST: instalátor (ps1 i sh) má parametr přísnosti a volá prisnost.mjs nastav', `${/\[string\]\$Prisnost/.test(ps1) && /prisnost\.mjs'\) --ws \$ws nastav/.test(ps1)}/${/--prisnost\)/.test(sh) && /prisnost\.mjs" --ws "\$WS" nastav/.test(sh)}`, 'true/true');
+  }
+}
 { // PATCH-DEPLOY: brána v PowerShellu za hlavičkou (param), jen ASCII; SDÍLENÁ PRAVIDLA: nalezena, agent je nepřesune
   const pr = path.join(tmp, 'pd-app'), pw = path.join(tmp, 'pd-app-audit'); fs.mkdirSync(path.join(pw, 'kapitan-side'), { recursive: true }); fs.mkdirSync(pr, { recursive: true });
   fs.writeFileSync(path.join(pr, 'deploy_x.ps1'), '#requires -Version 5.1\n<#\n.SYNOPSIS\n  x\n#>\n[CmdletBinding()]\nparam(\n  [string]$E = "prod"\n)\nvercel --prod\n');

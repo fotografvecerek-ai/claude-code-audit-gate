@@ -2,7 +2,7 @@
 # Co udělá: 1) zeptá se na cesty, 2) vytvoří workspace auditora + AUDIT/ + git, 3) zapíše settings.json s env a deny pravidly pro TVOJE cesty,
 #           4) nainstaluje nástroje (Playwright, axe), 5) nainstaluje stranu Kapitána do repa (skill audit-rezim + hook + gate-check) - jen se souhlasem,
 #           6) otestuje brány, 7) vytvoří start-auditor.cmd a start-kapitan.cmd. Nic z toho neběží jako agent - je to jednorázová instalace, kterou spouští vlastník.
-param([string]$Repo, [string]$Workspace, [string]$Remote, [string]$Model = 'opus', [switch]$Yes, [string]$Kapitan = 'ano', [string]$Hygiena = 'ano', [string]$CI = 'ano')
+param([string]$Repo, [string]$Workspace, [string]$Remote, [string]$Model = 'opus', [switch]$Yes, [string]$Kapitan = 'ano', [string]$Hygiena = 'ano', [string]$CI = 'ano', [string]$Prisnost = '')
 $ErrorActionPreference = 'Stop'
 function Ask($q, $default) { if ($Yes) { Write-Host "$q -> $default"; return $default }; $a = Read-Host "$q [$default]"; if ([string]::IsNullOrWhiteSpace($a)) { $default } else { $a } }
 function AskYN($q, $default) { if ($Yes) { Write-Host "$q -> $default"; return $default }; $a = (Read-Host "$q  [1] ano   [2] ne   (Enter = $default)").Trim().ToLower(); if ($a -eq '') { return $default }; if ($a -eq '1' -or $a.StartsWith('a')) { 'ano' } else { 'ne' } }
@@ -18,6 +18,10 @@ $name = Split-Path $repo -Leaf
 $ws = if ($Workspace) { $Workspace } else { Ask "Workspace auditora (vytvoří se)" (Join-Path (Split-Path $repo -Parent) "$name-audit") }
 $remote = if ($Remote) { $Remote } elseif ($Yes) { '' } else { Ask "Git remote pro AUDIT workspace (prázdné = jen lokální git; doporučeno soukromý GitHub repo pro práci přes více strojů)" '' }
 $model = if ($Yes) { $Model } else { Ask "Model hlavního vlákna auditora (opus = nejnovější Opus, posouvá se sám; best = Fable/Opus; sonnet = levnější)" $Model }
+$prisnostMap = @{ '1' = 'prototyp'; '2' = 'osobni'; '3' = 'bezny'; '4' = 'kriticky'; 'prototyp' = 'prototyp'; 'osobni' = 'osobni'; 'bezny' = 'bezny'; 'kriticky' = 'kriticky' }
+$prisnostIn = if ($Prisnost) { $Prisnost } elseif ($Yes) { '3' } else { Ask 'Přísnost auditu: [1] Prototyp [2] Osobní [3] Běžný [4] Kritický (Enter = 3)' '3' }
+$prisnost = $prisnostMap[$prisnostIn.Trim().ToLower()]
+if (-not $prisnost) { Write-Host "Neplatná přísnost: $prisnostIn (platné: prototyp, osobni, bezny, kriticky nebo 1-4)" -ForegroundColor Red; exit 1 }
 
 # 1) workspace
 New-Item -ItemType Directory -Force -Path $ws | Out-Null
@@ -46,6 +50,7 @@ tools/node_modules/
 
 # 2) settings.json s TVÝMI cestami (env čtou hooky; deny pravidla chrání repo)
 $wsP = Posix $ws; $repoP = Posix $repo
+node (Join-Path $ws 'tools/prisnost.mjs') --ws $ws nastav $prisnost; if ($LASTEXITCODE -ne 0) { Write-Host 'Zápis přísnosti auditu selhal' -ForegroundColor Red; exit 1 }
 node (Join-Path $ws 'tools/write-auditor-settings.mjs') $ws $repo $model; if ($LASTEXITCODE -ne 0) { Write-Host 'Zápis settings auditora selhal' -ForegroundColor Red; exit 1 }
 
 # 3) git

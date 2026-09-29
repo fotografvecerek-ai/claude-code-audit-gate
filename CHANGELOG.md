@@ -359,3 +359,7 @@ Opravy z vlastního auditu balíku (nálezy A-001 až A-023, ověřeno auditorem
   workspace (ne z balíku) už nekopíruje jeho živý `AUDIT/` (intake, marker instalace) do cíle jako šablonu — dřív to maskovalo přerušenou
   instalaci jako dokončenou; hláška „SAMOTEST NEPROŠEL po aktualizaci (…)“ vždy uvede důvod (souhrn, exit kód/signál, konec chybového výstupu).
 - Samotest 722.
+
+## 1.8.9 (rozpracováno)
+
+- **Úroveň přísnosti auditu za projekt** (K-002): `.rezim.json` → `prisnost` = prototyp / osobní / běžný (výchozí) / kritický (standard OWASP ASVS L1/L2/L3). Nový `tools/prisnost.mjs` (`stav`, `nastav`, `kontext`) — jediné místo pravdy; auditor úroveň vidí na startu jako řádek `[PŘÍSNOST]`. U prototypu a osobní úrovně neblokující nálezy jdou do `AUDIT/DLUH.md`; přepnutí na vyšší úroveň založí v `AUDIT/NOVE_CILE.md` úkol „audit dluhu“. Instalátor se ptá (`-Prisnost` / `--prisnost`, `-Yes` = běžný), START má volbu [10] Přísnost auditu. Samotest 735.

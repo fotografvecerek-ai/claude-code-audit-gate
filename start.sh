@@ -8,7 +8,7 @@ while true; do
   echo "  [1] Založit NOVÝ projekt       — zdravě od začátku (pravidla, pojistky, kontrola v projektu; doporučeno + samostatný auditor)"
   echo "  [2] Auditovat projekt na DISKU — zadáš cestu; Enter = vyhledat a vybrat i více projektů"
   echo "  [3] Auditovat GITHUB repo      — jen adresa repa, u klienta se nic neinstaluje"
-  echo "  [4] Nápověda   [5] Samotest bran   [6] Telegram bot   [7] Samostatnost Kapitána   [8] Codex   [9] Katalog   [0] Konec"
+  echo "  [4] Nápověda   [5] Samotest bran   [6] Telegram bot   [7] Samostatnost Kapitána   [8] Codex   [9] Katalog   [10] Přísnost auditu   [0] Konec"
   read -r -p "Volba (číslo a Enter): " v
   case "$v" in
     1) node "$D/auditor/tools/new-project.mjs";;
@@ -20,6 +20,7 @@ while true; do
     7) read -r -p "Cesta k projektu: " r; [ -n "$r" ] && { r="$(cd "$r" && pwd)"; node "$D/auditor/tools/opravneni.mjs" "$(dirname "$r")/$(basename "$r")-audit" "$r" --ask; echo "Zavři okno Kapitána a otevři ho znovu."; };;
     8) read -r -p "Cesta k projektu: " r; [ -n "$r" ] && { r="$(cd "$r" && pwd)"; w="$(dirname "$r")/$(basename "$r")-audit"; if [ -f "$w/.claude/settings.json" ]; then node "$D/auditor/tools/codex-setup.mjs" --ws "$w" --repo "$r"; else echo "Auditor u projektu ještě není — nejdřív [2]."; fi; };;
     9) read -r -p "Cesta k projektu: " r; [ -n "$r" ] && node "$D/auditor/tools/katalog.mjs" pruvodce --cil "$(cd "$r" && pwd)";;
+    10) read -r -p "Cesta k projektu: " r; [ -n "$r" ] && { r="$(cd "$r" && pwd)"; w="$(dirname "$r")/$(basename "$r")-audit"; if [ -f "$w/.claude/settings.json" ]; then node "$D/auditor/tools/prisnost.mjs" --ws "$w" stav; read -r -p "Nová přísnost: [1] Prototyp [2] Osobní [3] Běžný [4] Kritický, Enter = nechat: " l; case "$l" in 1) l=prototyp;; 2) l=osobni;; 3) l=bezny;; 4) l=kriticky;; esac; [ -n "$l" ] && node "$D/auditor/tools/prisnost.mjs" --ws "$w" nastav "$l"; else echo "Auditor u tohoto projektu ještě není — nejdřív volba [2]."; fi; };;
     0) exit 0;;
   esac
 done
