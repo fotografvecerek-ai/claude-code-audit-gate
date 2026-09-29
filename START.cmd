@@ -52,6 +52,7 @@ echo   [4] Napoveda   [5] Samotest bran   [6] Telegram bot
 echo   [7] Samostatnost Kapitana (smi sam spoustet skripty a databazi?)
 echo   [8] Codex - auditor nebo Kapitan v OpenAI Codex misto Claude Code
 echo   [9] Katalog - skilly, agenti, pravidla a pojistky na miru projektu   [0] Konec
+echo   [10] Prisnost auditu - jak prisne se projekt kontroluje (prototyp az kriticky)
 echo.
 set "V="
 set /p "V=Volba (cislo a Enter): "
@@ -64,6 +65,7 @@ if "%V%"=="6" goto telegram
 if "%V%"=="7" goto opravneni
 if "%V%"=="8" goto codex
 if "%V%"=="9" goto katalog
+if "%V%"=="10" goto prisnost
 if "%V%"=="0" exit /b 0
 goto menu
 
@@ -107,6 +109,27 @@ if "%R:~-1%"=="\" set "R=%R:~0,-1%"
 for %%I in ("%R%") do set "WS=%%~dpI%%~nxI-audit"
 if not exist "%WS%\.claude\settings.json" (echo Auditor u tohoto projektu jeste neni - nejdriv volba [2]. & pause & goto menu)
 node "%~dp0auditor\tools\codex-setup.mjs" --ws "%WS%" --repo "%R%"
+pause
+goto menu
+
+:prisnost
+set "R="
+set /p "R=Cesta k projektu, Enter = zpet: "
+if not defined R goto menu
+set "R=%R:"=%"
+if "%R:~-1%"=="\" set "R=%R:~0,-1%"
+for %%I in ("%R%") do set "WS=%%~dpI%%~nxI-audit"
+if not exist "%WS%\.claude\settings.json" (echo Auditor u tohoto projektu jeste neni - nejdriv volba [2]. & pause & goto menu)
+node "%~dp0auditor\tools\prisnost.mjs" --ws "%WS%" stav
+echo.
+set "L="
+set /p "L=Nova prisnost: [1] Prototyp [2] Osobni [3] Bezny [4] Kriticky, Enter = nechat: "
+if not defined L goto menu
+if "%L%"=="1" set "L=prototyp"
+if "%L%"=="2" set "L=osobni"
+if "%L%"=="3" set "L=bezny"
+if "%L%"=="4" set "L=kriticky"
+set "AUDITOR_ZDROJ=START" & node "%~dp0auditor\tools\prisnost.mjs" --ws "%WS%" nastav %L% --vlastnik
 pause
 goto menu
 

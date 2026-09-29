@@ -2,6 +2,7 @@
 # SETUP AUDITOR — průvodce (Linux / WSL / macOS). bash setup-auditor.sh   — stejné kroky jako setup-auditor.ps1
 set -euo pipefail
 PKG="$(cd "$(dirname "$0")" && pwd)"
+PRISNOST_ARG=""; while [ $# -gt 0 ]; do case "$1" in --prisnost) PRISNOST_ARG="${2:-}"; shift;; esac; shift; done
 ask(){ if [ "${AUDITOR_YES:-}" = "1" ]; then echo "$2"; return; fi; local a; read -r -p "$1 [$2]: " a; echo "${a:-$2}"; }
 askyn(){ if [ "${AUDITOR_YES:-}" = "1" ]; then echo "$2"; return; fi; local a; read -r -p "$1  [1] ano   [2] ne   (Enter = $2): " a; case "${a:-}" in "") echo "$2";; 1|a*|A*) echo ano;; *) echo ne;; esac; }
 for c in node git; do command -v $c >/dev/null || { echo "CHYBÍ: $c"; exit 1; }; done
@@ -12,6 +13,8 @@ REPO=$(cd "$REPO" && pwd); NAME=$(basename "$REPO")
 WS=${AUDITOR_WS:-$(ask "Workspace auditora (vytvoří se)" "$(dirname "$REPO")/$NAME-audit")}
 REMOTE=${AUDITOR_REMOTE:-$(ask "Git remote pro AUDIT workspace (prázdné = jen lokální)" "")}
 MODEL=${AUDITOR_MODEL:-$(ask "Model hlavního vlákna auditora (opus / best / sonnet)" "opus")}
+PRISNOST_IN=${PRISNOST_ARG:-$(ask "Přísnost auditu: [1] Prototyp [2] Osobní [3] Běžný [4] Kritický (Enter = 3)" "3")}
+case "$(echo "$PRISNOST_IN" | tr '[:upper:]' '[:lower:]')" in 1|prototyp) PRISNOST=prototyp;; 2|osobni) PRISNOST=osobni;; 3|bezny) PRISNOST=bezny;; 4|kriticky) PRISNOST=kriticky;; *) echo "Neplatná přísnost: $PRISNOST_IN (platné: prototyp, osobni, bezny, kriticky nebo 1-4)"; exit 1;; esac
 
 mkdir -p "$WS"
 # A-008 kolo 3 (P4d): marker hotovo:true z PŘEDCHOZÍ (třeba úspěšné) instalace nesmí přežít TENHLE běh, dokud sám znovu
@@ -26,9 +29,12 @@ mkdir -p "$WS"/AUDIT/{01_nalezy/momentky,03_dukazy,04_verdikty,bus,.auth}
 [ -f "$WS/tools/audit.config.json" ] || cp "$WS/tools/audit.config.example.json" "$WS/tools/audit.config.json"
 printf 'node_modules/\ntest-results/\nplaywright-report/\nAUDIT/.auth/\nAUDIT/_archiv/\nAUDIT/bus/.notified-*\nbuild/\ntools/node_modules/\n' > "$WS/.gitignore"
 
+AUDITOR_ZDROJ=instalator node "$WS/tools/prisnost.mjs" --ws "$WS" nastav "$PRISNOST" --vlastnik || { echo "Zápis přísnosti auditu selhal"; exit 1; }
 node "$WS/tools/write-auditor-settings.mjs" "$WS" "$REPO" "$MODEL" || { echo "Zápis settings auditora selhal"; exit 1; }
 
 ( cd "$WS"; [ -d .git ] || { git init -q; git add -A; git -c user.name=auditor -c user.email=auditor@local commit -q -m "auditor workspace init"; }
+  # A-029 K4: volby vlastníka (přísnost) schválí commit vlastníka až po založení gitu (bez terminálu jen varování)
+  node "$WS/tools/prisnost.mjs" --ws "$WS" potvrd --instalator || true
   [ -n "$REMOTE" ] && { git remote remove origin 2>/dev/null || true; git remote add origin "$REMOTE"; echo "Remote nastaven (první push ručně: git push -u origin main)"; }
   cd tools && { npm install --no-audit --no-fund >/dev/null || echo "VAROVÁNÍ: npm install selhal — spusť ručně v $WS/tools"; } ; { npx playwright install chromium >/dev/null 2>&1 || echo "VAROVÁNÍ: stažení Chromia selhalo (síť?) — spusť ručně: cd $WS/tools && npx playwright install chromium"; } )
 

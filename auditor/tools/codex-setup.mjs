@@ -140,6 +140,6 @@ if (aud === 'codex' || kap === 'codex') {
   say(`  Spouštěče aktualizované (${[aud === 'codex' && 'auditor', kap === 'codex' && 'Kapitán'].filter(Boolean).join(' a ')} → Codex). Stará okna zavři a spusť znovu ze složky`);
   say(`  ${ws}  (start-projekt = oba v jednom okně, nebo start-auditor / start-kapitan). Při prvním spuštění se Codex zeptá na přihlášení účtem ChatGPT.`);
   say('  Telegram kanál je jen v Claude Code — role v Codexu ho nemá.');
-  if (kap === 'codex') { let lvl = 1; try { lvl = JSON.parse(fs.readFileSync(path.join(ws, '.opravneni.json'), 'utf8')).kapitan || 1; } catch { }
+  if (kap === 'codex') { let lvl = 1; try { lvl = (await import('./prisnost.mjs')).kapitanLevel(ws); } catch { try { lvl = JSON.parse(fs.readFileSync(path.join(ws, '.opravneni.json'), 'utf8')).kapitan || 1; } catch { } }   // A-029 K3: platí verze schválená vlastníkem
     if (lvl >= 3) warn('Samostatnost PLNÝ = Codex bez sandboxu: pojistky platí, ale Kapitán by technicky mohl přepsat i jejich složku. Doporučeno SAMOSTATNÝ (START → [7]).'); }
 } else ok('oba agenti běží v Claude Code (pojistky Codexu odebrány)');
