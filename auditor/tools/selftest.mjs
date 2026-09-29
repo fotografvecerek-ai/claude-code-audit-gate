@@ -551,6 +551,16 @@ T('K: bus post --from auditor blokován', hook(KG, bash(repo, 'node tools/bus.mj
   T(`K: A-029 allowlist workspace auditora (${blok.length} blok, ${projde.length} projde)`, zle.join(' | '), '');
   T('K: A-029 cwd ve workspace auditora: zápis relativně blok, čtení povoleno', [hook(KG, bash(ws, 'echo {} > .rezim.json')), hook(KG, bash(ws, 'cat .rezim.json'))].join(','), '2,0');
   T('K: A-029 Write zprávy na most mimo bus.mjs blokován (jen přes bus.mjs)', hook(KG, write(repo, path.join(ws, 'AUDIT', 'bus', '2026_kapitan_STATUS_A-1.json'))), 2);
+  // A-029 kolo 2: tatáž cesta ws v jiném tvaru (symlink/junction jako macOS /var→/private/var, 8.3 RUNNER~1, rozvinutý realpath) — obě strany kanonizované
+  const link = path.join(tmp, 'ws-odkaz'); try { fs.symlinkSync(ws, link, isWin ? 'junction' : 'dir'); } catch { }
+  const shortOf = p => { if (!isWin) return null; const r = spawnSync('cmd', ['/d', '/s', '/c', `for %I in ("${p}") do @echo %~sI`], { encoding: 'utf8', windowsVerbatimArguments: true }); return (r.stdout || '').trim() || null; };
+  const W0 = norm(ws), forms = [...new Set([norm(link), shortOf(ws), fs.realpathSync.native(ws)].filter(Boolean).map(norm))].filter(f => f.toLowerCase() !== W0.toLowerCase() && fs.existsSync(f));
+  const hookW = (envWs, input) => spawnSync(process.execPath, [KG], { input: JSON.stringify(input), env: { ...env, AUDITOR_WORKSPACE: envWs }, encoding: 'utf8' }).status;
+  const chk = (envWs, V) => [[bash(repo, `echo {} > ${V}/.rezim.json`), 2], [write(repo, `${V}/.rezim.json`), 2], [bash(repo, `node ${V}/tools/prisnost.mjs --ws ${V} nastav prototyp`), 2],
+    [bash(repo, `mkdir -p ${V}/AUDIT/03_dukazy/A-1 && echo x > ${V}/AUDIT/03_dukazy/A-1/x.md`), 0], [write(repo, `${V}/AUDIT/03_dukazy/A-1/x.md`), 0]].filter(([i, e]) => hookW(envWs, i) !== e).map(([i]) => `ws=${envWs} ${i.tool_input.command || 'Write ' + i.tool_input.file_path}`);
+  const zle2 = forms.flatMap(f => [...chk(W0, f), ...chk(f, W0)]);
+  T(`K: A-029 ws přes symlink/junction/8.3/realpath (${forms.length} tvarů, obě strany)`, forms.length >= 1 ? zle2.join(' | ') : 'žádný alternativní tvar ws', '');
+  try { fs.unlinkSync(link); } catch { }
 }
 T('K: bez env fail-closed', spawnSync(process.execPath, [KG], { input: JSON.stringify(bash(repo, 'ls')), env: { ...env, AUDITOR_WORKSPACE: '' }, encoding: 'utf8' }).status, 2);
 // A-005: detekce push/deploy (pushM/DEPLOY) běží nad TOKENIZOVANÝM příkazem (commands()), ne nad syrovým textem
@@ -1222,6 +1232,10 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
   T('CODEX: Kapitán apply_patch do kódu (relativní cesta) povolen', cx(KG, patch(repo, 'Update', 'src/a.ts')), 0);
   T('CODEX: Kapitán nesmí měnit .codex/hooks.json', cx(KG, patch(repo, 'Update', '.codex/hooks.json')), 2);
   T('CODEX: A-029 Kapitán shellem do .rezim.json / prisnost nastav blokován (stejná pojistka)', [cx(KG, { cwd: repo, tool_name: 'shell', tool_input: { command: ['bash', '-lc', `echo {} > ${norm(ws)}/.rezim.json`] } }), cx(KG, { cwd: repo, tool_name: 'Bash', tool_input: { command: `cd ${norm(ws)} && node tools/prisnost.mjs nastav osobni` } })].join(','), '2,2');
+  { const lk = path.join(tmp, 'ws-odkaz-cx'); let ok = true; try { fs.symlinkSync(ws, lk, isWin ? 'junction' : 'dir'); } catch { ok = false; }
+    const cxW = (wsArg, c) => spawnSync(process.execPath, [CH, '--ws', wsArg, '--repo', repo, '--guard', KG], { input: JSON.stringify({ cwd: repo, tool_name: 'shell', tool_input: { command: ['bash', '-lc', c] } }), encoding: 'utf8', env: { ...process.env, HYGIENE_RULES: env.HYGIENE_RULES } }).status;
+    T('CODEX: A-029 kolo 2 ws přes symlink/junction (jako macOS /var→/private/var): zápis .rezim.json blok, 03_dukazy projde', ok ? [cxW(ws, `echo {} > ${norm(lk)}/.rezim.json`), cxW(lk, `echo {} > ${norm(ws)}/.rezim.json`), cxW(lk, `echo {} > ${norm(lk)}/.rezim.json`), cxW(ws, `echo x > ${norm(lk)}/AUDIT/03_dukazy/A-1/x.md`)].join(',') : 'symlink nejde vytvořit', '2,2,2,0');
+    try { fs.unlinkSync(lk); } catch { } }
   T('CODEX: destruktivní SQL přes Bash blokováno',cx(KG, { cwd: repo, tool_name: 'Bash', tool_input: { command: 'psql -c "DROP TABLE users"' } }), 2);
   T('CODEX: auditor apply_patch do repa blokován', cx(AG, patch(ws, 'Update', path.join(repo, 'src', 'a.ts'))), 2);
   T('CODEX: auditor apply_patch do AUDIT/ povolen', cx(AG, patch(ws, 'Add', 'AUDIT/01_nalezy/A-100.md')), 0);

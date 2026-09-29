@@ -13,6 +13,28 @@ const repoRaw = process.env.AUDITOR_TARGET_REPO || ''; // nenormalizovaná cesta
 // HYGIENA: pravidla z JEDINÉHO zdroje hygiene-rules.json (kopie v <repo>/.claude/hooks/, originál v <ws>/kapitan-side/hygiene/)
 const collapse = p => { const s = String(p || '').replace(/^\\\\[?.]\\/, '').replace(/\\/g, '/'); const lead = s.startsWith('/') ? '/' : ''; const o = []; for (const g of s.split('/')) { if (!g || g === '.') continue; if (g === '..') o.pop(); else o.push(g); } return lead + o.join('/'); };   // „a/../b", \\?\ → pojistku nejde obejít cestou
 const fsx = require('node:fs');
+// A-029 kolo 2: kanonická podoba cesty pro porovnání s ws/repo — realpath nejbližšího EXISTUJÍCÍHO předka + zbytek (8.3 jména
+// RUNNER~1 na Windows, /var → /private/var na macOS, symlink/junction vedoucí do ws). Vstup je norm() (lowercase) — segmenty se proto
+// dohledávají bez ohledu na velikost písmen (Linux má FS citlivý na velikost). Nekanonizovatelné = beze změny (porovnává se obojí).
+const toNative = n => process.platform === 'win32' ? n.replace(/^\/([a-z])(\/|$)/, (_, d) => `${d.toUpperCase()}:/`) : n;
+const canonMemo = new Map();
+function canonN(n) {
+  if (!n || !/^\//.test(n)) return n;
+  if (canonMemo.has(n)) return canonMemo.get(n);
+  const segs = toNative(n).split('/').filter(Boolean);
+  let head = process.platform === 'win32' && /^[A-Za-z]:$/.test(segs[0] || '') ? segs.shift() + '/' : '/';
+  let i = 0;
+  for (; i < segs.length; i++) {
+    let next = path.join(head, segs[i]);
+    if (!fsx.existsSync(next)) { let hit; try { hit = fsx.readdirSync(head).find(e => e.toLowerCase() === segs[i].toLowerCase()); } catch { } if (!hit) break; next = path.join(head, hit); }
+    head = next;
+  }
+  let out = n; try { out = norm(collapse([fsx.realpathSync.native(head), ...segs.slice(i)].join('/'))); } catch { }
+  canonMemo.set(n, out); return out;
+}
+const relOf = (q, roots) => { for (const v of roots) if (v && (q === v || q.startsWith(v + '/'))) return q.slice(v.length); return null; };
+// všechny relativní polohy cesty vůči kořenům (doslovně i kanonicky) — fail-closed: rozhoduje KAŽDÁ z nich
+const relsOf = (p, roots) => [...new Set([p, canonN(p)])].map(q => relOf(q, roots)).filter(r => r !== null);
 let R = null; for (const c of [path.join(__dirname, 'hygiene-rules.js'), path.join(__dirname, 'hygiene', 'hygiene-rules.js'), path.join(process.env.AUDITOR_WORKSPACE || '', 'kapitan-side/hygiene/hygiene-rules.js')]) { try { R = require(c).load(); break; } catch { } }
 // A-023 kolo 3 (X14/X15/X17, konzistentně s pre-push-guard.mjs): PROD_BRANCHES se dřív dalo přebít přes process.env —
 // libovolný shell, který spouští Bash/PowerShell tool Kapitána, si ho nastaví předem a bránu pro TUHLE větev vypne.
@@ -249,18 +271,24 @@ function wsViolations(cmd0, cwd0) {
   if (!ws) return [];
   // proměnná s cestou ws ($AUDITOR_WORKSPACE, ${…}, %…%, $env:…) se dosadí — cíl zápisu pak jde vyhodnotit jako cesta
   const cmd = String(cmd0).replace(/\$\{AUDITOR_WORKSPACE\}|\$env:AUDITOR_WORKSPACE\b|\$AUDITOR_WORKSPACE\b|%AUDITOR_WORKSPACE%/gi, () => process.env.AUDITOR_WORKSPACE);
-  const inWs = p => p === ws || p.startsWith(ws + '/');
-  const okDest = p => !inWs(p) || p.startsWith(ws + '/audit/03_dukazy/');
-  const wsBase = ws.split('/').pop(); const baseRe = new RegExp('(^|/)' + wsBase.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(/|$)');
+  // kolo 2: ws i cíle se porovnávají doslovně I kanonicky (8.3, /private/var, symlink/junction) — dotyk ws = kterákoli varianta
+  const wsVars = [...new Set([ws, canonN(ws)])], repoVars = [...new Set([repo, canonN(repo)])];
+  const inWs = p => relsOf(p, wsVars).length > 0;
+  const okDest = p => relsOf(p, wsVars).every(r => r.startsWith('/audit/03_dukazy/'));
+  const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const baseRe = new RegExp('(^|/)(' + wsVars.map(v => esc(v.split('/').pop())).join('|') + ')(/|$)');
   const low = norm(cmd), cmds = commands(cmd);
-  const touches = inWs(cwd0) || low.includes(ws) || /(\$\{?|%|\$env:)auditor_workspace/i.test(cmd)
-    || cmds.some(c => c.all.some(t => baseRe.test(norm(t))) || c.w === '__stdin_unresolved__');
+  const pathTok = t => /[\\/]/.test(t) && t.length < 1024 && !/[$%`]/.test(t);
+  const tokPath = t => { t = t.replace(/^(\d|&)?>>?/, ''); return norm(collapse(/^([\\/]|[A-Za-z]:)/.test(t) ? norm(t) : cwd0 + '/' + t)); };
+  const wt = writeTargets(cmd, cwd0);
+  const touches = inWs(cwd0) || wsVars.some(v => low.includes(v)) || /(\$\{?|%|\$env:)auditor_workspace/i.test(cmd)
+    || wt.some(t => t.path && inWs(t.path))
+    || cmds.some(c => c.all.some(t => baseRe.test(norm(t)) || pathTok(t) && inWs(tokPath(t))) || c.w === '__stdin_unresolved__');
   const bad = [];
   // prisnost.mjs nastav = VŽDY blok (i balíková kopie mimo ws s --ws relativně)
   for (const c of cmds) if (c.all.some(t => /(^|[\\/])prisnost\.mjs$/i.test(t)) && c.lower.includes('nastav')) bad.push(`prisnost.mjs nastav — úroveň přísnosti mění jen vlastník (START → volba / instalátor)`);
   if (!touches) return bad;
-  const wt = writeTargets(cmd, cwd0);
-  for (const t of wt) { if (t.inline) bad.push(`inline skript (${t.cmd} -e/-c) u příkazu, který míří do workspace auditora`); else if (!okDest(t.path)) bad.push(`zápis do ${t.path.slice(ws.length) || '/'} („${t.tok}")`); else if (/[$%~`]/.test(t.tok || '')) bad.push(`cíl zápisu s nerozvinutou proměnnou („${t.tok}")`); }
+  for (const t of wt) { if (t.inline) bad.push(`inline skript (${t.cmd} -e/-c) u příkazu, který míří do workspace auditora`); else if (!okDest(t.path)) bad.push(`zápis do ${relsOf(t.path, wsVars)[0] || '/'} („${t.tok}")`); else if (/[$%`]|(?:^|[\s=:>|&;(])~/.test(t.tok || '')) bad.push(`cíl zápisu s nerozvinutou proměnnou („${t.tok}")`); }
   let cur = cwd0;
   const abs = p => { p = String(p).replace(/\\/g, '/'); const n = norm(p); return /^\//.test(n) ? norm(collapse(n)) : norm(collapse(cur + '/' + p)); };
   const isWriter = w => W_LAST.has(w) || W_ALL.has(w) || w in W_PS || MOVERS.has(w) || w === 'chmod' || w === 'chown';
@@ -277,8 +305,8 @@ function wsViolations(cmd0, cwd0) {
     if (['node', 'bun', 'deno'].includes(w)) {
       const si = c.a.findIndex(x => !/^-/.test(x)); const script = si >= 0 ? abs(c.a[si]) : '';
       const sub = (c.a.slice(si + 1).find((x, k, arr) => !/^-/.test(x) && (arr[k - 1] || '').toLowerCase() !== '--ws') || '').toLowerCase();
-      const hit = (root, table) => Object.entries(table).find(([rel]) => root && script === root + '/' + rel);
-      const e = hit(ws, WS_SCRIPTS) || hit(repo, REPO_SCRIPTS);
+      const hit = (roots, table) => { const rs = script ? relsOf(script, roots) : []; return Object.entries(table).find(([rel]) => rs.length && rs.every(r => r === '/' + rel)); };
+      const e = hit(wsVars, WS_SCRIPTS) || hit(repoVars, REPO_SCRIPTS);
       if (e && (!e[1] || e[1].test(sub))) { if (/bus\.mjs$/.test(e[0]) && sub === 'ack' && /\/tools\/bus\.mjs$/.test(script) && !/--by\s+kapitan\b/i.test(c.all.join(' '))) bad.push('bus ack jen --by kapitan'); continue; }
       bad.push(`${w} ${pos[0] || ''}${sub ? ' ' + sub : ''} (skript, který není na seznamu povolených pro workspace auditora)`); continue;
     }
@@ -308,11 +336,12 @@ process.stdin.on('end', () => {
       let rz = {}; try { rz = JSON.parse(fsx.readFileSync(path.join(process.env.AUDITOR_WORKSPACE || '', '.rezim.json'), 'utf8')); } catch { }
       if (rz.delegace !== 'vypnuto') block(`DELEGACE: kód (${fp.slice(repo.length + 1)}) nepíšeš v hlavním okně — běžíš na drahém modelu kvůli plánu a rozhovoru s vlastníkem. Deleguj krok subagentovi \`implementator\` (model sonnet; aktivace: node "${process.env.AUDITOR_WORKSPACE}/tools/katalog.mjs" aktivuj implementator --cil .) nebo subagentovi s model: "sonnet" — s přesnými soubory, kotvami a AK. Dokumenty (.md), STATE, KANBAN a nastavení smíš upravovat sám.`);
     }
-    if (fp.startsWith(ws + '/audit/')) {
-      const ok = fp.startsWith(ws + '/audit/03_dukazy/');   // A-029: zprávy na most jen přes bus.mjs (ne přímým zápisem souboru)
-      if (!ok) block(`Kapitán smí v AUDIT/ zapisovat jen do 03_dukazy/; zprávy auditorovi jen přes bus.mjs / auditor-bus.mjs (${fp}). Nálezy, verdikty, handoff a gate patří auditorovi.`);
+    // A-029: doslovně i kanonicky (8.3, /private/var, symlink/junction na ws) — každá poloha ve ws musí být v AUDIT/03_dukazy/
+    for (const r of relsOf(fp, [...new Set([ws, canonN(ws)])])) {
+      if (r.startsWith('/audit/03_dukazy/')) continue;   // zprávy na most jen přes bus.mjs (ne přímým zápisem souboru)
+      if (r.startsWith('/audit/')) block(`Kapitán smí v AUDIT/ zapisovat jen do 03_dukazy/; zprávy auditorovi jen přes bus.mjs / auditor-bus.mjs (${fp}). Nálezy, verdikty, handoff a gate patří auditorovi.`);
+      block(`Workspace auditora je pro Kapitána read-only mimo AUDIT/03_dukazy (${fp}).`);
     }
-    if (fp.startsWith(ws + '/') && !fp.startsWith(ws + '/audit/')) block(`Workspace auditora je pro Kapitána read-only mimo AUDIT/03_dukazy (${fp}).`);
     if (repo && fp.startsWith(repo + '/')) {
       const relp = fp.slice(repo.length + 1); const base = relp.split('/').pop();
       if (/^\.claude\/(hooks\/|settings(\.local)?\.json$)|^\.codex\/(hooks\.json|config\.toml)$|^\.github\/workflows\/auditor-gate\.yml$|^\.git\/hooks\//.test(relp)) block(`SELF-PROTECT: ${relp} — hooky, settings a CI bránu mění jen vlastník ručně nebo setup-auditor, ne agent.`);
