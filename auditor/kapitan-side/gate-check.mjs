@@ -54,5 +54,6 @@ if (isNaN(when)) when = fs.statSync(gate).mtimeMs;
 const age = (Date.now() - when) / 36e5;
 if (age > maxAgeH) fail(`gate je ${Math.round(age)} h starý (limit ${maxAgeH} h)`);
 if (age < -1) fail('gate má datum v budoucnosti');
-try { const dirty = git(['status', '--porcelain'], repo); if (dirty) fail('pracovní strom není čistý — vydává se jiný kód než auditovaný'); } catch { }
+let dirty = ''; try { dirty = git(['status', '--porcelain'], repo); } catch { fail('nelze ověřit čistotu pracovního stromu — git status --porcelain selhal'); }
+if (dirty) fail('pracovní strom není čistý — vydává se jiný kód než auditovaný');
 console.log(`GATE-CHECK PASS: 🟢 pro ${head.slice(0, 12)} (${Math.round(age)} h)`); process.exit(0);

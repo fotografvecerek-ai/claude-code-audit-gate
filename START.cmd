@@ -1,7 +1,7 @@
 @echo off
 setlocal
 chcp 65001 >nul
-title AUDITOR 1.8.8
+title AUDITOR 1.8.9
 echo %~dp0 | findstr /i "\\Temp\\ \\AppData\\Local\\Temp" >nul && (
   echo Spoustis to primo ze ZIPu. Nejdriv zip ROZBAL do trvale slozky, napr. C:\dev\_auditor\ a spust START.cmd odtud.
   pause & exit /b 1
@@ -33,7 +33,7 @@ exit /b 0
 :menu
 cls
 echo ==========================================================
-echo   AUDITOR 1.8.8 - zdrave projekty a nezavisly audit
+echo   AUDITOR 1.8.9 - zdrave projekty a nezavisly audit
 echo ==========================================================
 echo.
 echo   Co chces delat?

@@ -139,6 +139,11 @@ export async function runA031(ctx) {
   const CL_path = path.join(pkg, '..', 'CHANGELOG.md');
   const CL = txt(CL_path);
   const has_CL = fs.existsSync(CL_path);
-  T('A-031 AK7: CHANGELOG má sekci „Rozpracováno (příští verze 1.8.9)" a A-031, nadpis „## 1.8.9" v něm není', `${!has_CL || /## Rozpracováno \(příští verze 1\.8\.9\)/.test(CL)}/${!has_CL || /A-031/.test(CL)}/${!has_CL || !/^## 1\.8\.9\b/m.test(CL)}`, 'true/true/true');
+  T('A-031 AK7: CHANGELOG zachovává A-031 a stav sekce 1.8.9 odpovídá tools/VERZE', (() => {
+    const released = txt(path.join(TP, 'VERZE')).trim().localeCompare('1.8.9', 'en', { numeric: true }) >= 0;
+    const pending = /^## Rozpracováno \(příští verze 1\.8\.9\)/m.test(CL);
+    const published = /^## 1\.8\.9\b/m.test(CL);
+    return `${!has_CL || (released ? published : pending)}/${!has_CL || /A-031/.test(CL)}/${!has_CL || (released ? !pending : !published)}`;
+  })(), 'true/true/true');
   T('A-031: skutečné ~/.claude/settings.json uživatele samotest nezměnil (sha256 před/po)', sha(realUserSettings) === realBefore, true);
 }

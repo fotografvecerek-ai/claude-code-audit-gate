@@ -13,12 +13,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: build zip
         run: |
-          NAME="claude-code-audit-gate-${GITHUB_REF_NAME}"
-          mkdir -p "/tmp/$NAME" && cp -r START.cmd start.sh NAVOD.txt README.md LICENSE CONTRIBUTING.md CHANGELOG.md docs auditor "/tmp/$NAME/"
-          rm -rf "/tmp/$NAME/auditor/tools/node_modules" "/tmp/$NAME/auditor/tools/audit.config.json"
-          (cd /tmp && zip -qr "$GITHUB_WORKSPACE/$NAME.zip" "$NAME")
-          ls -la "$NAME.zip"
+          git archive --format=zip --output="AUDITOR-${GITHUB_REF_NAME}.zip" HEAD \
+            START.cmd start.sh NAVOD.txt README.md LICENSE CONTRIBUTING.md CHANGELOG.md docs auditor \
+            ':(exclude)auditor/tools/audit.config.json' ':(exclude)auditor/tools/node_modules/**'
       - uses: softprops/action-gh-release@v2
         with:
-          files: claude-code-audit-gate-*.zip
+          files: AUDITOR-v*.zip
           generate_release_notes: true

@@ -6,7 +6,7 @@ if [ -n "$miss" ]; then echo "Na tomto počítači chybí:$miss"; read -r -p "[1
 # A-029 K4: Git Bash (mintty) nedává node terminál (stdin není TTY) → schválení voleb vlastníka přes winpty, jinak node čte z /dev/tty resp. CONIN$
 NODE_TTY=node; if [ -n "${MSYSTEM:-}" ] && [ -t 0 ] && command -v winpty >/dev/null 2>&1 && ! node -e "process.exit(process.stdin.isTTY?0:1)"; then NODE_TTY="winpty node"; fi
 while true; do
-  echo; echo "AUDITOR 1.8.8 — co chceš dělat?"
+  echo; echo "AUDITOR 1.8.9 — co chceš dělat?"
   echo "  [1] Založit NOVÝ projekt       — zdravě od začátku (pravidla, pojistky, kontrola v projektu; doporučeno + samostatný auditor)"
   echo "  [2] Auditovat projekt na DISKU — zadáš cestu; Enter = vyhledat a vybrat i více projektů"
   echo "  [3] Auditovat GITHUB repo      — jen adresa repa, u klienta se nic neinstaluje"

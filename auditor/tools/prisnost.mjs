@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// PŘÍSNOST AUDITU za projekt — jediné místo pravdy (standard OWASP ASVS L1/L2/L3, žádná vlastní stupnice).
+// PŘÍSNOST AUDITU za projekt — schválené provozní profily; rozsah/frekvenci/blokaci určuje §Přísnost v CLAUDE.md.
+// OWASP ASVS 5.0 L1/L2/L3 jsou cíle bezpečnostních požadavků, nikoli rozpočet, četnost auditu ani povinné UI.
 //   node tools/prisnost.mjs [--ws <workspace>] stav | kontext | nastav <prototyp|osobni|bezny|kriticky> [--vlastnik] | dluh-uzavren | potvrd [--instalator]
 // Úroveň je v <workspace>/.rezim.json → "prisnost"; chybí nebo je neplatná = "bezny" (staré instalace beze změny).
 // Každá změna se zapíše do AUDIT/_zmeny-nastaveni.log (A-029); úroveň mění jen vlastník (START/instalátor) — pojistka Kapitána `nastav` z agenta blokuje.
@@ -17,10 +18,10 @@ export const LEVELS = ['prototyp', 'osobni', 'bezny', 'kriticky'];
 export const DEFAULT_LEVEL = 'bezny';
 export const LABELS = { prototyp: 'PROTOTYP', osobni: 'OSOBNÍ', bezny: 'BĚŽNÝ', kriticky: 'KRITICKÝ' };
 export const RULES = {
-  prototyp: 'blokuje jen P0 typu ztráta dat · únik tajemství · poškození stroje; statika + rychlý re-sken, Playwright/UI/a11y/perf jen na pokyn „milník“ (max 1×/den); ověření lehké, 1 kolo; ostatní nálezy do AUDIT/DLUH.md',
-  osobni: 'blokuje P0 + P1 bezpečnost (data, tajemství, přihlášení); ASVS L1, UI sanity bez a11y/perf; ověření lehké; ostatní nálezy do AUDIT/DLUH.md',
-  bezny: 'blokuje všechny P0/P1; ASVS L2, plný audit a ověření jako dosud',
-  kriticky: 'blokuje P0/P1 + P2 bezpečnost; ASVS L3, plný ui-crawl + a11y + perf, CI 2× zelené, plný nezávislý ověřovatel',
+  prototyp: 'blokuje jen P0 typu ztráta dat · únik tajemství · poškození stroje; 1 cílený průchod cca 15 minut, lehké ověření; další kolo jen reprodukovaná konkrétní blokující chyba; dokumentace bez UI, API test API, UI jen dotčený tok; plošné UI/a11y/perf na milník/přání max 1×/den; plný audit také nové exposure/auth/data; limit není PASS bez důkazů, uvést pokrytí a neověřené; ostatní nálezy do AUDIT/DLUH.md; dle §Přísnost v CLAUDE.md',
+  osobni: 'blokuje P0 + P1 bezpečnost (data, tajemství, přihlášení); bezpečnostní cíl ASVS L1; cílené lehké ověření změny a závislostí, dotčené UI sanity bez plošného a11y/perf; plný audit na milník/nové exposure/auth/data; CI 1×, opakovat jen flaky reprodukci; ostatní nálezy do AUDIT/DLUH.md; dle §Přísnost v CLAUDE.md',
+  bezny: 'blokuje všechny P0/P1; bezpečnostní cíl ASVS L2; cílený audit změny a závislostí, dokumentace bez UI, API test API, UI jen dotčený tok; plný audit na milník/nové exposure/auth/data; CI 1×, opakovat jen flaky reprodukci; dle §Přísnost v CLAUDE.md',
+  kriticky: 'blokuje P0/P1 + P2 bezpečnost; bezpečnostní cíl ASVS L3; důkladný audit dotčených oblastí a závislostí, nezávislý ověřovatel, CI 2× zelené; dokumentace bez UI, API test API, UI jen dotčený tok; plný audit na milník/nové exposure/auth/data, nikoli každou změnu full-ui; dle §Přísnost v CLAUDE.md',
 };
 const DEBT_HEADER = '# Dluh auditu (neblokující nálezy podle úrovně přísnosti)\n\nZapisuj sem nálezy, které při dané úrovni přísnosti neblokují vydání: ID, závažnost, 1 věta. Nic se neztrácí — při přepnutí na vyšší úroveň se dluh jednou celý projde.\n\n';
 

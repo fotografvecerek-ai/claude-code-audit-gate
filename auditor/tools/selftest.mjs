@@ -2,6 +2,7 @@
 // SELFTEST — regresní sada pro brány balíku. Spouští oba hooky, gate-check, pre-commit check a bus v dočasném prostředí.
 // node tools/selftest.mjs        → tabulka PASS/FAIL, exit 1 při jakémkoliv FAIL. Spouštěj po instalaci a po každé změně hooků.
 import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync as _rawSpawnSync, execSync as _rawExecSync, spawn as _rawSpawn } from 'node:child_process'; import { fileURLToPath, pathToFileURL } from 'node:url'; import { createHash } from 'node:crypto'; import { createRequire } from 'node:module';
+import { runPrisnostPolicyTests } from './tests/prisnost-policy.mjs';
 // A-027: žádné dítě samotestu nesmí viset bez časového stropu — macOS CI job bez vlastního timeout-minutes takhle
 // běžel, dokud ho po 6 h nezabil tvrdý strop GitHub Actions (nešlo poznat, který test/proces visí). Výchozí strop
 // jde přebít explicitním `timeout`/`killSignal` na konkrétním volání (např. UPDATE-INSTALL má vlastních 240000 ms).
@@ -1071,6 +1072,8 @@ T('BUS: round K2', JSON.parse(bus('thread', '--id', 'A-1').stdout).filter(r => r
   T('BUS A-027: status/ledger vidí jen skutečné zprávy', Object.keys(st27).join(',') + '/' + (fs.readFileSync(path.join(bd27, 'LEDGER.md'), 'utf8').match(/\| A-2701 \|/g) || []).length, 'A-2701/1');
 }
 // --- GATE-CHECK přímo
+try { (await import('./tests/gate-status.mjs')).runGateStatus({ T, pkg, tmp, run: spawnSync }); }
+catch (e) { T('GATE STATUS: cílená sekce doběhla bez výjimky', String(e && e.stack || e).slice(0, 400), ''); }
 T('GATE: chybí gate → FAIL', (fs.unlinkSync(path.join(ws, 'AUDIT', '05_release_gate.md')), spawnSync(process.execPath, [path.join(pkg, 'kapitan-side/gate-check.mjs'), repo], { env, encoding: 'utf8' }).status), 2);
 { // P3: gate zapsaný jen DATEM (bez času) se nesmí kdykoliv během dne odmítnout jako „z budoucnosti" (dřív CZ bez hodiny
   // padalo na poledne, ISO bez času na UTC půlnoc) — stáří i budoucnost se teď počítají od lokální 00:00 daného dne.
@@ -1614,6 +1617,7 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
       T('A-029 K3: SessionStart auditora (settings.json, codex-start) a preflight volají kontrolu integrity (prisnost kontext / contextLine)', `${/prisnost\.mjs\\?" --ws \\?"\$CLAUDE_PROJECT_DIR\\?" kontext/.test(src('.claude/settings.json'))}/${/prisnost\.mjs'\), \['--ws', ws, 'kontext'\]/.test(src('tools/codex-start.mjs'))}/${/contextLine\(lvl, ws\)/.test(src('tools/preflight.mjs'))}`, 'true/true/true');
       T('K-002 K3: kategorie_p0 je orientační pole — CLAUDE.md i šablona netvrdí strojovou blokaci, rozhoduje verdikt auditora', `${/Strojově/.test(src('CLAUDE.md'))}/${/kategorie_p0[^\r\n]*orientační[^\r\n]*verdikt auditora/.test(src('CLAUDE.md'))}/${/orientační[^\r\n]*verdikt auditora/.test(src('templates/nalez.md'))}`, 'false/true/true');
     }
+    runPrisnostPolicyTests({ T, pkg });
   }
 }
 { // PATCH-DEPLOY: brána v PowerShellu za hlavičkou (param), jen ASCII; SDÍLENÁ PRAVIDLA: nalezena, agent je nepřesune
