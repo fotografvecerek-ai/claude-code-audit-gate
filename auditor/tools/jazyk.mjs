@@ -11,4 +11,4 @@ export function jazyk(ws = process.cwd()) {
   if (sys && !/^(c|posix)(\.|$)/i.test(sys)) return norm(sys);
   try { return norm(Intl.DateTimeFormat().resolvedOptions().locale) || 'en'; } catch { return 'en'; }
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve(fileURLToPath(import.meta.url))) process.stdout.write(jazyk(process.argv[2] || process.cwd()) + '\n');
+if (process.argv[1] && ((p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } })(process.argv[1]) === fileURLToPath(import.meta.url)) process.stdout.write(jazyk(process.argv[2] || process.cwd()) + '\n');

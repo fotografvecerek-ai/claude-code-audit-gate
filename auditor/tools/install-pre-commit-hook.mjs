@@ -30,7 +30,7 @@ export function installGitHook(repo, src, hookName = 'pre-commit') {
 // zpětná kompatibilita jménem (nic jiného už na tuhle konkrétní signaturu nespoléhá, ale ponecháno kvůli srozumitelnosti volání)
 export const installPreCommitHook = (repo, src) => installGitHook(repo, src, 'pre-commit');
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === path.resolve(process.argv[1])) {
+if (process.argv[1] && fileURLToPath(import.meta.url) === ((p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } })(process.argv[1])) {
   const [, , repo, src, hookName] = process.argv;
   if (!repo || !src) { console.error('použití: node install-pre-commit-hook.mjs <repo> <zdrojový hook> [hookName=pre-commit]'); process.exit(1); }
   const zaloha = installGitHook(path.resolve(repo), path.resolve(src), hookName || 'pre-commit');

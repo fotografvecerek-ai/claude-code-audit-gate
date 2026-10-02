@@ -96,9 +96,11 @@ if (!flag('--no-github') && has('gh') && tryRun('gh', ['auth', 'status'], dir) !
 // 4b) samostatný auditor vedle projektu (kombinace): jen workspace auditora, do repa už nesahá (projekt má vlastní pojistky)
 let audOk = false;
 if (withAud) {
+  // K-002: přísnost auditu — ptá se jen v interaktivním toku (ask vrací výchozí 3 bez TTY / s --yes = běžný)
+  const prisnost = opt('--prisnost') || await ask('Přísnost auditu: [1] Prototyp [2] Osobní [3] Běžný [4] Kritický (Enter = 3): ', '3');
   say('\nInstaluji samostatného auditora vedle projektu (1–3 min, stahuje nástroje pro testy)...');
-  const r = isWin ? tryRunI('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(pkg, 'setup-auditor.ps1'), '-Repo', dir, '-Workspace', ws, '-Yes', '-Model', model, '-Kapitan', 'ne', '-Hygiena', 'ne', '-CI', 'ne'])
-    : tryRunI('bash', [path.join(pkg, 'setup-auditor.sh')], { AUDITOR_YES: '1', AUDITOR_REPO: dir, AUDITOR_WS: ws, AUDITOR_REMOTE: '', AUDITOR_MODEL: model, AUDITOR_KAPITAN: 'ne', AUDITOR_HYGIENA: 'ne', AUDITOR_CI: 'ne' });
+  const r = isWin ? tryRunI('powershell', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(pkg, 'setup-auditor.ps1'), '-Repo', dir, '-Workspace', ws, '-Yes', '-Model', model, '-Kapitan', 'ne', '-Hygiena', 'ne', '-CI', 'ne', '-Prisnost', prisnost])
+    : tryRunI('bash', [path.join(pkg, 'setup-auditor.sh'), '--prisnost', prisnost], { AUDITOR_YES: '1', AUDITOR_REPO: dir, AUDITOR_WS: ws, AUDITOR_REMOTE: '', AUDITOR_MODEL: model, AUDITOR_KAPITAN: 'ne', AUDITOR_HYGIENA: 'ne', AUDITOR_CI: 'ne' });
   if (r) {
     fs.writeFileSync(path.join(ws, 'AUDIT', '.zdravy-start.json'), JSON.stringify({ projekt: dir, zalozeno: today, rezim: 'kombinace' }, null, 2) + '\n');
     const envAudit = path.join(ws, 'AUDIT', '.auth', '.env.audit'); if (!fs.existsSync(envAudit)) try { fs.copyFileSync(path.join(ws, 'templates', 'env.audit.example'), envAudit); } catch { }

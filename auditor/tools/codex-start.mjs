@@ -10,6 +10,7 @@ if (role === 'kapitan') out.push(run(path.join(here, 'kapitan-role.mjs'), [ws, '
 else {
   out.push('[ROLE] Jsi AUDITOR (běžíš v Codexu). Ústava = AGENTS.md v tomto workspace. Nekóduješ, nevydáváš; zápis jen do AUDIT/, tools/, build/.');
   out.push('[AUDIT] Po startu/kompakci načti AUDIT/_prubeh.md (z intake a handoffu jen potřebné části); rozjetý audit neopakuj; úsporný režim (§0b). Nové zprávy od Kapitána ti doručí hook po každém kroku a na konci tahu.');
+  out.push(run(path.join(here, 'prisnost.mjs'), ['--ws', ws, 'kontext']));
   const nc = path.join(ws, 'AUDIT', 'NOVE_CILE.md');
   if (fs.existsSync(nc)) out.push('[AUDIT] Po aktualizaci balíku jsou nové cíle — udělej JEN je:\n' + fs.readFileSync(nc, 'utf8').split(/\r?\n/).slice(0, 20).join('\n'));
 }

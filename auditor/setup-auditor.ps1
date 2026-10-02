@@ -2,7 +2,7 @@
 # Co udělá: 1) zeptá se na cesty, 2) vytvoří workspace auditora + AUDIT/ + git, 3) zapíše settings.json s env a deny pravidly pro TVOJE cesty,
 #           4) nainstaluje nástroje (Playwright, axe), 5) nainstaluje stranu Kapitána do repa (skill audit-rezim + hook + gate-check) - jen se souhlasem,
 #           6) otestuje brány, 7) vytvoří start-auditor.cmd a start-kapitan.cmd. Nic z toho neběží jako agent - je to jednorázová instalace, kterou spouští vlastník.
-param([string]$Repo, [string]$Workspace, [string]$Remote, [string]$Model = 'opus', [switch]$Yes, [string]$Kapitan = 'ano', [string]$Hygiena = 'ano', [string]$CI = 'ano')
+param([string]$Repo, [string]$Workspace, [string]$Remote, [string]$Model = 'opus', [switch]$Yes, [string]$Kapitan = 'ano', [string]$Hygiena = 'ano', [string]$CI = 'ano', [string]$Prisnost = '')
 $ErrorActionPreference = 'Stop'
 function Ask($q, $default) { if ($Yes) { Write-Host "$q -> $default"; return $default }; $a = Read-Host "$q [$default]"; if ([string]::IsNullOrWhiteSpace($a)) { $default } else { $a } }
 function AskYN($q, $default) { if ($Yes) { Write-Host "$q -> $default"; return $default }; $a = (Read-Host "$q  [1] ano   [2] ne   (Enter = $default)").Trim().ToLower(); if ($a -eq '') { return $default }; if ($a -eq '1' -or $a.StartsWith('a')) { 'ano' } else { 'ne' } }
@@ -18,6 +18,10 @@ $name = Split-Path $repo -Leaf
 $ws = if ($Workspace) { $Workspace } else { Ask "Workspace auditora (vytvoří se)" (Join-Path (Split-Path $repo -Parent) "$name-audit") }
 $remote = if ($Remote) { $Remote } elseif ($Yes) { '' } else { Ask "Git remote pro AUDIT workspace (prázdné = jen lokální git; doporučeno soukromý GitHub repo pro práci přes více strojů)" '' }
 $model = if ($Yes) { $Model } else { Ask "Model hlavního vlákna auditora (opus = nejnovější Opus, posouvá se sám; best = Fable/Opus; sonnet = levnější)" $Model }
+$prisnostMap = @{ '1' = 'prototyp'; '2' = 'osobni'; '3' = 'bezny'; '4' = 'kriticky'; 'prototyp' = 'prototyp'; 'osobni' = 'osobni'; 'bezny' = 'bezny'; 'kriticky' = 'kriticky' }
+$prisnostIn = if ($Prisnost) { $Prisnost } elseif ($Yes) { '3' } else { Ask 'Přísnost auditu: [1] Prototyp [2] Osobní [3] Běžný [4] Kritický (Enter = 3)' '3' }
+$prisnost = $prisnostMap[$prisnostIn.Trim().ToLower()]
+if (-not $prisnost) { Write-Host "Neplatná přísnost: $prisnostIn (platné: prototyp, osobni, bezny, kriticky nebo 1-4)" -ForegroundColor Red; exit 1 }
 
 # 1) workspace
 New-Item -ItemType Directory -Force -Path $ws | Out-Null
@@ -46,11 +50,14 @@ tools/node_modules/
 
 # 2) settings.json s TVÝMI cestami (env čtou hooky; deny pravidla chrání repo)
 $wsP = Posix $ws; $repoP = Posix $repo
+$env:AUDITOR_ZDROJ = 'instalator'; node (Join-Path $ws 'tools/prisnost.mjs') --ws $ws nastav $prisnost --vlastnik; Remove-Item Env:AUDITOR_ZDROJ -ErrorAction SilentlyContinue; if ($LASTEXITCODE -ne 0) { Write-Host 'Zápis přísnosti auditu selhal' -ForegroundColor Red; exit 1 }
 node (Join-Path $ws 'tools/write-auditor-settings.mjs') $ws $repo $model; if ($LASTEXITCODE -ne 0) { Write-Host 'Zápis settings auditora selhal' -ForegroundColor Red; exit 1 }
 
 # 3) git
 Push-Location $ws
 if (-not (Test-Path .git)) { git init -q 2>$null; git config core.autocrlf false; git add -A 2>$null; git -c user.name=auditor -c user.email=auditor@local commit -q -m "auditor workspace init" 2>$null }
+# A-029 K4: volby vlastníka (přísnost) schválí commit vlastníka až po založení gitu — vlastník je právě zadal v terminálu (bez terminálu jen varování)
+node (Join-Path $ws 'tools/prisnost.mjs') --ws $ws potvrd --instalator; $global:LASTEXITCODE = 0
 if ($remote) { git remote remove origin 2>$null; git remote add origin $remote; Write-Host "Remote nastaven: $remote (první push udělej ručně: git push -u origin main)" }
 # 4) nástroje
 Push-Location tools; try { npm install --no-audit --no-fund | Out-Null } catch { Write-Host "VAROVÁNÍ: npm install selhal - spusť ručně v $ws\tools" -ForegroundColor Yellow }; try { npx playwright install chromium | Out-Null } catch { Write-Host "VAROVÁNÍ: stažení Chromia selhalo - spusť ručně: npx playwright install chromium" -ForegroundColor Yellow }; Pop-Location
@@ -66,15 +73,18 @@ if ($k -eq 'ano') {
   $hk = Join-Path $repo '.claude/hooks'; New-Item -ItemType Directory -Force -Path $hk | Out-Null
   Copy-Item (Join-Path $pkg 'kapitan-side/gate-check.mjs') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/auditor-bus.mjs') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/kapitan-audit-guard.js') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/hooks-package.json') (Join-Path $hk 'package.json') -Force
   Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/hygiene-rules.js') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/hygiene-rules.json') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/pre-commit-check.mjs') $hk -Force
+  # A-026: pre-push (brána vydání) a kotva důvěry VŽDY se stranou Kapitána — nezávisle na hygieně
+  Copy-Item (Join-Path $pkg 'kapitan-side/kotva.cjs') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/pre-push-guard.mjs') $hk -Force
+  node (Join-Path $ws 'tools/install-pre-commit-hook.mjs') $repo (Join-Path $pkg 'kapitan-side/pre-push-guard.sh') 'pre-push'
+  if ($LASTEXITCODE -ne 0) { throw "Instalace pre-push hooku selhala (exit $LASTEXITCODE)" }
+  node (Join-Path $ws 'tools/kotva.mjs') nastav --repo $repo --ws $ws --instalace
+  if ($LASTEXITCODE -ne 0) { Write-Host 'Kotva důvěry nezapsána - push do produkčních větví zůstane zablokovaný. Spusť START.cmd → [9] (dvojklikem, v terminálu).' -ForegroundColor Yellow; $global:LASTEXITCODE = 0 }
   node (Join-Path $ws 'tools/merge-repo-settings.mjs') $repo $ws; if ($LASTEXITCODE -ne 0) { Write-Host 'Sloučení settings Kapitána selhalo' -ForegroundColor Red }
   node (Join-Path $ws 'tools/kapitan-role.mjs') $ws --claude-md $repo; if ($LASTEXITCODE -ne 0) { Write-Host 'Zápis role Kapitána do CLAUDE.md selhal' -ForegroundColor Red }
   $h = if ($Yes) { $Hygiena } else { AskYN "Nainstalovat hygienu do repa (pre-commit guard, .gitattributes, .gitignore doplněk)?" "ano" }
   if ($h -eq 'ano') {
     node (Join-Path $ws 'tools/install-pre-commit-hook.mjs') $repo (Join-Path $pkg 'kapitan-side/hygiene/pre-commit-guard.sh') 'pre-commit'
     if ($LASTEXITCODE -ne 0) { throw "Instalace pre-commit hooku selhala (exit $LASTEXITCODE)" }
-    Copy-Item (Join-Path $pkg 'kapitan-side/pre-push-guard.mjs') $hk -Force
-    node (Join-Path $ws 'tools/install-pre-commit-hook.mjs') $repo (Join-Path $pkg 'kapitan-side/pre-push-guard.sh') 'pre-push'
-    if ($LASTEXITCODE -ne 0) { throw "Instalace pre-push hooku selhala (exit $LASTEXITCODE)" }
     if (-not (Test-Path (Join-Path $repo '.gitattributes'))) { Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/gitattributes.template') (Join-Path $repo '.gitattributes') }
     $gi = Join-Path $repo '.gitignore'; if (-not (Test-Path $gi) -or -not (Select-String -Path $gi -Pattern 'hygiena \(auditor\)' -Quiet)) { Get-Content (Join-Path $pkg 'kapitan-side/hygiene/gitignore.addendum') | Add-Content $gi -Encoding UTF8 }
     Write-Host "Hygiena nainstalována (pre-commit + pre-push guard běží přes Git Bash, který Git for Windows používá pro hooky)."

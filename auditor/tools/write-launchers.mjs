@@ -15,7 +15,7 @@ const tg0 = role => tgc[role]?.mode === 'channel' && tgc[role].stateDir && tok(t
 // Codex (tools/codex-setup.mjs → .agents.json): role v Codexu se spouští `codex` se sandboxem; Telegram kanál tam není
 let ag = { auditor: 'claude', kapitan: 'claude' }; try { ag = { ...ag, ...JSON.parse(fs.readFileSync(path.join(ws, '.agents.json'), 'utf8')) }; } catch { }
 const CX = role => ag[role] === 'codex';
-let lvl = 1; try { lvl = JSON.parse(fs.readFileSync(path.join(ws, '.opravneni.json'), 'utf8')).kapitan || 1; } catch { }
+let lvl = 1; try { lvl = (await import('./prisnost.mjs')).kapitanLevel(ws); } catch { try { lvl = JSON.parse(fs.readFileSync(path.join(ws, '.opravneni.json'), 'utf8')).kapitan || 1; } catch { } }   // A-029 K3: platí verze schválená vlastníkem
 const NET = '-c sandbox_workspace_write.network_access=true';
 const cxFlags = role => role === 'auditor' ? `-s workspace-write -a never --search ${NET}`
   : lvl >= 3 ? '-s danger-full-access -a never' : lvl === 2 ? `-s workspace-write -a never ${NET}` : '-s workspace-write -a on-request';
@@ -97,4 +97,6 @@ if (process.platform === 'win32') {
     fs.writeFileSync(path.join(ws, 'start-projekt.sh'), pj.join('\n')); fs.chmodSync(path.join(ws, 'start-projekt.sh'), 0o755);
   } else { try { fs.unlinkSync(path.join(ws, 'start-projekt.sh')); } catch { } }
 }
+// A-031: otisk spouštěčů (sha256) — schvaluje ho vlastník commitem spolu s nastavením (prisnost.mjs potvrd); neshoda disku se schváleným otiskem = varování + obnova.
+try { const { writeFingerprint } = await import('./spoustec.mjs'); writeFingerprint(ws, repo); } catch (e) { console.error(`  ⚠ otisk spouštěčů se nepodařilo zapsat: ${e.message}`); }
 console.log('spouštěče auditora a Kapitána zapsány');

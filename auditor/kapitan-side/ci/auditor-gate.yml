@@ -27,9 +27,7 @@ jobs:
       - uses: actions/setup-node@v4
         with: { node-version: 22 }
       - name: gate-check (🟢 release gate pro tento kód)
-        env:
-          AUDITOR_WORKSPACE: ${{ github.workspace }}/.audit-ws
-          GATE_MAX_AGE_H: "72"
+        # A-026: bez env — gate-check najde workspace sám (leží v .audit-ws/kapitan-side/, vedle je AUDIT/); limit stáří je výchozí
         run: |
           echo ".audit-ws/" >> .git/info/exclude   # audit workspace není součást auditovaného stromu
           node .audit-ws/kapitan-side/gate-check.mjs "$GITHUB_WORKSPACE"   # VŽDY kopie z audit repa (nikdy editovatelná kopie v repu)

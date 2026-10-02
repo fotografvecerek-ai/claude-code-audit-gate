@@ -190,12 +190,26 @@ AUDIT/
 
 Auditor nikdy nezapisuje mimo `AUDIT/` a `tools/`; Kapitán zapisuje jen do `03_dukazy/`.
 
+## Změny v1.8.9
+- Přiměřené kontroly podle rizika změny a zvolené přísnosti projektu; drobná změna nevyžaduje celý audit.
+- Menší ústava auditora: podrobné postupy se načítají až podle potřeby.
+- Ochrana nastavení přísnosti, oprávnění Kapitána a spouštěčů (A-029, A-030, A-031); nečekané změny se hlásí vlastníkovi.
+- Kotva důvěry brány vydání je mimo pracovní strom projektu (A-026). Chybějící či neshodná kotva blokuje vydání do produkčních větví.
+- Brána vydání odmítne vydání také při selhání kontroly `git status`.
+- ZIP se balí standardním `git archive` z označeného commitu; obsahuje jen určené zdroje, bez místní konfigurace auditu a `node_modules`. `GUIDE.txt` je odložen do 1.9.0.
+
+**Aktualizace z 1.8.8:** po aktualizaci spusť u každého projektu **START → [9] Katalog + kotva důvěry** a potvrď kotvu v terminálu vlastníka.
+
+**Známá přijatá rizika:** při stejném účtu OS lze padělat schválení vlastníka i kotvu důvěry a obejít lokální git hooky pomocí `--no-verify`.
+Vlastník tato zbytková rizika přijal; nejde o kryptografické ověření identity. Živé potvrzování z TTY a nativní interaktivní Codex zůstávají neověřené.
+Regresní sada obsahuje 957 scénářů, včetně 14 nových kontrol brány a textové politiky. Výsledek konkrétního commitu dokládá CI; statická kontrola ústavy není důkaz, že model vždy dodrží její pravidla.
+
 ## Změny v1.8.8
 - Úspora tokenů ve výchozím nastavení: pomocníci obou rolí na sonnetu (jen záloha, model v definici má přednost), strop souběhu (auditor 5, Kapitán 3), stav práce se vloží po kompakci i `/clear` (`tools/stav-session.mjs`), skill `predani`, PDF nad 5 stran ne celé, hlášení konektorů (MCP) pro celý počítač.
 - Opravy z vlastního auditu balíku (A-001 až A-023): těsnější pojistky Kapitána a auditora (detekce git mutací/odeslání podle skutečně spouštěného příkazu, zápis přesměrováním mimo workspace fail-closed, allowlist `git`/`gh` i podle argumentů), opravená pre-push pojistka (refy ze stdin), bezpečné zámky mostu (`bus.mjs` pod zámkem, atomický zápis, retry na Windows), aktualizace instalace nikdy nepřepíše cizí hook beze zálohy a přerušenou instalaci sama doplní nebo zřetelně varuje, katalog zvládá frontmatter s CRLF, dokumentace (README/CONTRIBUTING) odpovídá realitě. Samotest 703.
 - Kolo 3 (A-008, poslední): instalace bez markeru + vlastní `.gitattributes` vlastníka už nedostane naše git hooky proti jeho volbě, samotest
   přesměrovává `HOME`/`USERPROFILE` do dočasné složky všude, kde spouští instalátor (pojistka hlídá hash skutečného `~/.claude.json`
-  před/po celém běhu), a starý marker dokončené instalace se maže hned na začátku instalace, ne až na konci. Samotest 722.
+  před/po celém běhu), a starý marker dokončené instalace se maže hned na začátku instalace, ne až na konci. Samotest 943.
 
 ## Změny v1.8.7
 - Pojistky a pluginy pro celý počítač (běží ve všech projektech): detekce, upozornění při startu, průvodce přesunem se zálohou. Kapitán pojistky neobchází. Samotest 225.
