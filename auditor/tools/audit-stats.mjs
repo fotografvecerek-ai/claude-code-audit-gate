@@ -1,120 +1,127 @@
 #!/usr/bin/env node
-// AUDIT-STATS — statistika auditu: co a kolik auditor prošel, jak dlouho to trvalo a kolik tokenů to stálo.
-// node tools/audit-stats.mjs [workspace] [--open]  → AUDIT/STATISTIKA.md + AUDIT/STATISTIKA.html (+ statistika.json)
-// Tokeny a čas: přímo z transkriptů Claude Code (~/.claude/projects/<workspace>/**.jsonl, vč. subagentů) — žádný odhad.
-import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { execFileSync, spawnSync } from 'node:child_process'; import { fileURLToPath } from 'node:url';
+// AUDIT-STATS — přesné počty tokenů z dostupné telemetrie; závěry a otázky píše auditor.
+// node tools/audit-stats.mjs [workspace] [--json] [--open] → AUDIT/STATISTIKA.md + statistika.json
+import fs from 'node:fs'; import os from 'node:os'; import path from 'node:path'; import { spawnSync } from 'node:child_process'; import { fileURLToPath } from 'node:url';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ws = path.resolve(process.argv.slice(2).find(a => !a.startsWith('--')) || process.env.AUDITOR_WORKSPACE || path.join(here, '..'));
-const unposix = p => (process.platform === 'win32' && /^\/[a-z]\//.test(p)) ? p[1].toUpperCase() + ':' + p.slice(2) : p;
-let repo = process.env.AUDITOR_TARGET_REPO ? unposix(process.env.AUDITOR_TARGET_REPO) : '';
-try { if (!repo) repo = unposix(JSON.parse(fs.readFileSync(path.join(ws, '.claude', 'settings.json'), 'utf8')).env.AUDITOR_TARGET_REPO); } catch { }
-const A = (...p) => path.join(ws, 'AUDIT', ...p); const ex = p => { try { return fs.existsSync(p); } catch { return false; } };
-const n = x => Number(x || 0).toLocaleString('cs-CZ');
-
-// 1) Kód: soubory, řádky podle typu (bez node_modules/build/binárek)
-const SKIP = new Set(['node_modules', '.git', '.next', 'dist', 'build', 'coverage', 'vendor', '.tmp', '.venv', 'venv', '__pycache__', 'out', 'target']);
-const CODE = /\.(ts|tsx|js|jsx|mjs|cjs|py|html|css|scss|vue|svelte|cs|java|kt|swift|go|rs|php|rb|sql|prisma|sh|ps1)$/i, DOC = /\.(md|txt|json|ya?ml|toml)$/i;
-const code = { files: 0, loc: 0, docs: 0, docLoc: 0, byExt: {}, big: 0 };
-const walk = (d, depth = 0) => { if (depth > 12) return; let es = []; try { es = fs.readdirSync(d, { withFileTypes: true }); } catch { return; } for (const e of es) { if (SKIP.has(e.name) || e.isSymbolicLink() || (e.isDirectory() && e.name.startsWith('.'))) continue; const p = path.join(d, e.name); if (e.isDirectory()) { walk(p, depth + 1); continue; } const isC = CODE.test(e.name), isD = DOC.test(e.name); if (!isC && !isD) continue; let t = ''; try { if (fs.statSync(p).size > 3e6) continue; t = fs.readFileSync(p, 'utf8'); } catch { continue; } const l = t.split('\n').length; if (isC) { code.files++; code.loc += l; const x = path.extname(e.name).slice(1).toLowerCase(); code.byExt[x] = (code.byExt[x] || 0) + l; if (l > 1000) code.big++; } else { code.docs++; code.docLoc += l; } } };
-if (repo && ex(repo)) walk(repo);
-let commits = 0, commit = ''; try { commits = +execFileSync('git', ['rev-list', '--count', 'HEAD'], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: repo, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch { }
-
-// 2) Výstupy auditu
-const ls = d => { try { return fs.readdirSync(d); } catch { return []; } };
-const findings = ls(A('01_nalezy')).filter(f => /^A-\d+\.md$/.test(f)).map(f => fs.readFileSync(A('01_nalezy', f), 'utf8'));
-const prio = { P0: 0, P1: 0, P2: 0, P3: 0 }; for (const t of findings) { const m = t.match(/\bP([0-3])\b/); if (m) prio['P' + m[1]]++; }
-const verd = ls(A('04_verdikty')).filter(f => f.endsWith('.md')).map(f => fs.readFileSync(A('04_verdikty', f), 'utf8'));
-// verdikt = POSLEDNÍ verdikt v souboru (další kola K2, K3 se připisují — první „FAIL" z K1 by jinak přebil pozdější PASS)
-const vc = { PASS: 0, SCOPED_PASS: 0, FAIL: 0 }; for (const t of verd) { const all = [...t.matchAll(/\b(SCOPED_PASS|PASS|FAIL)\b/g)]; const last = all.length ? all[all.length - 1][1] : null; if (last) vc[last]++; }
-// ledgery průchodu UI: všechny *ledger*.json (dávky per subagent) → součet číselných položek summary
-let crawl = null; for (const f of ls(A('01_nalezy')).filter(f => /ledger.*\.json$/i.test(f))) { try { const sm = JSON.parse(fs.readFileSync(A('01_nalezy', f), 'utf8')).summary || {}; crawl ||= {}; for (const [k, v] of Object.entries(sm)) if (typeof v === 'number') crawl[k] = (crawl[k] || 0) + v; else if (!(k in crawl)) crawl[k] = v; } catch { } }
-let probe = null; try { const j = JSON.parse(fs.readFileSync(A('01_nalezy', 'endpoint-probe.json'), 'utf8')); probe = { endpoints: j.endpoints?.length ?? j.summary?.endpoints ?? (Array.isArray(j) ? j.length : null), checks: j.results?.length ?? j.summary?.checks ?? null }; } catch { }
-const shots = (() => { let c = 0; const w = d => { for (const e of ls(d)) { const p = path.join(d, e); try { if (fs.statSync(p).isDirectory()) w(p); else if (/\.png$/i.test(e)) c++; } catch { } } }; w(A('01_nalezy')); return c; })();
-const bus = ls(A('bus')).filter(f => f.endsWith('.json')).length;
-let metrics = null; try { metrics = JSON.parse(spawnSync(process.execPath, [path.join(here, 'bus.mjs'), 'metrics', '--json'], { cwd: ws, encoding: 'utf8' }).stdout || 'null'); } catch { }
+const A = (...p) => path.join(ws, 'AUDIT', ...p);
+const n = value => Number(value || 0).toLocaleString('cs-CZ');
 
 // 3) Tokeny a čas z transkriptů Claude Code
 const enc = p => p.replace(/[^A-Za-z0-9]/g, '-');
 const projRoot = path.join(os.homedir(), '.claude', 'projects');
-const dirs = ls(projRoot).filter(d => d.toLowerCase() === enc(ws).toLowerCase()).map(d => path.join(projRoot, d));
-const tok = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0, byModel: {}, tools: {}, subagentCalls: 0 }; let tMin = Infinity, tMax = 0, sessions = 0, activeMs = 0;
-const jsonl = []; const wj = d => { for (const e of ls(d)) { const p = path.join(d, e); try { if (fs.statSync(p).isDirectory()) wj(p); else if (e.endsWith('.jsonl')) jsonl.push(p); } catch { } } }; dirs.forEach(wj);
-const seenMsg = new Set();
+const dirs = (() => {
+  const candidate = path.join(projRoot, enc(ws));
+  try { const stat = fs.lstatSync(candidate); return stat.isDirectory() && !stat.isSymbolicLink() ? [candidate] : []; } catch { return []; }
+})().sort();
+const MAX_DEPTH = 16, MAX_TRANSCRIPTS = 2000, MAX_SCAN_ENTRIES = 20000, MAX_FILE_BYTES = 20 * 1024 * 1024, MAX_RECORDS = 500000;
+const tok = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, calls: 0, byModel: Object.create(null) };
+let incomplete = false, malformedRecords = 0, invalidUsageRecords = 0, duplicateUsageRows = 0, supersededUsageRows = 0, missingIdentityRecords = 0;
+let scannedEntries = 0, processedRecords = 0, recordLimitReached = false;
+const jsonl = [];
+const wj = (dir, depth = 0) => {
+  if (depth > MAX_DEPTH || jsonl.length >= MAX_TRANSCRIPTS) { incomplete = true; return; }
+  let stream;
+  try { stream = fs.opendirSync(dir, { encoding: 'utf8', bufferSize: 32 }); } catch { incomplete = true; return; }
+  try {
+    let entry;
+    while ((entry = stream.readSync()) !== null) {
+      scannedEntries++;
+      if (scannedEntries > MAX_SCAN_ENTRIES) { incomplete = true; return; }
+      if (entry.isSymbolicLink()) continue;
+      const file = path.join(dir, entry.name);
+      if (entry.isDirectory()) wj(file, depth + 1);
+      else if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+        if (jsonl.length >= MAX_TRANSCRIPTS) { incomplete = true; return; }
+        jsonl.push(file);
+      }
+    }
+  } finally { try { stream.closeSync(); } catch { } }
+};
+dirs.forEach(dir => wj(dir));
+jsonl.sort();
+const uniqueUsage = new Map();
+let anonymousUsageId = 0;
 for (const f of jsonl) {
-  sessions++; let last = 0;
-  for (const line of fs.readFileSync(f, 'utf8').split('\n')) {
-    if (!line) continue; let r; try { r = JSON.parse(line); } catch { continue; }
-    const ts = Date.parse(r.timestamp || ''); if (ts) { tMin = Math.min(tMin, ts); tMax = Math.max(tMax, ts); if (last && ts - last < 10 * 60e3) activeMs += ts - last; last = ts; }
-    const m = r.message; if (!m || m.role !== 'assistant' || !m.usage) continue;
-    const id = m.id || r.uuid; if (id && seenMsg.has(id)) continue; if (id) seenMsg.add(id);
-    const u = m.usage; tok.calls++; tok.input += u.input_tokens || 0; tok.output += u.output_tokens || 0; tok.cacheRead += u.cache_read_input_tokens || 0; tok.cacheWrite += u.cache_creation_input_tokens || 0;
-    const mod = (m.model || '?').replace(/^claude-/, ''); const bm = tok.byModel[mod] ||= { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }; bm.calls++; bm.input += u.input_tokens || 0; bm.output += u.output_tokens || 0; bm.cacheRead += u.cache_read_input_tokens || 0; bm.cacheWrite += u.cache_creation_input_tokens || 0;
-    if (r.isSidechain) tok.subagentCalls++;
-    for (const c of Array.isArray(m.content) ? m.content : []) if (c.type === 'tool_use') tok.tools[c.name] = (tok.tools[c.name] || 0) + 1;
+  if (recordLimitReached) break;
+  let transcript;
+  try { if (fs.statSync(f).size > MAX_FILE_BYTES) { incomplete = true; continue; } transcript = fs.readFileSync(f, 'utf8'); }
+  catch { incomplete = true; continue; }
+  for (const line of transcript.split('\n')) {
+    if (!line.trim()) continue;
+    if (processedRecords >= MAX_RECORDS) { incomplete = true; recordLimitReached = true; break; }
+    processedRecords++;
+    let r; try { r = JSON.parse(line); } catch { incomplete = true; malformedRecords++; continue; }
+    if (!r || typeof r !== 'object' || Array.isArray(r)) { incomplete = true; malformedRecords++; continue; }
+    const m = r.message;
+    if (m == null) { if (Object.hasOwn(r, 'message')) { incomplete = true; malformedRecords++; } continue; }
+    if (typeof m !== 'object' || Array.isArray(m)) { incomplete = true; malformedRecords++; continue; }
+    if (m.role !== 'assistant' || !m.usage) continue;
+    const usage = m.usage;
+    const tokenFields = ['input_tokens', 'output_tokens', 'cache_read_input_tokens', 'cache_creation_input_tokens'];
+    const validUsage = usage && typeof usage === 'object' && !Array.isArray(usage)
+      && tokenFields.some(key => usage[key] !== undefined)
+      && tokenFields.every(key => usage[key] === undefined || (typeof usage[key] === 'number' && Number.isSafeInteger(usage[key]) && usage[key] >= 0));
+    if (!validUsage) { incomplete = true; invalidUsageRecords++; continue; }
+    const identity = typeof m.id === 'string' && m.id ? m.id : typeof r.uuid === 'string' && r.uuid ? r.uuid : null;
+    if (!identity) { incomplete = true; missingIdentityRecords++; }
+    const id = identity || `anonymous:${anonymousUsageId++}`;
+    const mod = (typeof m.model === 'string' && m.model ? m.model : '?').replace(/^claude-/, '').slice(0, 120);
+    const previous = uniqueUsage.get(id);
+    if (previous) {
+      duplicateUsageRows++;
+      if (JSON.stringify(previous.usage) === JSON.stringify(usage) && previous.model === mod) continue;
+      supersededUsageRows++;
+    }
+    uniqueUsage.set(id, { usage, model: mod });
   }
 }
+const safeAdd = (a, b) => Number.isSafeInteger(a) && Number.isSafeInteger(b) && Number.isSafeInteger(a + b) ? a + b : null;
+const safeSum = values => values.reduce((sum, value) => sum === null ? null : safeAdd(sum, value), 0);
+for (const { usage: u, model: mod } of uniqueUsage.values()) {
+  const values = [u.input_tokens || 0, u.output_tokens || 0, u.cache_read_input_tokens || 0, u.cache_creation_input_tokens || 0];
+  const [input, output, cacheRead, cacheWrite] = values;
+  const rowTotal = safeSum(values);
+  const bm = tok.byModel[mod] || { calls: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 };
+  const next = [safeAdd(tok.input, input), safeAdd(tok.output, output), safeAdd(tok.cacheRead, cacheRead), safeAdd(tok.cacheWrite, cacheWrite), safeAdd(bm.input, input), safeAdd(bm.output, output), safeAdd(bm.cacheRead, cacheRead), safeAdd(bm.cacheWrite, cacheWrite)];
+  const aggregateTotal = [next[0], next[1], next[2], next[3]].every(Number.isSafeInteger)
+    ? safeSum([next[0], next[1], next[2], next[3]]) : null;
+  const modelTotal = [next[4], next[5], next[6], next[7]].every(Number.isSafeInteger)
+    ? safeSum([next[4], next[5], next[6], next[7]]) : null;
+  if (rowTotal === null || next.some(value => value === null) || aggregateTotal === null || modelTotal === null) {
+    incomplete = true; invalidUsageRecords++; continue;
+  }
+  tok.calls++;
+  [tok.input, tok.output, tok.cacheRead, tok.cacheWrite] = next.slice(0, 4);
+  tok.byModel[mod] = { calls: bm.calls + 1, input: next[4], output: next[5], cacheRead: next[6], cacheWrite: next[7] };
+}
 const total = tok.input + tok.output + tok.cacheRead + tok.cacheWrite;
-const avgCtx = tok.calls ? Math.round((tok.input + tok.cacheRead + tok.cacheWrite) / tok.calls) : 0;   // Ø kontext na krok = hlavní ukazatel hospodárnosti (každý krok ho celý čte znovu)
-const dur = ms => { const h = Math.floor(ms / 36e5), m = Math.round((ms % 36e5) / 6e4); return h ? `${h} h ${m} min` : `${m} min`; };
+const status = tok.calls ? incomplete ? 'partial' : 'measured' : 'unknown';
+const claudeTokens = tok.calls ? { input: tok.input, output: tok.output, cacheRead: tok.cacheRead, cacheWrite: tok.cacheWrite, total } : null;
+const byModel = tok.calls ? Object.fromEntries(Object.entries(tok.byModel).map(([model, usage]) => [model, { ...usage, total: usage.input + usage.output + usage.cacheRead + usage.cacheWrite }])) : null;
+const report = {
+  generatedAt: new Date().toISOString(),
+  tokenUsage: {
+    claude: { status, source: 'Claude Code transcript usage records', tokens: claudeTokens, byModel },
+    codex: { status: 'unknown', source: 'Codex token usage telemetry is unavailable to this report', tokens: null, byModel: null },
+  },
+  coverage: {
+    claude: { status, transcriptFiles: jsonl.length, processedRecords, usageRecords: tok.calls, malformedRecords, invalidUsageRecords, duplicateUsageRows, supersededUsageRows, missingIdentityRecords, ...(incomplete ? { partial: true } : {}) },
+    codex: { status: 'unknown', reason: 'No compatible token telemetry source is available.' },
+  },
+};
 
 // 4) Výstup
-const S = { prumerny_kontext_na_krok: avgCtx, vytvoreno: new Date().toISOString(), workspace: ws, repo, commit, kod: code, commity: commits, nalezy: findings.length, priority: prio, verdikty: vc, crawl, probe, screenshoty: shots, zpravy_mostu: bus, metriky_kapitana: metrics,
-  cas: { od: isFinite(tMin) ? new Date(tMin).toISOString() : null, do: tMax ? new Date(tMax).toISOString() : null, celkem_ms: isFinite(tMin) ? tMax - tMin : 0, aktivni_ms: activeMs, sessions }, tokeny: { ...tok, celkem: total } };
-fs.writeFileSync(A('statistika.json'), JSON.stringify(S, null, 2));
-const topExt = Object.entries(code.byExt).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([k, v]) => `${k} ${n(v)}`).join(', ');
-const md = `# Statistika auditu — ${path.basename(repo || ws)}
-
-**Vygenerováno:** ${new Date().toLocaleString('cs-CZ')} · **Auditovaný commit:** \`${commit || '?'}\`
-
-## Co auditor prošel
-| Oblast | Rozsah |
-|---|---|
-| Zdrojový kód | ${n(code.files)} souborů, **${n(code.loc)} řádků** (${topExt || '—'}) |
-| Dokumenty a konfigurace | ${n(code.docs)} souborů, ${n(code.docLoc)} řádků |
-| Velké soubory (> 1000 řádků) | ${n(code.big)} |
-| Historie gitu | ${n(commits)} commitů |
-| Obrazovky a prvky UI | ${crawl ? `${n(crawl.pages?.length ?? crawl.pages)} stránek, ${n(crawl.elements)} prvků (otestováno ${n(crawl.tested)}, přeskočeno s důvodem ${n(crawl.skipped)}, chyb ${n(crawl.fail)})` : 'průchod UI zatím neproběhl'} |
-| Endpointy (bezpečnostní sondy) | ${probe ? `${n(probe.endpoints)} endpointů${probe.checks ? `, ${n(probe.checks)} kontrol` : ''}` : 'sondy zatím neproběhly'} |
-| Snímky obrazovky (důkazy) | ${n(shots)} |
-
-## Co auditor zjistil
-| | Počet |
-|---|---|
-| Nálezy celkem | **${n(findings.length)}** |
-| P0 — kritické (data, bezpečnost) | ${n(prio.P0)} |
-| P1 — vážné (nefunkční, oprávnění) | ${n(prio.P1)} |
-| P2 — kvalita, UX | ${n(prio.P2)} |
-| P3 — kosmetika | ${n(prio.P3)} |
-| Ověřené opravy (PASS / dílčí / FAIL) | ${n(vc.PASS)} / ${n(vc.SCOPED_PASS)} / ${n(vc.FAIL)} |
-| Zprávy mezi auditorem a Kapitánem | ${n(bus)} |
-${metrics && metrics.first_pass_yield != null ? `| Kapitán: oprava napoprvé / falešná „hotovo" | ${Math.round(metrics.first_pass_yield * 100)} % / ${Math.round((metrics.false_done_rate || 0) * 100)} % |\n` : ''}
-## Čas
-| | |
-|---|---|
-| Od – do | ${isFinite(tMin) ? `${new Date(tMin).toLocaleString('cs-CZ')} – ${new Date(tMax).toLocaleString('cs-CZ')}` : '—'} |
-| Celková doba | ${isFinite(tMin) ? dur(tMax - tMin) : '—'} |
-| Čistý čas práce (bez pauz > 10 min) | ${dur(activeMs)} |
-| Sessions (vč. subagentů) | ${n(sessions)} |
-
-## Tokeny (přesně z transkriptů Claude Code)
-| | Tokeny |
-|---|---|
-| **Celkem** | **${n(total)}** |
-| Vstup (nový) | ${n(tok.input)} |
-| Vstup z cache (levný) | ${n(tok.cacheRead)} |
-| Zápis do cache | ${n(tok.cacheWrite)} |
-| Výstup | ${n(tok.output)} |
-| Volání modelu / z toho subagenti | ${n(tok.calls)} / ${n(tok.subagentCalls)} |
-| **Ø kontext na jeden krok** (čím menší, tím hospodárnější) | **${n(avgCtx)}** |
-
-| Model | Volání | Vstup | Cache čtení | Výstup |
-|---|---|---|---|---|
-${Object.entries(tok.byModel).map(([k, v]) => `| ${k} | ${n(v.calls)} | ${n(v.input + v.cacheWrite)} | ${n(v.cacheRead)} | ${n(v.output)} |`).join('\n') || '| — | | | | |'}
-
-Nejpoužívanější nástroje: ${Object.entries(tok.tools).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => `${k} ${n(v)}×`).join(', ') || '—'}
-
-<sub>Cena v Kč/USD záleží na tarifu (předplatné vs. API) — tady jsou jen přesné počty tokenů. Zdroj: ${n(jsonl.length)} transkriptů v ~/.claude/projects.</sub>
-`;
-fs.writeFileSync(A('STATISTIKA.md'), md);
-spawnSync(process.execPath, [path.join(here, 'owner-report.mjs'), ws, '--src', 'STATISTIKA.md', '--out', 'STATISTIKA.html', ...(process.argv.includes('--open') ? ['--open'] : [])], { stdio: 'inherit' });
-console.log(`statistika: ${A('STATISTIKA.md')} · kód ${n(code.loc)} ř. · nálezy ${findings.length} · tokeny ${n(total)} · Ø kontext/krok ${n(avgCtx)} · subagenti ${tok.calls ? Math.round(100 * tok.subagentCalls / tok.calls) : 0} % kroků · modely ${Object.entries(tok.byModel).map(([k, v]) => `${k} ${v.calls}`).join(', ') || '—'} · čas ${isFinite(tMin) ? dur(tMax - tMin) : '—'}`);
+fs.mkdirSync(A(), { recursive: true });
+fs.writeFileSync(A('statistika.json'), JSON.stringify(report, null, 2), 'utf8');
+const display = value => value == null ? 'neznámé' : n(value);
+const modelRows = Object.entries(byModel || {}).map(([model, usage]) => `| ${model.replace(/[|\r\n]/g, ' ')} | ${n(usage.input)} | ${n(usage.cacheRead)} | ${n(usage.cacheWrite)} | ${n(usage.output)} | ${n(usage.total)} |`).join('\n');
+const md = `# Spotřeba tokenů\n\nZdroj Claude: ${report.tokenUsage.claude.source}. Stav: ${status}.\n\nPokrytí: ${jsonl.length} transcriptů, ${tok.calls} záznamů spotřeby${incomplete ? ' (částečné)' : ''}. Codex: neznámé — telemetrie není dostupná.\n\n| Model | Vstup | Čtení cache | Zápis cache | Výstup | Celkem |\n|---|---:|---:|---:|---:|---:|\n${modelRows || '| — | — | — | — | — | — |'}\n\nCelkem Claude: ${display(claudeTokens?.total)} tokenů.\n`;
+fs.writeFileSync(A('STATISTIKA.md'), md, 'utf8');
+const safeEnv = Object.fromEntries(['PATH', 'SystemRoot', 'WINDIR', 'COMSPEC', 'PATHEXT', 'SystemDrive', 'HOME', 'USERPROFILE', 'TEMP', 'TMP', 'LANG'].filter(key => process.env[key]).map(key => [key, process.env[key]]));
+const render = spawnSync(process.execPath, [path.join(here, 'owner-report.mjs'), ws, '--src', 'STATISTIKA.md', '--out', 'STATISTIKA.html', ...(process.argv.includes('--open') ? ['--open'] : [])], { cwd: ws, encoding: 'utf8', timeout: 15000, env: safeEnv, stdio: ['ignore', 'pipe', 'pipe'] });
+if (render.error || render.status !== 0) {
+  process.stderr.write(`HTML renderer selhal${render.error?.code ? ` (${render.error.code})` : ''}.\n`);
+  process.exitCode = 1;
+} else if (process.argv.includes('--json')) process.stdout.write(`${JSON.stringify(report)}\n`);
+else process.stdout.write(`Statistika tokenů: Claude ${status}; ${display(claudeTokens?.total)} tokenů z ${jsonl.length} transcriptů; Codex neznámé.\n`);

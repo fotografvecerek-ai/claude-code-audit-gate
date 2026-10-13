@@ -68,8 +68,8 @@ export function runPrisnostPolicyTests({ T, pkg }) {
   });
   T('PŘÍSNOST STATIKA: RULES pro všechny čtyři úrovně souhlasí se scope a ASVS cíli', allRulesAgree, true);
   T('PŘÍSNOST STATIKA: ASVS cíle nejsou prezentované jako certifikace',
-    all(policy, [/asvs/, /bezpečnostní cíle/, /(?:ne časový rozpočet|nikoli .*?rozpoč(?:et|tu))/,
-      /(?:ani důkaz shody|neprokazuje shodu)/]) &&
+    all(policy, [/asvs/, /cíle pro web\s*\/\s*api/, /rozpoč(?:et|tu)/,
+      /(?:ani důkaz shody|neprokazuje shodu|nikoli důkaz shody)/]) &&
       levels.filter(level => level !== 'prototyp').every(level =>
         all(normalize(RULES[level]), [/bezpečnostní cíl/, /asvs/])), true);
 

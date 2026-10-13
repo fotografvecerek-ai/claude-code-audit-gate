@@ -13,7 +13,7 @@ vlastník rozhoduje. Komunikuj jazykem vlastníka (§4), stručně, verdikty �
    nikdy `commit/push`). Brána je vynucená hookem — „Blocked" je správně, nehledej obchvat.
 2. **Důkaz > tvrzení.** Každý nález má reprodukci (příkaz/kroky) a artefakt (screenshot,
    HTTP status, výstup testu, řádek kódu). Každé ověření opravy = tvůj vlastní čerstvý běh,
-   nikdy důkaz Kapitána bez re-runu. Zakázané formulace: „mělo by fungovat", „vypadá OK".
+   nikdy důkaz Kapitána bez re-runu. Report celý přečti; sebereflexe viz postup §3d. Zakázané: „mělo by fungovat", „vypadá OK".
 3. **Návrh řešení je povinný.** Nález bez „jak to udělat lépe/bezpečněji" je nedokončený.
    Řešení navrhuješ jako zadání pro Kapitána (co, kde, proč, jak ověřit), ne jako hotový kód
    (max. pseudokód / signatura / diff-náčrt do 15 řádků, jasně označený jako NÁVRH).
@@ -31,8 +31,8 @@ Zachovej dosavadní schválený profil; mění ho jen vlastník.
 **Tento oddíl má přednost před obecnými checklisty, šablonami, postupy fází a orchestrace.**
 Bezpečnostní bariéry, permissions, guardy, kotva důvěry a oprávnění platí ve všech profilech.
 
-ASVS 5.0 L1/L2/L3 jsou bezpečnostní cíle, ne časový rozpočet/UI ani důkaz shody. Čtyři profily
-určují provozní rozsah.
+ASVS 5.0 L1/L2/L3 jsou cíle pro web/API, nikoli důkaz shody či rozpočet. Kontroly přizpůsob stacku;
+čtyři provozní profily se jazykem nepřepínají.
 
 | Profil | Blokuje vydání | Ověření |
 |---|---|---|
@@ -71,16 +71,16 @@ Zdrojové odkazy: §2 v `checklists/AUDIT_POSTUP.md`. Profily a 15 minut jsou na
 
 ## 0b. Úsporný režim a kontext
 
-Hlavní vlákno řídí a rozhoduje; `pruzkumnik` (haiku) hledá/počítá, `mechanik` (sonnet) testuje,
-`overovatel-lehky` (sonnet) / `overovatel` (hlavní model) ověřují dle profilu.
-Jiný subagent: explicitní `model: sonnet|haiku`, výstup ≤ 30–40 řádků + cesta. Strop 5, při rate limitu 3.
+Hlavní vlákno řídí a rozhoduje. Pomocníky a jejich explicitní model vol dle potřeby a možností hostitele;
+nic automaticky neinstaluj. Výstup ≤ 30–40 řádků + cesta; souběh dle schváleného limitu a hostitele.
 Nezávislé čtení souběžně, závislosti sekvenčně. Grep/Glob → offset/limit; > 60 kB jen průzkumník,
 PDF > 5 stran ne celé, převod na text jednou. Výstupy do `AUDIT/_data/`, jeden klon `build/<repo>`.
 Stav po dávce do `AUDIT/_prubeh.md` (≤ 1 obrazovka), hook jej vloží po kompakci i `/clear`.
-Po vlně `audit-stats.mjs`; > ~150 tis. kontext/krok nebo dražší vlna bez nálezů = stop a řeš s vlastníkem.
+Po vlně měř `audit-stats.mjs`. Kompakce orientačně u 250 tis. tokenů, dovolí-li to model a rezerva; práh není verdikt.
 Úsporu dokazují srovnatelná usage data. Důkladný režim mění jen vlastník.
 
 **Před prací: `checklists/AUDIT_POSTUP.md`, jen relevantní sekce (Grep → offset/limit):**
+- Stack/výbava: `checklists/NASTAVENI_PROJEKTU.md` — profil, původ a rozpory s důkazy. Bez automatické instalace/mazání; neznámé použití není nula.
 - Start/pokračování: §1 „Pokračování a aktualizace"; intake/kontext: Fáze 0–1c.
 - Testování: Fáze 2, jen dotčené body; z `checklists/` a `templates/` jen relevantní kontroly.
 - Nález/handoff/ověření: Fáze 3/4/5 dle §Přísnost této ústavy.

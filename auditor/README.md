@@ -1,7 +1,7 @@
 # AUDITOR v2 — samostatný auditní agent pro Claude Code
 
-Balík definuje agenta **Auditor**, který audituje aplikaci (kód, bezpečnost, UI přes Playwright,
-každou funkci), **nic nekóduje, nic nevydává**, navrhuje řešení a vynucuje, aby je **Kapitán**
+Balík definuje agenta **Auditor**, který audituje aplikaci v dohodnutém rozsahu podle skutečného stacku
+(kód, bezpečnost, nativní či webové UI vhodným nástrojem), **nic nekóduje, nic nevydává**, navrhuje řešení a vynucuje, aby je **Kapitán**
 (agent projektu) zapracoval a doložil důkazem.
 
 ## Verdikt: odděleně, ne uvnitř projektu
@@ -155,8 +155,9 @@ obou stran, stavový řetězec položky, kola K1/K2…, `false_done_rate`. Přes
 5. Do CLAUDE.md projektu (Kapitán) vlož blok z `kapitan-side/AUDIT_REZIM.md` a přidej
    `--add-dir C:\dev\<projekt>-audit` při spouštění Kapitána, aby četl handoff a psal důkazy
    do `AUDIT/`.
-6. `cd tools && npm install && npx playwright install chromium` (ve workspace auditora, ne v repu);
-   `cp tools/audit.config.example.json tools/audit.config.json` a doplň obrazovky, selektory, test. účty.
+6. Nejdřív `node tools/project-profile.mjs <repo>` a inventura podle `checklists/NASTAVENI_PROJEKTU.md`.
+   Jen když vybraný test potřebuje browser, připrav jeho závislosti ve workspace auditora podle README nástrojů;
+   pro C++ či makra zvol jejich nativní testy. Pro web doplň `tools/audit.config.json` ze vzoru bez tajemství.
 7. Hook čte cesty z env `AUDITOR_WORKSPACE` a `AUDITOR_TARGET_REPO` (nebo je doplň přímo do skriptu).
 
 ## Spouštění nástrojů (z workspace auditora)
@@ -189,6 +190,17 @@ AUDIT/
 ```
 
 Auditor nikdy nezapisuje mimo `AUDIT/` a `tools/`; Kapitán zapisuje jen do `03_dukazy/`.
+
+## Změny v1.8.10
+
+- Profil projektu rozlišuje jazyky, frameworky, deklarované databáze a možné účely z konkrétních důkazů. Neúplný sken přiznává omezení; BASIC není automaticky potvrzené VBA.
+- Inventura Claude/Codex zahrnuje původ a rozsah instrukcí, skillů, agentů, hooků a MCP; duplicity a rozpory jsou kandidáti k posouzení, ne automatické mazání.
+- Katalog doporučuje výbavu podle profilu. Enter nic neaktivuje; instalace nestahuje plošně browser ani npm nástroje. Ručně upravené soubory a nastavení se zachovají, neplatný vlastnický stav zastaví změny.
+- Kratší jádro Kapitána odkazuje na postupy podle potřeby. Checklisty vybírají kontroly a delegaci podle stacku a dostupné platformy.
+- Skript statistik dodává pouze tokenové metriky. Otázky, závěry a uzavření úkolů píše agent; celý report před předáním přečte a při dalším relevantním auditu ověří svou sebereflexi.
+- Nové nastavení Claude používá okno 250 000 tokenů a zachovává vlastní volbu projektu. Skutečná kompakce závisí také na modelu a jeho rezervě; nastavení Codexu se tím nepřepisuje.
+- Brána zachytává další mutující příkazy Vercelu a aktivní shell substituce. Rezervace K-ID používá společný zámek; SSOT scanner zvládá názvy klíčů shodné s prototypem objektu.
+- Tokeny kontextu jsou odhad; chybějící telemetrie je NEZNÁMO. Globální pluginy ani klientské projekty se těmito změnami nepřepisují. Nativní interaktivní Codex/TTY vyžaduje samostatné ověření.
 
 ## Změny v1.8.9
 - Přiměřené kontroly podle rizika změny a zvolené přísnosti projektu; drobná změna nevyžaduje celý audit.

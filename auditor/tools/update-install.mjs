@@ -80,7 +80,7 @@ tryRun(process.execPath, [path.join(ws, 'tools', 'write-launchers.mjs'), ws, rep
 ok(`workspace auditora aktualizován (model ${model} zachován, AUDIT/ beze změny)`);
 { const r = tryRun(process.execPath, [path.join(ws, 'tools', 'katalog.mjs'), 'obnov', '--cil', ws], ws); if (r && /obnoveno [1-9]/.test(r)) ok('katalog v workspace auditora obnoven'); }
 const toolsDepsInstalled = fs.existsSync(path.join(ws, 'tools', 'node_modules'));
-if (!toolsDepsInstalled) warn('nástroje pro testy nejsou nainstalované (cd tools && npm install) — auditor si je doinstaluje, až je bude potřebovat');
+if (!toolsDepsInstalled) warn('volitelné UI/a11y nástroje nejsou nainstalované; pokud je potřebuješ, spusť ručně v tools npm install a pro browser testy npx playwright install chromium');
 
 // 2) repo: jen to, co tam už je
 const H = path.join(repo, '.claude', 'hooks'); const HY = path.join(pkg, 'kapitan-side', 'hygiene'); const changed = [];

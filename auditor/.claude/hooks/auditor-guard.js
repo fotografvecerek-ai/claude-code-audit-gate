@@ -115,6 +115,47 @@ function segments(s) { // rozdělí na jednoduché příkazy mimo uvozovky; toke
     tok += c; had = true; }
   endSeg(); return { segs: out, piped };
 }
+function activeSubstitutions(source) {
+  const bodies = []; let quote = null, escaped = false;
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i];
+    if (quote === "'") { if (c === "'") quote = null; continue; }
+    if (escaped) { escaped = false; continue; }
+    if (c === '\\') { escaped = true; continue; }
+    if (quote === '"') { if (c === '"') { quote = null; continue; } }
+    else if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === '$' && source[i + 1] === '(') {
+      if (source[i + 2] === '(') return { bodies, opaque: true };
+      let depth = 1, innerQuote = null, innerEscape = false, j = i + 2; const quoteStack = [];
+      for (; j < source.length; j++) {
+        const x = source[j];
+        if (innerEscape) { innerEscape = false; continue; }
+        if (x === '\\') { innerEscape = true; continue; }
+        if (innerQuote) {
+          if (innerQuote === '"' && x === '$' && source[j + 1] === '(') { quoteStack.push({ depth: depth + 1, quote: innerQuote }); depth++; innerQuote = null; j++; continue; }
+          if (x === innerQuote) innerQuote = null;
+          continue;
+        }
+        if (x === '"' || x === "'" || x === '`') { innerQuote = x; continue; }
+        if (x === '(') depth++;
+        else if (x === ')') { depth--; if (depth === 0) break; if (quoteStack[quoteStack.length - 1]?.depth === depth + 1) innerQuote = quoteStack.pop().quote; }
+      }
+      if (depth !== 0 || j - i > 8192 || bodies.length >= 32) return { bodies, opaque: true };
+      bodies.push(source.slice(i + 2, j)); i = j; continue;
+    }
+    if (c === '`') {
+      let j = i + 1, body = '', closed = false;
+      for (; j < source.length; j++) {
+        if (source[j] === '\\' && j + 1 < source.length) { body += source[j + 1]; j++; continue; }
+        if (source[j] === '`') { closed = true; break; }
+        body += source[j];
+      }
+      if (!closed || j - i > 8192 || bodies.length >= 32) return { bodies, opaque: true };
+      bodies.push(body); i = j;
+    }
+  }
+  return { bodies, opaque: false };
+}
 const baseW = x => (x || '').replace(/\\/g, '/').split('/').pop().toLowerCase().replace(/\.(exe|cmd|bat|ps1)$/, '');
 // obaly s hodnotovým přepínačem (kolo 3): -u/-n/-s/-k berou samostatný token jako hodnotu (sudo -u me, nice -n 10, timeout -s KILL 5, xargs -n 1)
 const WRAP_VAL = { sudo: /^-[ug]$/, env: /^-u$/, nice: /^-n$/, timeout: /^-[sk]$/i, xargs: /^-[nIiLlPsdEea]$/, stdbuf: /^-[ioe]$/ };
@@ -138,8 +179,11 @@ function analyzeShellArgs(a) { // z argumentů PO -c/-Command (nebo všech, nen�
 // jednoduché příkazy po obalech (npx, sudo, env, xargs…); shell -c / cmd /c / powershell -Command se rozbalí; interpret -e/-c vrátí kód
 // kolo 3: prosté „NAME=hodnota" jako CELÝ segment (bez příkazu za ním) se pamatuje pro $NAME/${NAME} použité později ve STEJNÉM příkazu (W=~/x; git -C $W …)
 function commands(cmd, depth = 0, out = [], vars = {}) {
-  if (depth > 3) return out;
+  if (depth > 3) { out.push({ w: '__stdin_unresolved__', a: [], lower: [], all: ['příliš hluboké vnoření příkazu'], inline: null }); return out; }
   const heredocs = extractHeredocs(cmd); // A-006 kolo 3: tělo heredocu se dřív zahazovalo — teď se (pro stdin shell) rekurzivně parsuje jako příkazy
+  const substitutions = activeSubstitutions(heredocs.stripped);
+  if (substitutions.opaque) { out.push({ w: '__stdin_unresolved__', a: [], lower: [], all: ['neprůhledná nebo neúplná command substitution'], inline: null }); return out; }
+  for (const body of substitutions.bodies) commands(body, depth + 1, out, vars);
   const { segs, piped } = segments(heredocs.stripped);
   let hIdx = 0;
   const segHeredoc = segs.map(toks => toks.some(t => /^<<-?[A-Za-z_]/.test(t)) ? heredocs.bodies[hIdx++] : undefined);

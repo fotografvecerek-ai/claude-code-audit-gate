@@ -36,7 +36,7 @@ node "$WS/tools/write-auditor-settings.mjs" "$WS" "$REPO" "$MODEL" || { echo "Z�
   # A-029 K4: volby vlastníka (přísnost) schválí commit vlastníka až po založení gitu (bez terminálu jen varování)
   node "$WS/tools/prisnost.mjs" --ws "$WS" potvrd --instalator || true
   [ -n "$REMOTE" ] && { git remote remove origin 2>/dev/null || true; git remote add origin "$REMOTE"; echo "Remote nastaven (první push ručně: git push -u origin main)"; }
-  cd tools && { npm install --no-audit --no-fund >/dev/null || echo "VAROVÁNÍ: npm install selhal — spusť ručně v $WS/tools"; } ; { npx playwright install chromium >/dev/null 2>&1 || echo "VAROVÁNÍ: stažení Chromia selhalo (síť?) — spusť ručně: cd $WS/tools && npx playwright install chromium"; } )
+  cd tools )
 
 K=${AUDITOR_KAPITAN:-$(askyn "Nainstalovat do repa stranu Kapitána (skill + hook + gate-check)?" "ano")}
 H=ne   # A-008 kolo 2: hygiena se nabízí jen uvnitř větve Kapitána níž; bez Kapitána marker musí hlásit "ne", ne zůstat prázdný
@@ -73,6 +73,7 @@ node "$WS/tools/trust-folders.mjs" "$WS" "$REPO"
 node "$WS/tools/guard-check.mjs" "$WS" "$REPO" || echo "BRÁNA NEFUNGUJE — auditora nespouštěj, pošli tento výpis Claude."
 [ "${AUDITOR_YES:-}" = "1" ] || { echo "== samotest bran"; (cd "$WS" && node tools/selftest.mjs | grep -E "^FAIL|/[0-9]+ PASS") || echo "SELFTEST FAIL — nevydávej, pošli výstup Claude."; }
 echo "PROD větve: hook i CI hlídají main|master|production|prod|release — jiný název produkční větve nastav v env PROD_BRANCHES a v .github/workflows/auditor-gate.yml (branches:)."
+echo "VOLITELNÉ UI/a11y testy: Playwright/axe instaluj až při jejich použití v $WS/tools (npm install); Chromium podle potřeby přes npx playwright install chromium. Setup nic nestahuje."
 
 # 8) marker dokončené instalace (A-008 kolo 2) — MUSÍ být poslední krok: update-install.mjs podle něj pozná, že instalace
 # doběhla celá (ne přerušená uprostřed npm install/Chromia/otázky na Kapitána — P4a/P4b), a jaké volby vlastník udělal

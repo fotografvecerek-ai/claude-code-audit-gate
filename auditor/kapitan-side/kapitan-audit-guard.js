@@ -59,7 +59,6 @@ let HOOK_CWD = process.cwd();
 // A-023 AK4 fix (a): DEPLOY se vyhodnocuje jen když PRVNÍ SLOVO segmentu (c.w, případně skutečný interpret u -e/-c) odpovídá nástroji —
 // dřív regex běžel nad celým textem segmentu (včetně obsahu v uvozovkách), takže echo/grep/git commit -m se slovem „vercel --prod" apod. blokovaly (KH11, KH12, K35, K40).
 const DEPLOY = [
-  { bin: /^vercel$/, re: /\bvercel\s+(deploy|--prod|alias|promote)|\bvercel\b.*--prod/i },
   { bin: /^(npm|pnpm|yarn)$/, re: /\b(npm|pnpm|yarn)\s+publish\b/i },
   { bin: /^prisma$/, re: /\bprisma\s+migrate\s+deploy\b/i },
   { bin: /^supabase$/, re: /\bsupabase\s+(db\s+push|functions\s+deploy)\b/i },
@@ -69,6 +68,30 @@ const DEPLOY = [
   { bin: /^gh$/, re: /\bgh\s+release\s+create\b/i },
   { bin: /^gh$/, re: /\bgh\s+pr\s+merge\b/i },
 ];
+function vercelNeedsGate(command) {
+  if (!/^vercel(?:@[^/]+)?$/i.test(command.w)) return false;
+  const args = command.a.map(value => String(value).toLowerCase()), positionals = [];
+  for (let i = 0; i < args.length; i++) {
+    const value = args[i];
+    if (value === '--scope' || value === '--target') {
+      const next = args[i + 1];
+      if (!next || next.startsWith('-')) return true;
+      if (value === '--target' && /^(production|prod|main|master)$/.test(next)) return true;
+      i++; continue;
+    }
+    if (value.startsWith('--scope=')) { if (value.length === 8) return true; continue; }
+    if (value.startsWith('--target=')) { if (/^(production|prod|main|master)$/.test(value.slice(9)) || value === '--target=') return true; continue; }
+    if (value === '--help' || value === '-h' || value === '--version' || value === '-v') { positionals.push(value); continue; }
+    if (value.startsWith('-')) return true;
+    positionals.push(value);
+  }
+  const [action, subaction] = positionals;
+  if (positionals.length === 1 && ['--help', '-h', '--version', '-v'].includes(action)) return false;
+  if (['list', 'ls', 'inspect', 'logs'].includes(action)) return false;
+  if (action === 'env' && ['ls', 'list'].includes(subaction)) return false;
+  if (action === 'rollback' && subaction === 'status' && positionals.length === 2) return false;
+  return true;
+}
 // --- analýza příkazu (stejná jako v hooku auditora): rozhoduje CÍL zápisu, ne slova v příkazu — čtení s 2>/dev/null projde
 const WRAP = new Set(['sudo', 'env', 'nohup', 'time', 'exec', 'command', 'call', 'npx', 'bunx', 'xargs', '&', 'start', 'nice']);
 const KEYWORDS = new Set(['then', 'do', 'else', 'elif', '{', '}', '!']); // A-005 kolo 3: "if cond; then git push…; fi" — 'then' by jinak skryl 'git' jako c.w
@@ -113,6 +136,47 @@ function segments(s) { // rozdělí na jednoduché příkazy mimo uvozovky; toke
     if (/\s/.test(c)) { endTok(); continue; }
     tok += c; had = true; }
   endSeg(); return { segs: out, piped };
+}
+function activeSubstitutions(source) {
+  const bodies = []; let quote = null, escaped = false;
+  for (let i = 0; i < source.length; i++) {
+    const c = source[i];
+    if (quote === "'") { if (c === "'") quote = null; continue; }
+    if (escaped) { escaped = false; continue; }
+    if (c === '\\') { escaped = true; continue; }
+    if (quote === '"') { if (c === '"') { quote = null; continue; } }
+    else if (c === '"' || c === "'") { quote = c; continue; }
+    if (c === '$' && source[i + 1] === '(') {
+      if (source[i + 2] === '(') return { bodies, opaque: true };
+      let depth = 1, innerQuote = null, innerEscape = false, j = i + 2; const quoteStack = [];
+      for (; j < source.length; j++) {
+        const x = source[j];
+        if (innerEscape) { innerEscape = false; continue; }
+        if (x === '\\') { innerEscape = true; continue; }
+        if (innerQuote) {
+          if (innerQuote === '"' && x === '$' && source[j + 1] === '(') { quoteStack.push({ depth: depth + 1, quote: innerQuote }); depth++; innerQuote = null; j++; continue; }
+          if (x === innerQuote) innerQuote = null;
+          continue;
+        }
+        if (x === '"' || x === "'" || x === '`') { innerQuote = x; continue; }
+        if (x === '(') depth++;
+        else if (x === ')') { depth--; if (depth === 0) break; if (quoteStack.at(-1)?.depth === depth + 1) innerQuote = quoteStack.pop().quote; }
+      }
+      if (depth !== 0 || j - i > 8192 || bodies.length >= 32) return { bodies, opaque: true };
+      bodies.push(source.slice(i + 2, j)); i = j; continue;
+    }
+    if (c === '`') {
+      let j = i + 1, body = '', closed = false;
+      for (; j < source.length; j++) {
+        if (source[j] === '\\' && j + 1 < source.length) { body += source[j + 1]; j++; continue; }
+        if (source[j] === '`') { closed = true; break; }
+        body += source[j];
+      }
+      if (!closed || j - i > 8192 || bodies.length >= 32) return { bodies, opaque: true };
+      bodies.push(body); i = j;
+    }
+  }
+  return { bodies, opaque: false };
 }
 // A-023 AK4 fix (b): jednoduché "VAR=hodnota" přiřazení jako samostatný segment (před ';'/'&&'/novým řádkem) → mapa pro dosazení do -C/-c.
 function buildVarMap(cmd) {
@@ -176,6 +240,9 @@ function commands(cmd, depth = 0, out = [], vm = null) {
   if (depth > MAX_DEPTH) { unresolved(out, 'příliš hluboké vnoření'); return out; } // A-026: dřív tiché „nic" = fail-open
   const varMap = vm || buildVarMap(cmd);
   const heredocs = extractHeredocs(cmd); // N08: tělo heredocu se dřív zahazovalo — teď se (pro stdin shell) rekurzivně parsuje jako příkazy
+  const substitutions = activeSubstitutions(heredocs.stripped);
+  if (substitutions.opaque) { unresolved(out, 'neprůhledná nebo neúplná command substitution'); return out; }
+  for (const body of substitutions.bodies) commands(body, depth + 1, out, vm);
   const { segs: segs0, piped } = segments(heredocs.stripped);
   const segs = segs0.map(splitHereStrings);
   let hIdx = 0;
@@ -526,7 +593,11 @@ process.stdin.on('end', () => {
     let cur = cwdRaw, pushProd = false, pushDir = null, depMatch = null, depMatchDir = cwdRaw;
     for (const c of commands(cmd)) {
       if (['cd', 'pushd', 'set-location', 'sl', 'chdir'].includes(c.w)) { const t = c.a.find(x => !/^[-/]/.test(x) || /^\//.test(x) && x.length > 2); if (t) cur = resolveDir(cur, t); continue; }
-      if (!depMatch) { const text = c.inline || c.all.join(' '); const dm = DEPLOY.find(d => (c.inline || d.bin.test(c.w)) && d.re.test(text)); if (dm) { depMatch = dm.re.exec(text); depMatchDir = cur; } }
+      if (!depMatch) {
+        if (c.inline && /\bvercel\b/i.test(c.inline)) { depMatch = true; depMatchDir = cur; }
+        else if (vercelNeedsGate(c)) { depMatch = true; depMatchDir = cur; }
+        else { const text = c.inline || c.all.join(' '); const dm = DEPLOY.find(d => (c.inline || d.bin.test(c.w)) && d.re.test(text)); if (dm) { depMatch = dm.re.exec(text); depMatchDir = cur; } }
+      }
       if (c.w !== 'git') continue; // VŠECHNY git push segmenty v příkazu (ne jen první) — "git push a && git push origin main" musí vyhodnotit i druhý (kolo 2)
       // A-005 kolo 3: globální volby gitu v LIBOVOLNÉM pořadí (dřív jen pevné -C pak -c), vč. --git-dir/--work-tree/--no-pager/-P/--bare/--exec-path
       let i = 0, cDir = null; const cfg = [];

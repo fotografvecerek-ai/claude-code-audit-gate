@@ -420,3 +420,15 @@ Opravy z vlastního auditu balíku (nálezy A-001 až A-023, ověřeno auditorem
 - **Známá přijatá zbytková rizika (A-026, A-029, A-030, A-031):** kdo běží pod stejným účtem OS, může padělat schválení vlastníka (včetně autora commitu), změnit či podvrhnout kotvu důvěry a obejít lokální git hooky pomocí `--no-verify`. Vlastník tato rizika vědomě přijal. Lokální pojistky nejsou kryptografickým ověřením identity ani oddělením účtů OS.
 - **Regresní sada:** 957 scénářů, z toho 14 nových kontrol brány a textové politiky. Test dokumentace A-031 rozlišuje vydanou a rozpracovanou verzi podle `tools/VERZE`, takže již nezakazuje legitimní nadpis vydání.
 - **Neověřené:** živé potvrzování z TTY (včetně `/dev/tty`, `CONIN$` a `winpty`) a nativní interaktivní Codex zůstávají neověřené. Statické kontroly politiky jsou ochrana textových invariantů, nikoli důkaz poslušnosti LLM. Noční audit ani Grafana nejsou součástí tohoto vydání.
+
+## 1.8.10 — audit podle skutečného projektu
+
+- Statistiky jsou pouze tokenové metriky s uvedením zdroje a pokrytí. Otázky, závěry a uzavření úkolů zůstávají agentovi, který před předáním přečte celý report, zapíše sebereflexi a v dalším relevantním auditu ověří účinek zlepšení. Renderer pouze zobrazuje agentem napsaný obsah.
+- Výchozí okno nového nastavení Claude je 250 000 tokenů, vlastní volba projektu se zachovává. Codex používá své nativní nastavení; pevný limit 150 000 pro přerušení auditu byl z instrukcí odstraněn.
+- Read-only profil rozlišuje jazyky a stacky, včetně C/C++/Qt, JavaScriptu/TypeScriptu, PostgreSQL deklarovaného v Prisma a hybridních mobilních aplikací. Omezený sken a neověřený účel nejsou vydávány za jistotu.
+- Read-only inventura konfigurace Claude/Codex rozlišuje projektové a sdílené zdroje, dostupnost a použití, vždy načítané a podmíněné instrukce. Kandidátní konflikty a relevance mají důkazy; konfigurace klienta se automaticky nemění.
+- Katalog vybírá podle profilu a vyžaduje výslovnou aktivaci. Chrání upravené soubory, markerové bloky a hooky; poškozený stav či přivlastnění cizího výstupu zastaví změnu. Instalace neprovádí plošné stahování npm/browser nástrojů.
+- Jádro role Kapitána a auditní checklisty omezují univerzální proces; podrobnosti se čtou podle potřeby. Delegace, modely a testovací nástroje odpovídají konkrétnímu stacku a hostiteli.
+- Opraveny další varianty mutujících příkazů Vercelu a aktivní shell substituce v guardech, souběžná rezervace K-ID v jednom workspace a prototypové názvy ve scanneru SSOT.
+- Inline kód Node/Python obsahující Vercel vyžaduje bránu konzervativně; i neškodná zmínka v takovém kódu může být odmítnuta. Podporované přímé read-only příkazy Vercelu bránu nevyžadují.
+- Skutečné tokenové úspory nejsou zatím změřené. Nativní interaktivní Codex/TTY a bezpečnost proti uživateli na stejném účtu OS nejsou těmito regresními testy prokázány; dříve přijatá omezení zůstávají.

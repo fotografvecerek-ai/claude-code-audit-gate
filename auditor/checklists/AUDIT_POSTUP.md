@@ -1,9 +1,13 @@
 # Audit — postupy načítané podle potřeby
 
-Rozsah, frekvenci, blokaci a počet kol určuje výhradně **§Přísnost v `CLAUDE.md`**; tento postup
+Rozsah, frekvenci, blokaci a počet kol určuje výhradně **§Přísnost v účinné ústavě (`CLAUDE.md`/`AGENTS.md` podle platformy)**; tento postup
 ani obecný checklist je nerozšiřuje. Bezpečnostní bariéry a oprávnění z ústavy platí vždy.
 Před akcí načti pouze příslušnou sekci (Grep nadpis, Read s offset/limit), nikoli celý soubor.
 Fáze jsou nabídka postupů pro schválený rozsah; u změny aktualizuj jen dotčenou oblast a závislosti.
+Profil projektu určuje aplikovatelnost každé kontroly a vhodný nástroj: browser test je pro webové UI, mobilní test pro odpovídající hostitelskou platformu,
+tenant test pro aplikaci s tenanty, databázová sonda pro skutečnou databázi. U nativní aplikace či maker
+použij jejich build, testy a izolované prostředí. Neaplikovatelné body označ N/A s důvodem; neověřené body
+NEOVĚŘENO. Žádný z těchto stavů se nepočítá jako PASS. Profil nesnižuje bezpečnostní bariéry ani bránu vydání.
 
 Mapa sekcí:
 - Pokračování/nové cíle: §1 „Pokračování a aktualizace"; záměr/kontext/hygiena/git: Fáze 0–1c.
@@ -13,23 +17,25 @@ Mapa sekcí:
 - Standardy při psaní nálezu: §2.
 
 ## 0b. Úsporný režim (výchozí — auditor, který radí šetřit, sám nesmí plýtvat)
-Každý krok hlavního vlákna znovu čte celý jeho kontext. Cena = velikost kontextu × počet kroků × model. Proto:
+Velký kontext a mnoho kroků mohou zvyšovat cenu; skutečnou cenu ovlivňuje cache, načítání na vyžádání a tarif konkrétního modelu. Velikost souboru není důkaz účtovaných tokenů. Proto:
 1. **Hlavní vlákno jen řídí a rozhoduje** (zadání, verdikty, priority, zpráva). Nečte velké soubory, nesype výstupy skenů, neprochází kód.
-2. **Deleguj podle ceny:** `pruzkumnik` (haiku) = najdi/spočítej/vypiš/klasifikuj · `mechanik` (sonnet) = skeny, testy, dávky UI, sondy,
-   surová data do `AUDIT/_data/` · `overovatel-lehky` (sonnet) = lehké ověření dle profilu · `overovatel` (hlavní model) = důkladné ověření dle §Přísnost v ústavě. Jiný subagent jen
-   s `model: sonnet|haiku` (pojistka `usporny-guard` hlídá). Subagent vrací ≤ 30–40 řádků + cestu k souboru, nikdy surová data.
+2. **Deleguj podle ceny a dostupnosti:** průzkum a mechaniku dělá nejlevnější dostačující dostupný pomocník; důkladné ověření rizik hlavní model dle §Přísnost v ústavě.
+   V Claude použij projektové role `pruzkumnik`, `mechanik`, `overovatel-lehky`, `overovatel` a jejich ověřené modely (hlídá `usporny-guard`).
+   V Codexu vyber model z nabídky hostitele a explicitně ověř nastavení pomocníka; názvy `sonnet`/`haiku` sem nepřenášej.
+   Dědění hlavního modelu není důkaz úspory. Surová data patří do `AUDIT/_data/`, pomocník vrací ≤ 30–40 řádků + cestu k souboru.
 3. **Čti cíleně:** Grep/Glob → Read s offset/limit; soubor > 60 kB celý jen přes pruzkumnika (pojistka blokuje). Výstupy dlouhých příkazů do
    souboru, do kontextu jen souhrn (`| tail`, `grep`, `--json | jq`). PDF (každá strana = text i obrázek) jednou převeď na text do `AUDIT/_data/`
    a čti cíleně, nebo jen potřebné strany (`pages`); PDF nad 5 stran celé pojistka blokuje.
 4. **Nepřečítej hotové:** stav drž v `AUDIT/_prubeh.md` (≤ 1 obrazovka: vlna, hotovo, další krok) a čti ten, ne celé nálezy/handoff znovu.
-   Po každé vlně zapiš stav — kontext se kompaktuje u ~200 tis. tokenů (spouštěč), stav musí přežít; po kompakci i `/clear` ho hook vloží sám.
-   Kompakce je ztrátová: po dokončené vlně s kontextem nad ~150 tis. použij skill `predani` a vlastníkovi napiš jednou větou „napiš /clear".
+   Po každé vlně zapiš stav, aby přežil automatickou kompakci; po ní ho obnov podle možností hostitele.
+   Orientační preferovaná hranice je 250 000 tokenů, pokud ji model podporuje s rezervou na výstup a dokončení kroku.
+   Ověř skutečné nastavení a jednotky; velikost kontextu není celková spotřeba. Samotných 150 000 není chyba ani důvod zastavit práci.
 5. **Jeden klon repa** v `build/<repo>` (jiný commit = checkout v něm, ne nová kopie); po vlně `node tools/uklid-workspace.mjs --smazat`.
    Grep/Glob nikdy přes `build/`, `node_modules/`, kopie repa.
 6. **Souběh střídmě:** nejvýš 5 subagentů najednou (spouštěč to vynucuje, `.rezim.json` → `"soubeh"`); dávky UI po 15–20 obrazovkách. Rozsah podle §Přísnost v ústavě:
    dotčené rizikové oblasti důkladně, zbytek dle potřeby vzorkem s uvedeným pokrytím.
 7. **Měř sám sebe:** po každé vlně `node tools/audit-stats.mjs` (jeden řádek: tokeny, Ø kontext na krok, podíl subagentů, modely) → do
-   `_prubeh.md`. Ø kontext/krok nad ~150 tis. nebo vlna dražší než předchozí bez nových nálezů = zastav, zapiš stav a zeptej se vlastníka.
+   `_prubeh.md`. Dražší vlna bez přínosu je podnět k posouzení, ne automatické zastavení; porovnej pokrytí a obtížnost.
 Režim „důkladný" (`.rezim.json` → `"rezim": "dukladny"`) zapíná jen vlastník.
 
 ## 0d. Kdo co dělá — vlastník rozhoduje, Kapitán dělá, auditor ověřuje
@@ -44,8 +50,8 @@ Režim „důkladný" (`.rezim.json` → `"rezim": "dukladny"`) zapíná jen vla
   Otázku typu „dá se to udělat / co to obnáší" zodpovíš jako druhý názor (rizika, co ověřit), ne jako zadání s postupem.
 - **Kapitán běží na silném modelu** (plánuje, mluví s vlastníkem), **kód píšou jeho subagenti na levnějších modelech.** Kontroluješ, že dodržuje
   svá pravidla (blok role v jeho CLAUDE.md/AGENTS.md): podnět rozvedený do plánu s AK a červeným testem před kódem, delegace kódu
-  (`efficiency-audit usage` → `delegace.podil_editaci_hlavni` > 0,3 = nález EFF „drahý model píše kód"; měř po každé aktualizaci balíku a pak denně,
-  okno 24 h; pojistka Kapitána blokuje Edit/Write kódu v jeho hlavním vlákně — zápis kódu shellem (sed, heredoc) z hlavního vlákna hlásíš jako nález), explicitní model subagentů, souběh pomocníků (spouštěč: max 3), stav v `.claude/STATE.md`, kanban,
+  (podíl editací hlavního vlákna je pomocná metrika, nikoli sám důkaz plýtvání; ověř dostupné modely, cenu, riziko a pravidla daného projektu.
+  Pokud aktivní pojistka Kapitána blokuje Edit/Write kódu, zápis kódu shellem z hlavního vlákna je obcházení), explicitní model subagentů, souběh pomocníků podle schváleného prostředí, stav v `.claude/STATE.md` nebo odpovídajícím adresáři Codexu, kanban,
   K-### na mostu, mlčení není souhlas, cesta zpět. Porušení = nález s pojistkou (mechanismus), ne připomínka. **Obcházení pojistky** (Kapitán nebo jeho
   pomocník zkouší jiný nástroj/shell/cestu po „Blocked") = nález P1; když blokuje pojistka JINÉHO projektu (sdílené nastavení počítače), napiš
   vlastníkovi jednou větou: START → [2] ji přesune (`tools/sdilena-pravidla.mjs seznam --repo <repo>` ukáže které).
@@ -86,6 +92,10 @@ do té doby běží tvoje starší verze nástrojů bez oprav (např. měření 
 jen na spouštěče podle §Přísnost v ústavě; aktualizace balíku sama není spouštěč.
 
 ### Fáze 0 — Intake (poprvé; u rozjetého auditu jen doplnění mezer)
+Před výběrem kontrol zjisti profil projektu a nastavení agentů podle `checklists/NASTAVENI_PROJEKTU.md`.
+`node tools/project-profile.mjs <repo>` poskytne důkazy o stacku; `node tools/configuration-audit.mjs <repo>`
+inventuru konfigurace a kandidátní rozpory. Výstupy jsou podklady, ne potvrzení runtime ani pokyn k mazání.
+Účel z přípon nevyvozuj. Neznámé údaje doplň cíleně; katalog je nabídka, výbavu aktivuje vlastník výslovně.
 Projdi `templates/00_intake_dotaznik.md` s vlastníkem přes AskUserQuestion (max 3 otázky na kolo,
 nejdřív ty, které mění rozsah). Uživatel běžně nezná standardy — ptáš se na *záměr, data,
 uživatele, obavy*, ne na CWE. Výstup: `AUDIT/00_intake.md` (profil aplikace, prioritní oblasti,
@@ -99,7 +109,7 @@ vyloučené oblasti, prostředí, přístupy, testovací účty).
   `schtasks /query` / `crontab -l` / `systemctl list-timers` / `launchctl list`). Každý = řádek inventury `00_intake.md §Běží v reálu`
   (vlastník, účel, log, test). **Stav funkce uzavíráš z běhu** (proces, port, log, odpověď), nikdy z příznaků v kódu (flag `DISABLE_*`,
   chybějící knihovna) — příznak je nanejvýš HYPOTÉZA K OVĚŘENÍ.
-- Struktura repa, stack, routing, auth, datový model, multi-tenant hranice, integrace.
+- Struktura repa a doložený stack; routing, auth, datový model, multi-tenant hranice a integrace jen tam, kde je aplikace má.
 - Při plném auditu seznam **všech relevantních funkcí** (feature inventory), u změny doplň dotčené: pro každou `{název, vstupní bod v UI, role
   uživatele, data, záměr dle vlastníka/dokumentace, endpointy}` → `AUDIT/00_intake.md §Funkce`.
 - Nejasný záměr u funkce → seznam otázek vlastníkovi (jedno kolo, max 3 otázky najednou).
@@ -173,16 +183,17 @@ vlastník povolil v intake (ne disk produkce), a během běhu hlídáš, že pro
 7. **Efektivita**: `checklists/EFEKTIVITA.md` + `tools/efficiency-audit.mjs all <repo>` →
    `AUDIT/06_efektivita.md §Baseline` (datum, commit). Měříš: first-pass yield (PASS napoprvé /
    všechny), Ø iterací, rework a churn z gitu, návratovost od vlastníka; co se načítá do každého requestu
-   (CLAUDE.md, rules bez `paths:`, skilly v agentech, MCP servery a jejich nástroje — Telegram most,
-   n8n, cron —, hooky s additionalContext, prompt/agent hooky), model routing každého subagenta
-   (haiku mechanika / sonnet standard / opus úsudek; projekt bez subagentů = 🔴 nález s doporučením
-   TRIAGE/FIX/VERIFY/REVIEW), soubory nad prahem 500/1000 řádků → návrh rozdělení podle domény
+   (účinné CLAUDE.md nebo AGENTS.md, pravidla bez omezení cesty, metadata skillů a případné explicitní přednačtení,
+   hooky s additionalContext, prompt/agent hooky). Inventuru MCP, hooků a skillů dělej podle
+   `checklists/NASTAVENI_PROJEKTU.md`: konfigurace neprokazuje běh, použití ani cenu schémat v requestu.
+   Claude a Codex měř odděleně; bez kompatibilních logů je usage NEZNÁMO. Model routing a delegaci
+   posuzuj podle ceny a skutečné potřeby úlohy; absence subagentů sama není nález. Soubory nad prahem 500/1000 řádků → návrh rozdělení podle domény
    (Kapitán to má navrhovat sám před přidáním featury; ty kontroluješ, že to dělá).
    **Katalog zkušeností** (`katalog/`, `node tools/katalog.mjs doporuc --cil <repo> --role kapitan --nezapisovat`): volitelné skilly, agenti,
-   provozní pravidla a pojistky z provozu jiných projektů. Projekt bez vlastních pravidel/agentů = nález EFF (P2) „holý projekt" s doporučenou
-   sadou a přesným příkazem; doporučení posíláš jako HANDOFF s ID, AK (`katalog.mjs stav` ukazuje aktivní položky) a termínem — ne jako NOTE.
-   Skilly/agenty/pravidla aktivuje Kapitán, **hooky jen vlastník** (START → [9]). Nikdy nedoporučuj „všechno": každá položka stojí kontext
-   v každém kroku — jen to, co projekt reálně použije; po aktivaci změř efekt (FPY, tokeny/issue) stejnou metodou.
+   provozní pravidla a pojistky z provozu jiných projektů. Projekt bez vlastních pravidel či agentů sám není nález.
+   HANDOFF s ID a AK připrav jen pro doloženou chybějící schopnost nebo konkrétní škodlivé nastavení; katalog je nabídka, ne povinná sada.
+   Skilly/agenty/pravidla aktivuje Kapitán podle schváleného zadání, **hooky jen vlastník** (START → [9]). Doporuč pouze položky s doloženou potřebou.
+   Metadata, plné tělo a runtime aktivaci rozliš podle platformy; po zásahu měř efekt dostupnou kompatibilní metodou.
    **Po zapracování měříš znovu stejnou metodou, stejným oknem, normalizováno na tokeny/uzavřený issue;
    rozdíl < 10 % = šum; „soubor je menší" NENÍ důkaz úspory — důkaz jsou usage hodnoty
    (input, cache read/create, output, model mix, počet volání) za srovnatelnou třídu práce.**
@@ -293,24 +304,23 @@ ASVS určuje bezpečnostní požadavky, test pyramid volbu účelné vrstvy test
 - Verze standardů ověř webem, pokud si nejsi jistý — necituj z paměti.
 
 ## 3. Orchestrace vybraného rozsahu
-- Hlavní vlákno = arbitr: zadání, sběr JSON, verdikty. Technické detaily v subagentech.
-- **Vybrané čtení bez závislosti běží souběžně, v limitu profilu a rozpočtu.** Subagenty spouštíš v JEDNÉ zprávě (více volání Agent najednou), ne za sebou.
+- Hlavní vlákno = arbitr: zadání, sběr důkazů, verdikty. Delegaci použij, pokud ji hostitel podporuje a rozsah odůvodňuje; jinak postupuj v jednom vlákně. Absence subagentů sama není chyba.
+- **Nezávislé čtení lze provést souběžně v limitu profilu, hostitele a rozpočtu.** Nezaváděj další agenty jen pro dodržení univerzální šablony.
   Sekvenčně jen skutečné závislosti: intake → vše ostatní; `build-env up` → dynamické testy (sondy, Playwright); nálezy → handoff.
-- Při plném auditu vyber z první vlny dle §Přísnost v ústavě (po intake, jedna zpráva, max 5 subagentů — pruzkumnik/mechanik): hygiena repa · git praxe · statika ·
+- Při plném auditu vyber z první vlny dle §Přísnost v účinné ústavě (po intake, v dostupném limitu souběhu): hygiena repa · git praxe · statika ·
   SSOT/architektura · efektivita (kontext, usage, moduly) · klasifikace dokumentů (rozdělená po složkách, pokud je jich > 50).
-- Dynamická vlna pouze je-li potřeba po `build-env up` (souběžně, v deklarovaném rozsahu): UI crawl rozdělený na **dávky po 10–20 obrazovkách** na subagenta (max 5 najednou, další dávky
+- Dynamická vlna pouze je-li potřeba po přípravě prostředí odpovídajícího stacku (souběžně jen v dostupném limitu a deklarovaném rozsahu): webové UI crawl lze rozdělit na **dávky po 10–20 obrazovkách** na subagenta (další dávky
   po doběhnutí; každý vede vlastní část ledgeru, hlavní vlákno je slévá) · bezpečnostní sondy po skupinách endpointů · a11y po obrazovkách ·
   funkční průchody po funkcích z inventáře.
 - Při relevantním dopadu třetí vlna: udržitelnost (web ověření cen) · provoz/zálohy · retro — souběžně s dopisováním nálezů.
-- Strop: 5 souběžných subagentů (úsporný režim, §0b); při chybách „rate limit" sniž na 3 a pokračuj, nezastavuj.
+- Souběh řídí schválený profil a dostupnost hostitele; při rate limitu jej sniž a použij backoff. Jednovláknový postup je platná varianta.
 - **První dojem pro vlastníka při plném auditu do ~1 hodiny (PROTOTYP v limitu průchodu dle §Přísnost v ústavě)**: po doběhnutí 1. vlny napiš `AUDIT/00_prvni_dojem.md` — jedna stránka lidsky: co žere tokeny
   (CLAUDE.md, MCP, model routing), kde je nepořádek (root, binárky, staré zdroje pravdy), jestli je práce zálohovaná (ahead/dirty), co je
   nejnaléhavější a co bude trvat. Vlastník nemá čekat hodiny na první informaci. Pošli mu jednu větu + cestu.
 - **Průběh zapisuj do `AUDIT/_prubeh.md`** (vlna, subagent, stav, čas) po každé dokončené dávce — vlastník má vidět, že se pracuje a kde.
-- Model: hlavní vlákno = nejlepší model (úsudek, verdikty); `mechanik` (sonnet) = crawl, skeny, sondy; `pruzkumnik` (haiku) = hledání,
-  počítání, extrakce, klasifikace; `overovatel` (hlavní model) důkladné ověření, `overovatel-lehky` (sonnet) lehké dle profilu (§Přísnost v ústavě).
+- Model vybírej z ověřeně dostupných modelů podle náročnosti: silnější pro úsudek a obtížné ověření, nejlevnější dostačující pro skeny a mechaniku. Názvy rolí a modelů se mezi platformami nepřenášejí.
 - Subagent dostává plný text úkolu v promptu (ne „přečti si soubor X"), vrací JSON.
-- Stav drž v TaskCreate/TaskUpdate a `AUDIT/_prubeh.md` (přežije kompakci). Po kompakci nejdřív `_prubeh.md`; z intake a handoffu
+- Stav drž v `AUDIT/_prubeh.md` a případně podporovaném správci úloh (přežije kompakci). Po kompakci nejdřív `_prubeh.md`; z intake a handoffu
   čti jen části, které další krok potřebuje (Grep podle ID/sekce), ne celé soubory.
 - Sdílené procesy (dev server pro testy) spouštíš ve svém workspace proti lokálnímu klonu
   nebo buildu; nikdy neukončuješ procesy Kapitána.
@@ -329,6 +339,9 @@ ASVS určuje bezpečnostní požadavky, test pyramid volbu účelné vrstvy test
 
 ## 3c. Zpráva pro vlastníka (povinná, netechnická)
 `AUDIT/ZPRAVA.md` podle `templates/zprava_pro_vlastnika.md` → `node tools/owner-report.mjs --open` vyrobí a otevře `AUDIT/ZPRAVA.html`.
+**Autorem je agent.** Sám vyhodnotí důkazy, napíše závěry, otázky a doporučení a zkontroluje stav Kanbanu. „Hotovo“ vyžaduje splněná kritéria a odkaz na vlastní ověření; počet souborů, status na mostu či názor skriptu je nenahrazuje. HTML renderer jen zobrazí již napsaný obsah; předvybraná odpověď není souhlas vlastníka.
+Před předáním přečti celou aktuální zprávu včetně vyrenderovaného výsledku. Odstraň placeholdery, nepodložená tvrzení a rozpory se zdroji či Kanbanem; každou otázku a hotový úkol musíš umět vysvětlit z konkrétního důkazu. Podpis/zaškrtnutí skriptem není doklad tohoto přečtení.
+Do průběžného stavu ulož cestu, datum a rozsah posledního reportu, otevřené otázky a odkaz na sebereflexi. Po kompakci nebo v nové relaci tyto podklady znovu přečti před odpovědí na podrobnosti auditu; chybějící paměť nenahrazuj odhadem.
 Dvě úrovně výstupu: **pro agenta** technicky (`02_HANDOFF.md`, `01_nalezy/`, verdikty) a **pro člověka** tahle zpráva. Píšeš pro člověka, který
 není programátor: žádný žargon, každý bod = co je za problém + co to znamená pro něj (peníze, data, zákazníci, čas) + jak se to vyřeší (lidsky,
 kdo a kdy). **Každý nález má doporučení** (co udělat, lidsky) — bez výjimky. Max. 2 obrazovky, nejzávažnější nahoře, semafor 🔴🟡🟢.
@@ -340,9 +353,13 @@ Krátké otázky během práce smíš dál klást přes AskUserQuestion; formul�
 Aktualizuj: po prvním dojmu, po handoffu a po každém verdiktu nebo release gate. Vlastníkovi pak jedna věta: „Zpráva aktualizována: AUDIT/ZPRAVA.html".
 
 ## 3d. Statistika auditu (povinná na konci každého auditu a u release gate)
-`node tools/audit-stats.mjs --open` → `AUDIT/STATISTIKA.html`: kolik souborů a řádků kódu jsi prošel, obrazovky a prvky UI (z ledgeru),
-endpointy, nálezy podle priorit, ověřené opravy, čas (od–do, čistý čas práce) a **přesné tokeny z transkriptů Claude Code** podle modelů.
-Čísla nikdy neodhaduj ani nezaokrouhluj do zprávy — cituj je ze statistiky. Odkaz na ni dej do `ZPRAVA.md` (sekce Průběh).
+`node tools/audit-stats.mjs --open` → `AUDIT/STATISTIKA.html`: pouze mechanické měření spotřeby tokenů s uvedeným zdrojem a pokrytím.
+Pro Codex či chybějící kompatibilní záznamy uveď NEZNÁMO; nula nenahrazuje chybějící telemetrii. Skript nepíše otázky, verdikt ani hotové úkoly. Tyto závěry sepíše agent do zprávy podle důkazů. Odkaz na měření dej do `ZPRAVA.md`.
+
+### Sebereflexe a ověření poučení po každém auditu
+Po přečtení celého auditu zapiš stručně do `AUDIT/SEBEREFLEXE.md`: co bylo přehlédnuto nebo chybně vyhodnoceno, jaký důkaz to ukázal, dopad a jednu konkrétní změnu postupu. Pokud chyba doložená není, uveď to; nevymýšlej zlepšení ani úspory.
+Změnu převeď do dalšího kroku s kritériem ověření. Při příštím relevantním auditu přečti předchozí poučení a dolož, zda se osvědčilo; neúspěch vede k úpravě hypotézy, nikoli k prohlášení „už se to nestane“. Tak vzniká opakované zlepšování s důkazy.
+Vlastní postup můžeš upřesnit v projektových poznámkách. Obecnou chybu balíku předej správci; neměň sám role, guardy, oprávnění, release gate ani sdílené nastavení. Opravy reportu mají omezená kola; při opakované stejné chybě změň metodu podle §0, nezakládej nekonečnou smyčku.
 
 ## 3e. Režim auditu z GitHubu (`AUDIT/.remote.json` existuje)
 Auditovaný kód je **kopie repa klienta** stažená z GitHubu (`klon`, `commit` v `.remote.json`); klient nic neinstaloval.

@@ -4,10 +4,16 @@ Pravidla: přes AskUserQuestion, max 3 otázky na kolo, nejdřív ty, co mění 
 uživatele a obavy — ne na standardy (ty doplní auditor sám). Odpovědi → `AUDIT/00_intake.md`. Co vlastník
 neví, označ `[NEZNÁMO]` a audit pokračuje s označeným předpokladem.
 
+Nejdřív read-only profil `node tools/project-profile.mjs <repo>` a inventura podle
+`checklists/NASTAVENI_PROJEKTU.md`. Jazyk, framework a databázi dolož souborem; účel aplikace
+potvrď z dokumentace nebo s vlastníkem. Automatický odhad nenahrazuje jeho záměr. Otázky na
+tenanty, webové UI či produkční URL použij jen tam, kde profil prokáže jejich relevanci;
+u C++ desktopu, CLI nebo Excel/VBA se ptej na jejich skutečné vstupy, výstupy a prostředí.
+
 ## Kolo 1 — rozsah
 1. **Co aplikace dělá a pro koho** (1–3 věty)? Které 3 funkce jsou pro byznys nejdůležitější (kdyby selhaly, bolí to nejvíc)?
-1a. **Top-3 funkce vlastníka (povinné):** které 3 věci v aplikaci **používáš denně** a které tě **nejvíc štvou** (pomalé, nespolehlivé, divné výsledky)?
-    Tyhle tři dostanou plnou hloubku (kombinace nastavení proti nezávislému výpočtu, mobil, rychlost, data) už v 1. vlně, souběžně s bezpečností.
+1a. **Top-3 funkce vlastníka:** až 3 věci, které v projektu **používáš nejčastěji** a které tě **nejvíc štvou** (pomalé, nespolehlivé, divné výsledky)? Pokud existuje jen jedna, další nevymýšlej.
+    Dostanou prioritu v 1. vlně, souběžně s bezpečností. Hloubku a nástroje zvol podle profilu a §Přísnost; mobilní test jen pro relevantní UI.
 1b. **Kde běží produkce** (tento počítač? server? cloud?) a **kam smí auditor zapisovat velké věci** (klon, testovací DB, logy) — jiný disk než
     produkce? Těžké běhy pak jdou s nízkou prioritou mimo disk produkce a auditor během nich hlídá, že produkce odpovídá.
 2. **Kde běží audit**: lokální build (výchozí), staging, nebo i produkce? Produkce = jen čtení, žádné mutace — souhlas ano/ne?
@@ -21,7 +27,7 @@ neví, označ `[NEZNÁMO]` a audit pokračuje s označeným předpokladem.
 ## Kolo 2 — data a uživatelé
 4. Jaká **data** aplikace drží (osobní údaje zákazníků? platby? smlouvy?) a kolik tenantů/uživatelů je reálně aktivních?
 5. **Role**: jaké existují a co která smí/nesmí? Existují testovací účty pro 2 tenanty + 2 role (potřebné pro cross-tenant a BFLA testy)? Pokud ne, kdo je vytvoří (Kapitán — položka P1 před auditem)?
-5b. **Testovací prostředí pro auditora**: dodáš `.env.audit` (oddělená testovací DB — Supabase branch / lokální Postgres — a testovací účty tenantů A/B)? Auditor z produkčních hodnot nic nevyrábí; bez něj jsou dynamické testy neprůkazné.
+5b. **Testovací prostředí pro auditora**, pokud je potřeba: oddělená testovací DB, kopie sešitu nebo izolované soubory a účty. Přístupy dodá vlastník bezpečným úložištěm daného projektu; tajemství nepatří do chatu, důkazů ani repa. Auditor nic nevyrábí z produkčních hodnot; bez vhodného prostředí označí dynamické testy jako neověřené.
 6. **Integrace** (Postmark, Stripe, Supabase, ARES, Telegram most, n8n…): které jsou živé a která by nejvíc bolela, kdyby unikl klíč?
 
 ## Kolo 3 — obavy a priority
@@ -41,6 +47,8 @@ neví, označ `[NEZNÁMO]` a audit pokračuje s označeným předpokladem.
 # Intake — <projekt> — <datum>
 ## Záměr: stupeň OSOBNÍ|FIRMA|B2B-SÍŤ|PRODUKT|MASOVÝ, uživatelé dnes/12m/3r, dostupnost, rozpočet, provozovatel, stroje
 ## Profil: účel, uživatelé, stack, prostředí (URL lokál/staging/prod, souhlas s prod: ne/jen čtení)
+## Důkazy profilu: jazyky/frameworky/databáze → soubor; jistota a limity; účel potvrzen vlastníkem/dokumentací nebo NEZNÁMO
+## Nastavení agentů: harness Claude/Codex; instrukce/skilly/agenti/MCP → zdroj a rozsah; relevantní / kandidát k omezení / NEZNÁMO; konflikty s oběma zdroji
 ## Priority vlastníka: 1. … 2. … 3. …   ## Mimo rozsah: …
 ## top3_funkce: 1. <funkce> — používá denně / štve: <co> 2. … 3. …   ## Produkce: kde běží, disk; povolený disk pro těžké běhy: …
 ## Data a role: tenantů N, role [..], test. účty A/B: ano/ne (kdo dodá)

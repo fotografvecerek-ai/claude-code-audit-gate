@@ -139,12 +139,12 @@ Claude (otevře se prohlížeč) — potřebuješ předplatné Claude Pro/Max ne
 
 ÚSPORNÝ REŽIM (výchozí)
 ----------------------
-Auditor, který radí šetřit, nesmí sám plýtvat. Proto: kontext se kompaktuje u ~200 tis. tokenů (ne až u ~1 mil.
-— každý krok totiž celý kontext čte znovu), hlavní vlákno jen řídí a rozhoduje, práci dělají levní subagenti
+Auditor, který radí šetřit, nesmí sám plýtvat. Proto načítá jen potřebné podklady; kontext a cache se řídí
+možnostmi konkrétní platformy. Hlavní vlákno řídí a rozhoduje, vhodnou práci dělají dostupní levní subagenti
 (průzkumník = nejlevnější model, mechanik = střední; drahý model jen na ověření vážných nálezů), velké soubory
 se nečtou celé, kopie repa ve workspace se uklízejí. Hlídá to pojistka, ne jen text. Kolik audit stojí, ukáže
-node tools/audit-stats.mjs (tokeny a „Ø kontext na krok" — čím menší, tím hospodárnější).
-Důkladný režim (bez těchto omezení): do <projekt>-audit\.rezim.json napiš {"rezim":"dukladny"}.
+node tools/audit-stats.mjs (měření tokenů se zdrojem a uvedeným pokrytím; bez záznamů výsledek nezná).
+Důkladnější audit volí vlastník; bezpečnostní pojistky platí dál.
 
 KONTROLA PŘED STARTEM (každý start auditora i Kapitána)
 ------------------------------------------------------
@@ -185,14 +185,13 @@ Mlčení není souhlas: když neodpovíš, nic nevratného (mazání, vydání, 
 
 ŠETŘENÍ TOKENŮ (LIMITU)
 -----------------------
-Platíš za to, jak plný je „pracovní stůl" okna: každá zpráva znovu přečte celé okno. Balík proto sám od sebe kompaktuje dřív
-(u ~200 tis. tokenů), pomocníci agentů běží na levnějším modelu, najednou jich pracuje nejvýš 5 (auditor) a 3 (Kapitán) a stav práce
-se po kompakci vloží zpátky sám. Co můžeš udělat ty:
+Spotřeba závisí na načteném kontextu, výstupech a počtu volání. Doporučená hranice automatické kompakce je přibližně
+250 tisíc tokenů, pokud ji model podporuje s rezervou. Skutečné nastavení je potřeba ověřit v daném prostředí.
+Pomocníci a souběh se volí podle úlohy a možností hostitele; stav práce se ukládá pro pokračování po kompakci. Co můžeš udělat ty:
 - Víc věcí k jednomu tématu napiš v JEDNÉ zprávě (co, pro koho, co má umět a co ne) — ne deset krátkých zpráv za sebou.
-- Když je úloha hotová a chceš něco úplně jiného: napiš agentovi „předání", počkej na jeho větu a pak napiš /clear.
-  Nové téma začne s čistým stolem a agent si stav načte sám — nic nekopíruješ.
+- Pro nové téma si můžeš otevřít novou relaci po uložení předání; samotná délka kontextu nevyžaduje ruční čištění.
 - Nevkládej do okna celá PDF — ulož je do složky projektu a napiš agentovi cestu; převede si je na text.
-- Konektory (MCP) zapnuté pro celý počítač se načítají do každého projektu; kontrola při startu tě na ně upozorní.
+- Sdílené konektory mohou být dostupné ve více projektech. Inventura odlišuje dostupnost, načtení a doložené použití.
 
 KATALOG ([9]) — ZKUŠENOSTI JINÝCH PROJEKTŮ, JEN CO PROJEKT POTŘEBUJE
 ------------------------------------------------------------------
@@ -270,11 +269,12 @@ AUDITOR    každou opravu nezávisle ověří (6 bran: problém existoval → zm
 
 CO UVIDÍŠ TY
 ------------
-- AUDIT\STATISTIKA.html    kolik auditor prošel (soubory, řádky kódu, obrazovky, endpointy), co našel,
-                             jak dlouho to trvalo a kolik tokenů to stálo (přesně, podle modelů).
+- AUDIT\STATISTIKA.html    pouze měření spotřeby tokenů, zdroj a pokrytí; bez kompatibilních záznamů NEZNÁMO.
 - AUDIT\ZPRAVA.html        ← TOHLE ČTI: zpráva pro tebe v prohlížeči, bez technického žargonu — stav,
                              nejzávažnější věci (co to znamená pro tebe), tokeny, zálohy, co potřebuju od tebe.
                              Auditor ji aktualizuje po prvním dojmu, po handoffu a po každé ověřené opravě.
+                             Otázky a hotové úkoly posoudí agent sám; před předáním celou zprávu přečte.
+                             Poučení zapíše do AUDIT\SEBEREFLEXE.md a při dalším auditu ověří, zda pomohlo.
                              Otázky pro tebe jsou tam jako formulář: doporučená odpověď je předvybraná (s důvodem),
                              stačí potvrdit nebo změnit, případně dopsat komentář, a kliknout „Odeslat odpovědi
                              auditorovi". Pak auditorovi napiš: odpověděl jsem.
@@ -302,7 +302,8 @@ KDYŽ NĚCO NEJDE
 - „GATE-CHECK FAIL: kód se od auditu změnil" → nová oprava = nový důkaz + verdikt.
 - „Settings Error … Expected array“ v okně Kapitána: nastavení z verze < 3.9.4; spusť START.cmd znovu (opraví je).
 - „model not available“ / Fable není na účtu → v okně auditora napiš  /model opus  (nebo sonnet).
-- Chromium se nestáhl → cd <projekt>-audit\tools && npx playwright install chromium
+- Vybraný browser test potřebuje Chromium → připrav jej podle README nástrojů ve workspace auditora.
+  Instalátor browser nestahuje plošně; pro nativní aplikaci nebo makra může být zcela zbytečný.
 - První CI běh „auditor-gate" na GitHubu je červený, dokud auditor nevydá gate — to je záměr.
 - Aktualizace balíku → rozbal novou verzi přes starou složku, START.cmd → [2] → stejný projekt. Instalátor pozná, že
   auditor už běží, a JEN AKTUALIZUJE: vymění ústavu, checklisty, nástroje, pojistky a nastavení (model zůstane), uloží
