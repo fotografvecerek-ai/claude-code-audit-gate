@@ -142,6 +142,10 @@ function profileProject(projectDir, { filesystem = fs } = {}) {
         if (entry.isSymbolicLink()) { addLimitation('Symbolické odkazy jsou přeskočeny.'); continue; }
         const full = path.join(dir, entry.name);
         if (entry.isDirectory()) {
+          let directoryIsLink = false;
+          try { directoryIsLink = filesystem.lstatSync(full).isSymbolicLink(); }
+          catch { addLimitation('Některé adresáře nebylo možné ověřit.'); scanIncomplete = true; continue; }
+          if (directoryIsLink) { addLimitation('Symbolické odkazy jsou přeskočeny.'); continue; }
           if (SKIP_DIRS.has(entry.name.toLowerCase()) || /^cmake-build(?:-|$)/i.test(entry.name)) { skippedArtifactDirectories++; addLimitation('Scaffolding, runtime, cache a archivní složky jsou přeskočeny.'); continue; }
           if (depth < MAX_DEPTH) childDirs.push({ dir: full, depth: depth + 1, name: entry.name });
           else { truncated = true; scanIncomplete = true; }

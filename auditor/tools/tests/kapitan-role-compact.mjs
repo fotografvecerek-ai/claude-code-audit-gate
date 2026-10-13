@@ -21,6 +21,7 @@ let maxRoleBytes = 0;
 
 try {
   const workspace = path.join(temp, 'workspace with spaces'); fs.mkdirSync(workspace);
+  const nativeWorkspace = workspace.replace(/\\/g, '/');
   fs.mkdirSync(path.join(workspace, 'AUDIT'), { recursive: true });
   const home = path.join(temp, 'isolated home'); fs.mkdirSync(home);
   write(workspace, '.rezim.json', JSON.stringify({ soubeh: { kapitan: 3 } }));
@@ -57,12 +58,13 @@ try {
     assert.equal(digest(userSettings), settingsBefore, `${flag} does not touch user-level Claude settings`);
     assert.equal(digest(localSettings), localBefore, `${flag} exits before settings synchronization`);
     if (flag === '--agents-md') {
-      assert.ok(match[0].includes('C:/'), 'Codex receives native Windows absolute paths');
+      assert.ok(match[0].includes(nativeWorkspace), 'Codex receives host-native absolute workspace paths');
       assert.ok(!match[0].includes('/c/'), 'Codex does not receive Git Bash absolute paths');
-      assert.match(match[0], /node "C:\/[^\n]*gate-check\.mjs"/);
+      assert.ok(match[0].includes(`node "${nativeWorkspace}/kapitan-side/gate-check.mjs"`), 'Codex gate command uses the native workspace path');
+      if (process.platform === 'win32') assert.ok(/^[A-Z]:\//i.test(nativeWorkspace), 'Windows Codex paths use a native drive prefix');
       assert.ok(!/implementator|sonnet|haiku/i.test(match[0]), 'Codex role does not assume Claude model names or a fixed helper');
       assert.ok(match[0].includes('.codex/STATE.md') && match[0].includes('.codex/KANBAN.md'));
-    assert.ok(match[0].includes('node "C:/') && match[0].includes('/kapitan-side/auditor-bus.mjs" --workspace "C:/'), 'Codex role uses the explicit workspace wrapper');
+    assert.ok(match[0].includes(`node "${nativeWorkspace}/kapitan-side/auditor-bus.mjs" --workspace "${nativeWorkspace}"`), 'Codex role uses the explicit workspace wrapper with host-native paths');
       write(workspace, 'tools/katalog.mjs', '// fixture only\n');
       for (const relative of ['tools/bus.mjs', 'tools/bus-store.mjs', 'kapitan-side/auditor-bus.mjs']) {
         const source = path.join(packageRoot, relative); const target = path.join(workspace, relative);
@@ -71,7 +73,7 @@ try {
       write(repo, '.claude/katalog.json', JSON.stringify({ posouzeno: true }));
       const runtime = run([workspace, '--codex'], { ...env, CLAUDE_PROJECT_DIR: repo });
       assert.equal(runtime.status, 0, runtime.stderr);
-      assert.match(runtime.stdout, /node "C:\/[^\n]*\/kapitan-side\/auditor-bus\.mjs" --workspace "C:\/[^\n]*" post/);
+      assert.ok(runtime.stdout.includes(`node "${nativeWorkspace}/kapitan-side/auditor-bus.mjs" --workspace "${nativeWorkspace}" post`));
       assert.match(runtime.stdout, /doporuc --cil \. --harness codex/);
       assert.doesNotMatch(runtime.stdout, /Po posouzení se tahle věta přestane zobrazovat|každá položka stojí kontext/);
       write(repo, '.codex/katalog.json', JSON.stringify({ posouzeno: true }));

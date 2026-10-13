@@ -326,6 +326,20 @@ try {
   } };
   assert.ok(profileProject(path.join(root, 'symlink-test'), { filesystem: symlinkFs }).limitations.some(item => /Symbolické odkazy/.test(item)));
 
+  const junctionPath = path.join(root, 'symlink-test', 'junction');
+  fs.mkdirSync(junctionPath, { recursive: true });
+  write(path.join(root, 'symlink-test'), 'junction/leak.py', '');
+  const directoryLink = { name: 'junction', isSymbolicLink: () => false, isDirectory: () => true, isFile: () => false };
+  const junctionFs = { ...fs,
+    lstatSync(file) { return file === junctionPath ? { isSymbolicLink: () => true } : fs.lstatSync(file); },
+    opendirSync(dir, options) {
+      if (dir !== path.join(root, 'symlink-test')) return fs.opendirSync(dir, options);
+      let read = false;
+      return { readSync() { if (read) return null; read = true; return directoryLink; }, closeSync() {} };
+    },
+  };
+  assert.equal(profileProject(path.join(root, 'symlink-test'), { filesystem: junctionFs }).languages.length, 0, 'Junctions are excluded even when Dirent reports them as directories');
+
   fs.mkdirSync(path.join(root, 'entry-limit'));
   const entryRoot = path.join(root, 'entry-limit');
   const entryFs = { ...fs, opendirSync(dir, options) {

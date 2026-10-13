@@ -1697,7 +1697,8 @@ if (fs.existsSync(path.join(pkg, 'katalog', 'katalog.json'))) {
   T('KATALOG Codex: agent jako TOML, skill v .agents/skills, pravidla v AGENTS.md', [/^name = "python-reviewer"/m.test(toml) && /developer_instructions = /.test(toml) && /sandbox_mode = "read-only"/.test(toml), fs.existsSync(path.join(kc, '.agents/skills/uzavrena-smycka/SKILL.md')), /katalog:pravidla/.test(fs.existsSync(path.join(kc, 'AGENTS.md')) ? fs.readFileSync(path.join(kc, 'AGENTS.md'), 'utf8') : '')].join(','), 'true,true,true');
   // A-021 kolo 2: test — katalog s CRLF konci (Windows autocrlf=true) — volá skutečný katalog.mjs, ne lokální kopii funkcí
   {
-    const ka_crlftest = path.join(tmp, 'ka-crlftest'); fs.mkdirSync(ka_crlftest, { recursive: true });
+    const ka_crlfPath = path.join(tmp, 'ka-crlftest'); fs.mkdirSync(ka_crlfPath, { recursive: true });
+    const ka_crlftest = fs.realpathSync(ka_crlfPath);
 
     // Rekurzivní kopírování katalog/ se CRLF konverzí .md souborů
     function cpWithCrlf(src, dest) {
@@ -1729,7 +1730,8 @@ if (fs.existsSync(path.join(pkg, 'katalog', 'katalog.json'))) {
     const katEnv = { ...process.env, HOME: ka_crlftest, USERPROFILE: ka_crlftest, XDG_CONFIG_HOME: path.join(ka_crlftest, '.config'), XDG_CACHE_HOME: path.join(ka_crlftest, '.cache'), LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', TMPDIR: ka_crlftest, TEMP: ka_crlftest, TMP: ka_crlftest };
     const kat_crlftest = (...args) => spawnSync(process.execPath, [path.join(ka_crlftest, 'tools', 'katalog.mjs'), ...args], { encoding: 'utf8', env: katEnv });
 
-    kat_crlftest('aktivuj', 'python-reviewer', '--cil', ka_target, '--harness', 'codex');
+    const activation = kat_crlftest('aktivuj', 'python-reviewer', '--cil', ka_target, '--harness', 'codex');
+    if (activation.error || activation.status !== 0) throw new Error(`KATALOG Codex CRLF aktivace selhala: ${activation.error?.message || activation.stderr || activation.stdout}`);
     const toml = fs.existsSync(path.join(ka_target, '.codex/agents/python-reviewer.toml')) ? fs.readFileSync(path.join(ka_target, '.codex/agents/python-reviewer.toml'), 'utf8') : '';
 
     T('KATALOG Codex: agent s CRLF (.md ze Windows autocrlf=true) — name není undefined', [/^name = "python-reviewer"/m.test(toml), !/name = undefined/.test(toml), /developer_instructions = /.test(toml)].join(','), 'true,true,true');
