@@ -46,6 +46,9 @@
 - [Q2] <např. Kde běží ostrá data?> {Supabase | vlastní server | nevím; doporučeno: nevím — pokud si nejsi jistý, zjistím to z konfigurace sám}
 
 ## Průběh opravy
-<Kolik nálezů otevřeno / opraveno / ověřeno; kolikrát agent tvrdil „hotovo" neprávem.>
+<Agent sám porovná Kanban, kritéria a důkazy: co je otevřené, opravené a skutečně ověřené. U každého „hotovo“ odkaz na ověření. Skript tyto závěry nevyplňuje.>
+
+## Sebereflexe auditora
+<Po přečtení celé zprávy: co jsem přehlédl nebo vyhodnotil špatně, důkaz a dopad; co konkrétně změním a jak to příště ověřím. Není-li chyba doložená, přiznat to. Podrobnosti a vyhodnocení minulého poučení v AUDIT/SEBEREFLEXE.md.>
 
 <sub>Technické podrobnosti: 02_HANDOFF.md (pro Kapitána), 01_nalezy/, 04_verdikty/, 06_efektivita.md, 07_udrzitelnost.md.</sub>

@@ -1,5 +1,5 @@
 {
-  "_": "Katalog volitelných skillů, agentů, hooků a pravidel. NIC se neinstaluje samo: agent (auditor pro svůj workspace, Kapitán pro projekt) si podle projektu vybere přes `node tools/katalog.mjs doporuc` a aktivuje jen to, co projekt potřebuje. Každá aktivní položka stojí kontext v KAŽDÉM kroku (jméno + popis), proto co nejméně.",
+  "_": "Volitelné katalogové položky. Doporučení vychází z project-profile.mjs; neznámý profil nedostává automatické výchozí položky. Každá aktivní položka stojí kontext v každém kroku, proto vybírej jen potřebné.",
   "polozky": [
     {
       "id": "uzavrena-smycka",
@@ -9,14 +9,12 @@
         "kapitan"
       ],
       "k_cemu": "uzavřená QA smyčka pro dávku ≥3 issues: formalizuj → oprav → nezávisle ověř → review → vydej → pouč se",
-      "doporucit": [
-        "kapitan"
-      ],
       "souvisi": [
         "kontrakt-formalizator",
         "overovatel-nezavisly",
         "code-reviewer"
-      ]
+      ],
+      "poznamka": "jen při dávce alespoň 3 souvisejících změn a výslovném požadavku na opakovatelný postup"
     },
     {
       "id": "secret-management",
@@ -38,9 +36,7 @@
         "kapitan"
       ],
       "k_cemu": "píše kód podle plánu Kapitána na levnějším modelu (sonnet) — Kapitán na silném modelu plánuje, mluví s vlastníkem a kontroluje diff",
-      "doporucit": [
-        "kapitan"
-      ]
+      "poznamka": "jen když Kapitán potřebuje delegovat implementaci; auditor tuto roli nedostává"
     },
     {
       "id": "kontrakt-formalizator",
@@ -50,9 +46,7 @@
         "kapitan"
       ],
       "k_cemu": "zadání/bug → akceptační kritéria + červený test před opravou (read-only)",
-      "doporucit": [
-        "kapitan"
-      ]
+      "poznamka": "jen při zadání, které vyžaduje výslovná akceptační kritéria"
     },
     {
       "id": "overovatel-nezavisly",
@@ -62,9 +56,7 @@
         "kapitan"
       ],
       "k_cemu": "vnitřní nezávislé ověření „hotovo\" v čerstvém kontextu (read-only); nezávislý Auditor má přednost",
-      "doporucit": [
-        "kapitan"
-      ]
+      "poznamka": "jen u složité změny s nezávislou kontrolou uvnitř projektu"
     },
     {
       "id": "code-reviewer",
@@ -74,8 +66,9 @@
         "kapitan"
       ],
       "k_cemu": "review kvality a bezpečnosti diffu před commitem netriviální změny (read-only)",
-      "doporucit": [
-        "kapitan"
+      "signaly": [
+        "cpp",
+        "vba"
       ]
     },
     {
@@ -112,7 +105,8 @@
       ],
       "k_cemu": "review změn v TypeScriptu/JavaScriptu (read-only)",
       "signaly": [
-        "typescript"
+        "typescript",
+        "javascript"
       ]
     },
     {
@@ -125,6 +119,10 @@
       "k_cemu": "tvorba a údržba E2E testů (Playwright/Cypress) kritických uživatelských cest — jen projekt, který E2E testy má",
       "signaly": [
         "e2e"
+      ],
+      "vsechny_signaly": [
+        "e2e",
+        "web"
       ]
     },
     {
@@ -146,9 +144,7 @@
         "auditor"
       ],
       "k_cemu": "provozní pravidla agentů (subagenti, modely, git, provoz, Windows pasti) — do kontextu jen 1 řádek, sekce se čtou podle potřeby",
-      "doporucit": [
-        "kapitan"
-      ]
+      "poznamka": "jen když projekt potřebuje vlastní provozní pravidla a jejich údržbu"
     },
     {
       "id": "kontrola-skriptu",
@@ -207,12 +203,10 @@
           "matcher": "Bash|PowerShell"
         }
       ],
-      "doporucit": [
-        "kapitan"
-      ],
       "harness": [
         "claude"
-      ]
+      ],
+      "poznamka": "jen když Kapitán potřebuje hook pro sdílení pracovního stromu"
     },
     {
       "id": "stav-kompakce",
@@ -228,7 +222,6 @@
           "matcher": "compact"
         }
       ],
-      "doporucit": [],
       "harness": [
         "claude"
       ],
@@ -237,5 +230,8 @@
         "do": ".claude/STATE.md"
       }
     }
-  ]
+  ],
+  "bez_podpory": {
+    "postgres": "Katalog zatím nemá specializovanou PostgreSQL roli. Použij nativní kontroly projektu: migration tool, SQL lint/parser, integrační testy a plán dotazu podle místní dokumentace."
+  }
 }

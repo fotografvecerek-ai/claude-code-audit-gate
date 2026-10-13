@@ -11,7 +11,7 @@ const rel = p => path.relative(repo, p);
 const src = new Map(files.map(f => [f, fs.readFileSync(f, 'utf8')]));
 const linesOf = (t, idx) => t.slice(0, idx).split('\n').length;
 const collect = (re, label) => { const out = []; for (const [f, t] of src) for (const m of t.matchAll(re)) out.push({ file: rel(f), line: linesOf(t, m.index), match: m[0].slice(0, 120), label }); return out; };
-const group = (rows, key) => { const g = {}; for (const r of rows) (g[key(r)] ||= []).push(r); return g; };
+const group = (rows, key) => { const g = Object.create(null); for (const r of rows) (g[key(r)] ||= []).push(r); return g; };
 const multi = (g, min) => Object.fromEntries(Object.entries(g).filter(([, v]) => new Set(v.map(x => x.file)).size >= min).sort((a, b) => b[1].length - a[1].length));
 
 // 1) DB klienti a přímé přístupy

@@ -23,13 +23,14 @@ const CXM = ' Pravidla a roli mas v AGENTS.md (bezis v Codexu).';
 const HD = ag.hooky || '';
 // Kapitán existuje (ne audit z GitHubu, ne kombinace se zdravým startem) → i společný spouštěč start-projekt (jedno okno, dvě záložky)
 const hasK = !fs.existsSync(path.join(ws, 'AUDIT', '.remote.json')) && !fs.existsSync(path.join(ws, 'AUDIT', '.zdravy-start.json'));
-// Úsporný režim (výchozí; <ws>/.rezim.json): kompakce kontextu u ~200 tis. tokenů místo ~1 mil. (modely s 1M oknem jinak nesou a znovu čtou
+// Úsporný režim (výchozí; <ws>/.rezim.json): kompakce kontextu u ~250 tis. tokenů místo ~1 mil. (modely s 1M oknem jinak nesou a znovu čtou
 // obří kontext v každém kroku); subagenti OBOU rolí bez určeného modelu na sonnetu (CLAUDE_CODE_SUBAGENT_MODEL je jen záloha — model: v definici
 // agenta i v konkrétním volání má přednost) a strop souběžných subagentů (auditor 5, Kapitán 3; .rezim.json → "soubeh": {"auditor":5,"kapitan":3})
 // — z provozu: Kapitán na Opusu pustil 9 pomocníků najednou. „dukladny" = výchozí chování Claude Code.
-let rz = { rezim: 'usporny', okno: 200000 }; try { rz = { ...rz, ...JSON.parse(fs.readFileSync(path.join(ws, '.rezim.json'), 'utf8')) }; } catch { }
+const DEFAULT_CLAUDE_COMPACT_WINDOW = 250000;
+let rz = { rezim: 'usporny', okno: DEFAULT_CLAUDE_COMPACT_WINDOW }; try { rz = { ...rz, ...JSON.parse(fs.readFileSync(path.join(ws, '.rezim.json'), 'utf8')) }; } catch { }
 // Model: vybírá tools/preflight.mjs při každém startu podle PRÁVĚ dostupných modelů (pořadí aliasů podle role, .rezim.json → "modely").
-const ECO = rz.rezim !== 'dukladny'; const okno = Math.max(50000, +rz.okno || 200000);   // chráněná složka pojistek (codex-setup); spouštěč bez platných otisků agenta nespustí
+const ECO = rz.rezim !== 'dukladny'; const okno = Math.max(50000, +rz.okno || DEFAULT_CLAUDE_COMPACT_WINDOW);   // chráněná složka pojistek (codex-setup); spouštěč bez platných otisků agenta nespustí
 const soub = role => Math.max(1, Math.min(20, +((rz.soubeh || {})[role]) || (role === 'auditor' ? 5 : 3)));
 const ecoEnv = (role, pre) => [`${pre}CLAUDE_CODE_AUTO_COMPACT_WINDOW=${okno}`, `${pre}CLAUDE_CODE_SUBAGENT_MODEL=sonnet`, `${pre}CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=${soub(role)}`];
 const tg = role => { if (CX(role)) return ''; const d = tg0(role); if (!d) return ''; if (role === 'kapitan' && tg0('auditor') && tok(tg0('auditor')) === tok(d)) return ''; return d; };

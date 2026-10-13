@@ -12,5 +12,6 @@ auditor/build/
 Auditor_pruzkum_*.html
 Auditor_vyber*.json
 *.zip
+.tmp/
 .DS_Store
 Thumbs.db

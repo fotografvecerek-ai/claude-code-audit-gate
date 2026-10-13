@@ -86,7 +86,30 @@ function writeStdout(text) {
 }
 const out = o => writeStdout(typeof o === 'string' ? o : JSON.stringify(o, null, 2));
 
-function nextId(pre) { const n = all().map(r => String(r.id || '')).map(i => (i.match(new RegExp(`^${pre}-(\\d+)$`)) || [])[1]).filter(Boolean).map(Number); return `${pre}-${String((n.length ? Math.max(...n) : 0) + 1).padStart(3, '0')}`; }
+// Rezervace platí pro tento sdílený AUDIT/bus workspace; nezávislé Git klony mezi sebou nekoordinuje.
+function reserveNextId(pre) {
+  if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(pre)) die('--prefix musí začínat písmenem a obsahovat jen písmena, číslice, _ nebo -');
+  const file = path.join(BUS, '.id-sequence.json'); let allocated;
+  withLock(file, () => {
+    let saved = Object.create(null);
+    try {
+      const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('kořen není objekt');
+      for (const [prefix, value] of Object.entries(parsed)) {
+        if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(prefix) || !Number.isSafeInteger(value) || value < 0) throw new Error('neplatný prefix nebo čítač');
+      }
+      Object.assign(saved, parsed);
+    } catch (e) {
+      if (e.code !== 'ENOENT') throw new Error(`bus: poškozený .id-sequence.json, rezervace ID zastavena (${e.message})`);
+    }
+    const re = new RegExp(`^${pre}-(\\d+)$`);
+    const messageMax = all().reduce((max, r) => { const n = Number((String(r.id || '').match(re) || [])[1]); return Number.isSafeInteger(n) ? Math.max(max, n) : max; }, 0);
+    const next = Math.max(messageMax, saved[pre] || 0) + 1;
+    saved[pre] = next; atomicWrite(file, JSON.stringify(saved, null, 2) + '\n');
+    allocated = `${pre}-${String(next).padStart(3, '0')}`;
+  });
+  return allocated;
+}
 
 // A-010 kolo 1: souběžné `ack` (50 agentů potvrzuje tutéž zprávu naráz) dělaly read-modify-write bez zámku → ztracená potvrzení.
 // A-010 kolo 2 (verdikt FAIL, viz AUDIT/04_verdikty/A-010.md): kolo-1 zámek měl vlastní race — stat() na zámek, co mezitím
@@ -133,7 +156,7 @@ function withLock(file, fn, { staleMs = LOCK_STALE_MS, timeoutMs = LOCK_TIMEOUT_
 function atomicWrite(file, data) {
   const tmp = `${file}.tmp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   let tmpLeft = false;
-  try { withRetry(() => fs.writeFileSync(tmp, data)); tmpLeft = true; withRetry(() => fs.renameSync(tmp, file)); tmpLeft = false; }
+  try { withRetry(() => fs.writeFileSync(tmp, data, typeof data === 'string' ? { encoding: 'utf8' } : {})); tmpLeft = true; withRetry(() => fs.renameSync(tmp, file)); tmpLeft = false; }
   finally { if (tmpLeft) { try { fs.unlinkSync(tmp); } catch { } } }   // úklid .tmp i při pádu na EPERM po vyčerpání retry (dřív zůstával ležet)
 }
 
@@ -153,17 +176,18 @@ switch (cmd) {
       if (from === 'kapitan') die('ZADANI posílá vlastník (nebo auditor jako doslovné předání vlastníkovy úlohy) — Kapitán úlohu přijímá: STATUS --id K-### --status STARTED');
       if (!args.citace || !String(args.citace).trim()) die('ZADANI vyžaduje --citace "přesná slova vlastníka" (auditor úlohu jen předává, nenavrhuje)');
       if (from === 'auditor' && String(text).trim()) die('ZADANI od auditora nesmí mít --text: auditor k úloze vlastníka nic nepřidává (návrh, postup, AK dělá Kapitán; auditor pak ověřuje)');
+      if (Object.hasOwn(args, 'id')) die('ZADANI si přiděluje ID automaticky přes rezervaci; --id je zakázané');
     }
     if (type === 'EVIDENCE' && (!ref || !args.sha)) die('EVIDENCE vyžaduje --ref AUDIT/03_dukazy/<id>/ A --sha <commit repa> (bez nich auditor neověřuje)');
     const ts = new Date().toISOString(); const to = type === 'ZADANI' ? 'kapitan' : from === 'auditor' ? 'kapitan' : from === 'kapitan' ? 'auditor' : 'both';
-    const idF = type === 'ZADANI' && !/^K-\d+$/.test(id) ? nextId('K') : id;
+    const idF = type === 'ZADANI' && !/^K-\d+$/.test(id) ? reserveNextId('K') : id;
     // souběžné posty se stejnou milisekundou+from+type+id (stejný název souboru) se nikdy nesmí přepsat — wx (exclusive
     // create) + při kolizi odlišující sufix a zkusit znovu, dokud nenajdeme volné jméno.
     let file, msg;
     for (let n = 0; ; n++) {
       file = `${ts.replace(/[:.]/g, '-')}_${from}_${type}_${idF}${n ? `-${n}` : ''}.json`;
       msg = { msgId: file, ts, from, to, type, id: idF, ref, text, ...(args.citace ? { citace: String(args.citace) } : {}), ...(verdict ? { verdict } : {}), ...(args.scope ? { scope: args.scope } : {}), ...(round ? { round } : {}), ...(status ? { status } : {}), replyTo: args['reply-to'] ? path.basename(args['reply-to']) : null, sha: args.sha || null, commit: git('rev-parse --short HEAD'), ack: [] };
-      try { withRetry(() => fs.writeFileSync(path.join(BUS, file), JSON.stringify(msg, null, 2) + '\n', { flag: 'wx' })); break; }
+      try { withRetry(() => fs.writeFileSync(path.join(BUS, file), `${JSON.stringify(msg, null, 2)}\n`, { flag: 'wx', encoding: 'utf8' })); break; }
       catch (e) { if (e.code !== 'EEXIST' || n > 1000) throw e; }
     }
     // zpráva už je trvale zapsaná — selhání pomocného ledgeru (např. vyčerpaný retry na EPERM) NESMÍ vrátit exit 1:
@@ -171,7 +195,7 @@ switch (cmd) {
     try { ledger(); } catch (e) { console.error(`bus: LEDGER.md se nepodařilo aktualizovat (zpráva ${file} je zapsaná): ${e.message}`); }
     out({ posted: file, msg }); break;
   }
-  case 'nove-id': { out(nextId(args.prefix || 'K')); break; }
+  case 'nove-id': { out(reserveNextId(args.prefix || 'K')); break; }
   case 'inbox': {
     const role = args.for; if (!ROLES.includes(role)) die('--for auditor|kapitan|owner');
     const since = sinceTs(args.since); const limit = +(args.limit || (args.brief ? 15 : 100));

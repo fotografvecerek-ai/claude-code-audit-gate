@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // EFFICIENCY AUDIT — read-only měření pro checklist EFEKTIVITA.
 // Použití:
-//   node tools/efficiency-audit.mjs context <repo>            # co se načítá do kontextu (CLAUDE.md, rules, agents, skills, MCP, hooks)
-//   node tools/efficiency-audit.mjs usage <repo> [--days 7]   # tokeny per model ze session logů Claude Code (~/.claude/projects/<slug>/*.jsonl)
+//   node tools/efficiency-audit.mjs context <repo> [--harness claude|codex|all] # inventura kontextu obou harnessů
+//   node tools/efficiency-audit.mjs usage <repo> [--days 7] [--harness claude|codex|all] # kompatibilní Claude usage; Codex explicit unknown
 //   node tools/efficiency-audit.mjs churn <repo> [--days 30]  # rework ratio a churn řádků z git logu
 //   node tools/efficiency-audit.mjs modules <repo>            # soubory/funkce nad prahy modularizace
 //   node tools/efficiency-audit.mjs all <repo> > AUDIT/06_efektivita_raw.json
@@ -11,6 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
 import { execSync } from 'node:child_process';
+import { auditConfiguration } from './configuration-audit.mjs';
 
 const [cmd, repoArg, ...rest] = process.argv.slice(2);
 if (!cmd || !repoArg) { console.error('usage: efficiency-audit.mjs <context|usage|churn|modules|all> <repo> [--days N]'); process.exit(1); }
@@ -23,66 +24,63 @@ const walk = (dir, filter, out = [], depth = 0) => {
   if (depth > 8) return out;
   let ents = []; try { ents = fs.readdirSync(dir, { withFileTypes: true }); } catch { return out; }
   for (const e of ents) {
-    if (['node_modules', '.git', '.next', 'dist', 'build', 'coverage', 'playwright-report', 'test-results', 'vendor', '.venv', 'venv', 'www', '__pycache__'].includes(e.name)) continue;
+    if (e.isSymbolicLink()) continue;
+    if (['node_modules', '.git', '.next', 'dist', 'build', 'coverage', 'playwright-report', 'test-results', 'vendor', '.venv', 'venv', 'www', '__pycache__', '.tmp', 'tmp', 'temp', '.cache', 'third_party', '_deps'].includes(e.name)) continue;
     const p = path.join(dir, e.name);
     if (e.isDirectory()) walk(p, filter, out, depth + 1); else if (filter(p)) out.push(p);
   }
   return out;
 };
 
-function context() {
-  const items = [];
-  const add = (kind, file, text, note = '') => text != null && items.push({ kind, file: path.relative(repo, file) || file, lines: text.split('\n').length, tokens_est: tok(text), note });
-  for (const f of ['CLAUDE.md', 'CLAUDE.local.md', '.claude/CLAUDE.md']) add('claude_md', path.join(repo, f), read(path.join(repo, f)));
-  add('claude_md_user', path.join(os.homedir(), '.claude/CLAUDE.md'), read(path.join(os.homedir(), '.claude/CLAUDE.md')), 'SDÍLENÉ — načítá se v KAŽDÉM projektu na počítači');
-  // pravidla mimo projekt, která se přesto načítají (míchají se mezi projekty): uživatelská ~/.claude/rules a CLAUDE.md v nadřazených složkách (např. D:\CLAUDE.md)
-  for (const f of walk(path.join(os.homedir(), '.claude/rules'), p => p.endsWith('.md'))) { const t = read(f); add('rule_user', f, t, `SDÍLENÉ — uživatelské pravidlo, načítá se v KAŽDÉM projektu${/^---[\s\S]*?paths:/m.test(t || '') ? ' (jen pro soubory podle paths:)' : ''}; patří-li jednomu projektu, přesuň do jeho .claude/rules`); }
-  for (let d = path.dirname(repo); d && d !== path.dirname(d); d = path.dirname(d)) {
-    if (path.resolve(d) === path.resolve(os.homedir())) continue;   // ~/CLAUDE.md = uživatelská úroveň, výše
-    for (const f of ['CLAUDE.md', 'CLAUDE.local.md']) { const pf = path.join(d, f); add('claude_md_parent', pf, read(pf), `SDÍLENÉ — nadřazená složka ${d}: načítá se ve VŠECH projektech pod ní; obsah pro jeden projekt přesuň do jeho CLAUDE.md`); }
-    if (path.dirname(d) === d) break;
+function context(harness = 'claude') {
+  const one = selectedHarness => {
+    const audit = auditConfiguration(repo, { harness: selectedHarness, includeShared: true });
+    const items = audit.inventory.map(entry => {
+      const kind = entry.kind === 'instruction' ? selectedHarness === 'codex' ? 'agents_md' : 'claude_md'
+        : entry.kind === 'rule' ? entry.scope === 'user' ? 'rule_user' : 'rule'
+          : entry.kind === 'skill' ? entry.scope === 'user' ? 'skill_user' : 'skill'
+            : entry.kind;
+      const loadNote = entry.activation === 'not-loaded' ? 'Nad kořenem repozitáře; Codex ji od cwd na úrovni repozitáře nenačítá.'
+        : entry.activation === 'excluded' || entry.state === 'shadowed' ? 'Vyloučeno: instrukci přebíjí soubor s vyšší prioritou.'
+        : entry.scoped === true ? 'Scoped: paths; tokeny nejsou započtené do always-loaded odhadu.'
+        : ['instruction', 'rule'].includes(entry.kind) ? `${entry.scope}; efektivní načtení hostitelem neověřeno.`
+          : `${entry.scope}; konfigurace sama nedokazuje aktivaci ani použití.`;
+      return { kind, file: entry.path, lines: entry.lines ?? 0, tokens_est: entry.tokensEstimate ?? 0, note: loadNote, state: entry.state, activation: entry.activation, usage: entry.usage, scoped: entry.scoped ?? null };
+    });
+    const alwaysKinds = new Set(['instruction', 'rule']);
+    const total = audit.inventory.filter(entry => alwaysKinds.has(entry.kind) && entry.scoped !== true && !['excluded', 'not-loaded'].includes(entry.activation) && entry.state !== 'shadowed' && entry.tokensEstimate != null)
+      .reduce((sum, entry) => sum + entry.tokensEstimate, 0);
+    const mcp = {};
+    for (const item of audit.inventory.filter(entry => entry.kind === 'mcp-server')) (mcp[item.path] ||= []).push(item.name);
+    const verdict = audit.completeness !== 'scanned' ? '⚪' : total > 12000 ? '🔴' : total > 6000 ? '🟡' : '🟢';
+    return {
+      repo, harness: selectedHarness, always_loaded_tokens_est: total, verdict, mcp_servers: mcp, items,
+      configuration: { harness: selectedHarness, completeness: audit.completeness, activation: 'unknown', usage: 'unknown', inventory_count: audit.counts.inventory, limitations: audit.limitations },
+      coverage: { context_estimate: audit.completeness === 'scanned' ? 'estimated' : 'partial', activation: 'unknown', usage: 'unknown', scoped_rules_excluded: audit.inventory.filter(item => item.kind === 'rule' && item.scoped === true).length },
+      note: 'Odhad vychází z deklarovaných instrukcí; hostitelské načtení, efektivní aktivace a použití zůstávají neznámé. MCP servery jsou uvedené podle názvu bez odhadu ceny schémat.',
+    };
+  };
+  if (harness === 'all') {
+    const claude = one('claude'); const codex = one('codex');
+    return {
+      ...claude, harness: 'all',
+      legacy_fields_scope: 'claude-subtotal',
+      always_loaded_tokens_scope: 'claude-subtotal', items_scope: 'claude-subtotal',
+      verdict_scope: 'claude-subtotal', mcp_servers_scope: 'claude-subtotal',
+      claudeSubtotal: { always_loaded_tokens_est: claude.always_loaded_tokens_est, verdict: claude.verdict, mcp_servers: claude.mcp_servers, item_count: claude.items.length },
+      harnesses: { claude, codex }, coverage: { harnesses: { claude: claude.coverage, codex: codex.coverage }, effectiveActivation: 'unknown' },
+      note: `${claude.note} Pole na nejvyšší úrovni jsou kvůli kompatibilitě pouze mezisoučtem Claude; Codex je uveden samostatně v harnesses.codex.`,
+    };
   }
-  { const root = path.parse(repo).root; for (const f of ['CLAUDE.md', 'CLAUDE.local.md']) { const pf = path.join(root, f); if (!items.some(i => i.file === path.relative(repo, pf))) add('claude_md_parent', pf, read(pf), `SDÍLENÉ — kořen disku ${root}: načítá se ve VŠECH projektech na disku`); } }
-  for (const f of walk(path.join(repo, '.claude/rules'), p => p.endsWith('.md'))) {
-    const t = read(f); const hasPaths = /^---[\s\S]*?paths:/m.test(t || '');
-    add('rule', f, t, hasPaths ? 'scoped (paths:)' : 'ALWAYS LOADED — bez paths:');
-  }
-  for (const f of walk(path.join(repo, '.claude/agents'), p => p.endsWith('.md'))) {
-    const t = read(f) || ''; const fm = (t.match(/^---([\s\S]*?)---/) || [])[1] || '';
-    const model = (fm.match(/^model:\s*(\S+)/m) || [])[1] || 'inherit(!)';
-    const tools = (fm.match(/^tools:\s*(.+)/m) || [])[1] || 'ALL(!)';
-    const skills = (fm.match(/^skills:\s*(.+)/m) || [])[1] || '';
-    add('agent', f, t, `model=${model}; tools=${tools}; skills=${skills || '-'}`);
-  }
-  for (const f of walk(path.join(repo, '.claude/skills'), p => p.endsWith('SKILL.md'))) add('skill', f, read(f));
-  for (const f of walk(path.join(os.homedir(), '.claude/skills'), p => p.endsWith('SKILL.md'))) add('skill_user', f, read(f));
-  // MCP servery
-  const mcp = {};
-  for (const f of [path.join(repo, '.mcp.json'), path.join(os.homedir(), '.claude.json'), path.join(repo, '.claude/settings.json'), path.join(repo, '.claude/settings.local.json'), path.join(os.homedir(), '.claude/settings.json')]) {
-    const j = read(f); if (!j) continue;
-    try { const o = JSON.parse(j); const s = o.mcpServers || (o.projects && Object.values(o.projects).flatMap(p => Object.keys(p.mcpServers || {}))) || {};
-      mcp[path.relative(repo, f) || f] = Array.isArray(s) ? s : Object.keys(s);
-      if (o.hooks) items.push({ kind: 'hooks', file: path.relative(repo, f) || f, lines: 0, tokens_est: 0, note: Object.entries(o.hooks).map(([ev, arr]) => `${ev}:${arr.flatMap(g => g.hooks || []).map(h => h.type).join('/')}`).join(' ') });
-    } catch { }
-  }
-  // pluginy a hooky podle rozsahu: USER (~/.claude/settings.json) běží v KAŽDÉM projektu na počítači — kontext navíc všude a jejich logy v home
-  // míchají data všech projektů (měření jen po přiřazení session → projekt přes adresář transkriptu)
-  let others = 0; try { others = fs.readdirSync(path.join(os.homedir(), '.claude', 'projects')).length; } catch { }
-  for (const [scope, f] of [['USER', path.join(os.homedir(), '.claude/settings.json')], ['projekt', path.join(repo, '.claude/settings.json')], ['local', path.join(repo, '.claude/settings.local.json')]]) {
-    let o = null; try { o = JSON.parse((read(f) || '').replace(/^\uFEFF/, '')); } catch { } if (!o) continue;
-    for (const [pl, on] of Object.entries(o.enabledPlugins || {})) if (on) items.push({ kind: 'plugin', file: path.relative(repo, f) || f, lines: 0, tokens_est: 0,
-      note: scope === 'USER' ? `${pl} — USER rozsah: načítá se ve všech projektech (${others} složek transkriptů); zvaž --scope project/local` : `${pl} (${scope})` });
-    if (scope === 'USER' && o.hooks) items.push({ kind: 'hooks_user', file: f, lines: 0, tokens_est: 0, note: `USER hooky běží v každém projektu: ${Object.keys(o.hooks).join(', ')} — jejich logy v home jsou společné pro všechny projekty` });
-  }
-  const total = items.filter(i => ['claude_md', 'claude_md_user', 'claude_md_parent', 'rule', 'rule_user'].includes(i.kind) && !/jen pro soubory podle paths/.test(i.note)).reduce((a, b) => a + b.tokens_est, 0);
-  const verdict = total > 12000 ? '🔴' : total > 6000 ? '🟡' : '🟢';
-  return { repo, always_loaded_tokens_est: total, verdict, mcp_servers: mcp, items, note: 'MCP schémata nástrojů se posílají v každém requestu — počet nástrojů ověř přes /mcp v Claude Code.' };
+  return one(harness);
 }
 
-function usage() {
+function usage(harness = 'claude') {
+  if (harness === 'codex') return { harness, status: 'unknown', days, project_dirs: [], per_model: null, sessions: null, tool_calls: null, reason: 'Pro tuto verzi není kompatibilní Codex usage telemetrie zapojena; Claude logy se nepoužívají jako náhrada.' };
+  if (harness === 'all') return { harness, claude: usage('claude'), codex: usage('codex'), status: 'mixed-coverage' };
   // Claude Code ukládá session logy do ~/.claude/projects/<slug>/*.jsonl; slug = cesta repa s nahrazenými oddělovači.
   const base = path.join(os.homedir(), '.claude/projects');
-  let dirs = []; try { dirs = fs.readdirSync(base); } catch { return { error: `nenalezeno ${base}` }; }
+  let dirs = []; try { dirs = fs.readdirSync(base); } catch { return { harness: 'claude', status: 'unknown', days, project_dirs: [], per_model: null, sessions: null, reason: 'Adresář Claude Code usage logů není dostupný.' }; }
   // přesně tento projekt: složka transkriptů = cesta repa (každý znak mimo A-Z0-9 → „-"), případně jeho podsložky (worktree).
   // Dřív se bral každý adresář obsahující název repa → „app" zahrnul i „app-audit" (spotřebu auditora) a sousední projekty „app-old" apod.
   const enc = p => p.replace(/[^A-Za-z0-9]/g, '-').toLowerCase(); const me = enc(repo);
@@ -107,7 +105,13 @@ function usage() {
       } catch { }
     }
   }
-  return { days, project_dirs: cand, per_model: perModel, sessions: Object.keys(perSession).length, tool_calls: toolCalls, skills_invoked: skills, subagents_invoked: agents, delegace: { ...del, podil_editaci_hlavni: (del.editace_hlavni + del.editace_subagenti) ? +(del.editace_hlavni / (del.editace_hlavni + del.editace_subagenti)).toFixed(2) : null, poznamka: 'Kapitán na silném modelu má plánovat a kontrolovat; kód mají psát subagenti. Podíl editací v hlavním vlákně > 0,3 = nález EFF (drahý model píše kód).' }, per_session: perSession, note: 'Formát logu ověř na aktuální verzi Claude Code; pro přesná čísla /cost nebo ccusage. Normalizuj: tokeny / uzavřený issue.' };
+  const hasRecords = Object.keys(perSession).length > 0;
+  return { harness: 'claude', status: hasRecords ? 'measured' : 'unknown', coverage: { source: 'Claude Code session logs', candidate_project_dirs: cand.length, usage_records: hasRecords ? 'found' : 'not found' }, days,
+    project_dirs: cand.map((_, i) => `project-${i + 1}`), per_model: hasRecords ? perModel : null, sessions: hasRecords ? Object.keys(perSession).length : null,
+    tool_calls: hasRecords ? toolCalls : null, skills_invoked: hasRecords ? skills : null, subagents_invoked: hasRecords ? agents : null,
+    delegace: hasRecords ? { ...del, podil_editaci_hlavni: (del.editace_hlavni + del.editace_subagenti) ? +(del.editace_hlavni / (del.editace_hlavni + del.editace_subagenti)).toFixed(2) : null, poznamka: 'Kapitán na silném modelu má plánovat a kontrolovat; kód mají psát subagenti. Podíl editací v hlavním vlákně > 0,3 = nález EFF.' } : null,
+    per_session: hasRecords ? perSession : null, reason: hasRecords ? undefined : 'Pro přesný cílový projekt nebyl nalezen kompatibilní usage záznam; skutečná nulová spotřeba z toho neplyne.',
+    note: 'Záznamy jsou přiřazeny přesně cílovému projektu a jeho worktree složkám. Pro přesná čísla použij /cost nebo ccusage.' };
 }
 
 function churn() {
@@ -136,7 +140,7 @@ function churn() {
 }
 
 function modules() {
-  const files = walk(repo, p => /\.(ts|tsx|js|jsx|mjs|cjs|py|html|css)$/.test(p) && !/\.(min|d)\.(js|ts)$/.test(p));
+  const files = walk(repo, p => /\.(ts|tsx|js|jsx|mjs|cjs|py|html|css|c|cc|cpp|cxx|h|hh|hpp|hxx|bas|cls)$/i.test(p) && !/\.(min|d)\.(js|ts)$/i.test(p));
   const rows = [];
   for (const f of files) {
     const t = read(f) || ''; const lines = t.split('\n').length; const tk = tok(t);
@@ -151,7 +155,11 @@ function modules() {
   return { files_scanned: files.length, over_threshold: rows.length, red: rows.filter(r => r.verdict === '🔴').length, rows: rows.slice(0, 60), rule: 'Před přidáním featury do 🔴 souboru navrhnout rozdělení podle domény (samostatná položka).' };
 }
 
-const out = cmd === 'all' ? { context: context(), usage: usage(), churn: churn(), modules: modules() }
-  : ({ context, usage, churn, modules })[cmd]?.();
+const harnessIndex = rest.indexOf('--harness');
+const requestedHarness = harnessIndex >= 0 ? rest[harnessIndex + 1] : undefined;
+const out = cmd === 'all' ? { context: context(requestedHarness || 'all'), usage: usage(requestedHarness || 'all'), churn: churn(), modules: modules() }
+  : cmd === 'context' ? context(requestedHarness || 'claude')
+    : cmd === 'usage' ? usage(requestedHarness || 'claude')
+      : ({ churn, modules })[cmd]?.();
 if (!out) { console.error('neznámý příkaz'); process.exit(1); }
 console.log(JSON.stringify(out, null, 2));

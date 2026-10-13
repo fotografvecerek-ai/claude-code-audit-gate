@@ -30,6 +30,7 @@ const KOTVA = createRequire(import.meta.url)(path.join(pkg, 'kapitan-side', 'kot
 // A-029 K4: samotest nikdy nečeká na potvrzení vlastníka z konzole (/dev/tty, CONIN$) — dědí všechny procesy spuštěné níž (proměnná jen ZAKAZUJE schválení)
 process.env.AUDITOR_BEZ_TTY = '1';
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'auditor-selftest-')); const ws = path.join(tmp, 'x-audit'); const repo = path.join(tmp, 'x'); const wt = path.join(tmp, 'wt-a');
+let sharedRulesFixture = null;
 // A-006 kolo 2: guardTmp simuluje „os.tmpdir()" tak, jak ho uvidí SPUŠTĚNÝ hook (přes TMPDIR/TEMP/TMP v env níže) —
 // SOUROZENEC (ne rodič/potomek) tmp/ws/repo, aby zápisy do ws/repo v testech níže dál NEspadaly pod novou tmpdir-výjimku.
 const guardTmp = path.join(path.dirname(tmp), 'auditor-selftest-ostmp-' + path.basename(tmp).slice(-8));
@@ -52,6 +53,28 @@ const AG = path.join(pkg, '.claude/hooks/auditor-guard.js'), KG = path.join(repo
 const bash = (cwd, command) => ({ cwd, tool_name: 'Bash', tool_input: { command } }); const write = (cwd, file_path) => ({ cwd, tool_name: 'Write', tool_input: { file_path } });
 const _d = new Date(); const DNES = `${_d.getDate()}. ${_d.getMonth() + 1}. ${_d.getFullYear()} ${_d.getHours()}:${String(_d.getMinutes()).padStart(2, '0')}`; // gate se datem stárne (72 h) — test nesmí mít pevné datum
 const results = []; const T = (name, got, exp, nastroj) => results.push({ name, exp, got, ok: got === exp, nastroj });
+const runStandaloneRegression = (name, file) => {
+  const testPath = path.join(pkg, 'tools/tests', file);
+  const result = spawnSync(process.execPath, [testPath], { encoding: 'utf8', timeout: 120000 });
+  T(`Samostatná regrese: ${name}`, result.status, 0, testPath);
+  if (result.status !== 0) {
+    const reason = result.error?.message || `exit=${result.status}, signal=${result.signal || 'none'}`;
+    console.error(`FAIL ${name}: ${reason}\n${result.stdout || ''}${result.stderr || ''}`);
+  }
+};
+for (const [name, file] of [
+  ['profil projektu', 'project-profile.mjs'],
+  ['audit konfigurace', 'configuration-audit.mjs'],
+  ['kontext efektivity', 'efficiency-audit-context.mjs'],
+  ['katalog projektu', 'project-catalog.mjs'],
+  ['rezervace ID mostu', 'bus-id-reservation.mjs'],
+  ['klíče prototypu SSOT', 'ssot-scan-prototype-keys.mjs'],
+  ['minimální instalace', 'minimal-install.mjs'],
+  ['kompaktní role Kapitána', 'kapitan-role-compact.mjs'],
+  ['guard příkazů Vercel', 'deploy-command-guard.mjs'],
+  ['statistika pouze tokenů', 'audit-stats-contract.mjs'],
+  ['výchozí hranice kompakce', 'compact-window-default.mjs'],
+]) runStandaloneRegression(name, file);
 // nástroj, který auditor upravil a aktualizace nechala jeho verzi (vedle leží <nástroj>.new = verze balíku): selhání jeho testu neblokuje start —
 // pojistky jsou vždy verze balíku; test ukáže, že místní verze čeká na sloučení (úkol SLOUCIT v AUDIT/NOVE_CILE.md)
 const cekaNaSlouceni = n => !!n && fs.existsSync(path.join(pkg, 'tools', n + '.new'));
@@ -1284,7 +1307,7 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
   const run2 = () => spawnSync(process.execPath, [path.join(pkg, 'tools/kapitan-role.mjs'), ws, '--claude-md', kr], { encoding: 'utf8' }).status;
   run2(); run2(); const cm = fs.readFileSync(path.join(kr, 'CLAUDE.md'), 'utf8');
   T('ROLE: CLAUDE.md má blok role právě jednou a starý blok zmizel', (cm.match(/Tvoje role: Kapitán/g) || []).length === 1 && !cm.includes('## Audit režim') && cm.includes('## Jiné') ? 1 : 0, 1);
-  T('ROLE: Kapitán má pravidla cíl před proudem požadavků (kanban), mlčení není souhlas, kdy přestat, cesta zpět', /Cíl a plán mají přednost/.test(cm) && /KANBAN\.md/.test(cm) && /Kdo co dělá/.test(cm) && /nove-id/.test(cm) && /implementator/.test(cm) && /Mlčení není souhlas/.test(cm) && /Kdy přestat/.test(cm) && /Cesta zpět/.test(cm) ? 1 : 0, 1);
+  T('ROLE: Kapitán chrání cíl, kanban, souhlas a bezpečný stop', /Cíl a plán mají přednost/.test(cm) && /KANBAN\.md/.test(cm) && /Kdo co dělá/.test(cm) && /nove-id/.test(cm) && /Delegaci a model vybírej podle rozsahu/.test(cm) && /Mlčení není souhlas/.test(cm) && /Kdy přestat/.test(cm) && /cestu zpět/i.test(cm) ? 1 : 0, 1);
   T('ROLE: SessionStart hook říká agentovi, že je Kapitán', /Jsi KAPITÁN/.test(spawnSync(process.execPath, [path.join(pkg, 'tools/kapitan-role.mjs'), ws], { encoding: 'utf8' }).stdout) ? 1 : 0, 1); }
 
 // --- CODEX: stejné pojistky přes adaptér (apply_patch → soubory), pojistky/spouštěče z codex-setup, ověření otisků, most bez smyčky
@@ -1387,7 +1410,7 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
   fs.rmSync(path.join(ew, '.rezim.json')); fs.mkdirSync(path.join(ew, 'tools'), { recursive: true });
   spawnSync(process.execPath, [path.join(pkg, 'tools/write-launchers.mjs'), ew, path.join(tmp, 'eco')], { encoding: 'utf8' });
   const la = fs.readFileSync(path.join(ew, isWin ? 'start-auditor.cmd' : 'start-auditor.sh'), 'utf8'), lk = fs.readFileSync(path.join(ew, isWin ? 'start-kapitan.cmd' : 'start-kapitan.sh'), 'utf8');
-  T('ÚSPORA: spouštěče kompaktují kontext u ~200 tis. tokenů (ne u ~1 mil.), auditor má levné subagenty', `${/CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000/.test(la)}/${/CLAUDE_CODE_AUTO_COMPACT_WINDOW=200000/.test(lk)}/${/CLAUDE_CODE_SUBAGENT_MODEL=sonnet/.test(la)}`, 'true/true/true');
+  T('ÚSPORA: spouštěče kompaktují kontext u ~250 tis. tokenů (ne u ~1 mil.), auditor má levné subagenty', `${/CLAUDE_CODE_AUTO_COMPACT_WINDOW=250000/.test(la)}/${/CLAUDE_CODE_AUTO_COMPACT_WINDOW=250000/.test(lk)}/${/CLAUDE_CODE_SUBAGENT_MODEL=sonnet/.test(la)}`, 'true/true/true');
   T('ÚSPORA: Kapitán má levné pomocníky jako zálohu modelu a strop souběhu (auditor 5, Kapitán 3)', `${/CLAUDE_CODE_SUBAGENT_MODEL=sonnet/.test(lk)}/${(la.match(/MAX_CONCURRENT_SUBAGENTS=(\d+)/) || [])[1]}/${(lk.match(/MAX_CONCURRENT_SUBAGENTS=(\d+)/) || [])[1]}`, 'true/5/3');
   fs.writeFileSync(path.join(ew, '.rezim.json'), '{"soubeh":{"kapitan":2}}'); spawnSync(process.execPath, [path.join(pkg, 'tools/write-launchers.mjs'), ew, path.join(tmp, 'eco')], { encoding: 'utf8' });
   T('ÚSPORA: strop souběhu nastaví vlastník v .rezim.json', (fs.readFileSync(path.join(ew, isWin ? 'start-kapitan.cmd' : 'start-kapitan.sh'), 'utf8').match(/MAX_CONCURRENT_SUBAGENTS=(\d+)/) || [])[1], '2'); fs.rmSync(path.join(ew, '.rezim.json'));
@@ -1623,13 +1646,15 @@ T('NP: pořádek v celém repu (CI kontrola)', spawnSync(process.execPath, [path
 { // PATCH-DEPLOY: brána v PowerShellu za hlavičkou (param), jen ASCII; SDÍLENÁ PRAVIDLA: nalezena, agent je nepřesune
   const pr = path.join(tmp, 'pd-app'), pw = path.join(tmp, 'pd-app-audit'); fs.mkdirSync(path.join(pw, 'kapitan-side'), { recursive: true }); fs.mkdirSync(pr, { recursive: true });
   fs.writeFileSync(path.join(pr, 'deploy_x.ps1'), '#requires -Version 5.1\n<#\n.SYNOPSIS\n  x\n#>\n[CmdletBinding()]\nparam(\n  [string]$E = "prod"\n)\nvercel --prod\n');
-  spawnSync(process.execPath, [path.join(pkg, 'tools', 'patch-deploy.mjs'), pr, pw], { encoding: 'utf8' });
+  spawnSync(process.execPath, [path.join(pkg, 'tools', 'patch-deploy.mjs'), pr, pw, '--file', 'deploy_x.ps1'], { encoding: 'utf8' });
   const pl = fs.readFileSync(path.join(pr, 'deploy_x.ps1'), 'utf8').split('\n'); const gi = pl.findIndex(l => /auditor-gate/.test(l)), pi = pl.findIndex(l => /^\)/.test(l));
   T('PATCH-DEPLOY: brána v .ps1 až za blokem param() a jen ASCII', `${gi > pi}/${/^[\x00-\x7f]*$/.test(pl[gi] || 'x') || /[^\x00-\x7f]/.test(pw)}`, 'true/true');
-  const sh = path.join(tmp, 'sp-home'), sd = path.join(tmp, 'sp-disk', 'proj'); fs.mkdirSync(path.join(sh, '.claude', 'rules'), { recursive: true }); fs.mkdirSync(sd, { recursive: true });
-  fs.writeFileSync(path.join(sh, '.claude', 'rules', 'crm-only.md'), '# jen pro CRM\n'); fs.writeFileSync(path.join(tmp, 'sp-disk', 'CLAUDE.md'), '# pravidla pro cely disk\n');
+  const sh = path.join(tmp, 'sp-home'), sdRoot = sharedRulesFixture = fs.mkdtempSync(path.join(path.dirname(path.resolve(pkg, '..')), 'auditor-shared-rules-')), sd = path.join(sdRoot, 'proj'); fs.mkdirSync(path.join(sh, '.claude', 'rules'), { recursive: true }); fs.mkdirSync(sd, { recursive: true });
+  fs.writeFileSync(path.join(sh, '.claude', 'rules', 'crm-only.md'), '# jen pro CRM\n'); fs.writeFileSync(path.join(sdRoot, 'CLAUDE.md'), '# pravidla pro cely disk\n');
   const spe = { ...process.env, HOME: sh, USERPROFILE: sh }; let sj = {}; try { sj = JSON.parse(spawnSync(process.execPath, [path.join(pkg, 'tools', 'sdilena-pravidla.mjs'), 'seznam', '--repo', sd, '--json'], { encoding: 'utf8', env: spe }).stdout); } catch { }
-  T('SDÍLENÁ PRAVIDLA: najde uživatelské pravidlo i CLAUDE.md nadřazené složky', (sj.soubory || []).map(s => path.basename(s.file)).sort().join(','), 'CLAUDE.md,crm-only.md');
+  const foundSharedFiles = new Set((sj.soubory || []).map(s => path.resolve(s.file)));
+  const expectedSharedFiles = [path.join(sh, '.claude', 'rules', 'crm-only.md'), path.join(sdRoot, 'CLAUDE.md')].map(file => path.resolve(file));
+  T('SDÍLENÁ PRAVIDLA: najde konkrétní uživatelské pravidlo i CLAUDE.md nadřazené složky', expectedSharedFiles.map(file => foundSharedFiles.has(file)).join(','), 'true,true');
   spawnSync(process.execPath, [path.join(pkg, 'tools', 'sdilena-pravidla.mjs'), 'pruvodce', '--repo', sd], { encoding: 'utf8', env: spe, input: '1\n1\n' });
   { const cp = path.join(tmp, 'sp-cizi'); fs.mkdirSync(path.join(cp, '.git'), { recursive: true }); fs.mkdirSync(path.join(cp, 'hooks'), { recursive: true }); fs.writeFileSync(path.join(cp, 'hooks', 'g.py'), 'x');
     fs.writeFileSync(path.join(sh, '.claude', 'settings.json'), JSON.stringify({ hooks: { PreToolUse: [{ matcher: 'Bash', hooks: [{ type: 'command', command: `python "${path.join(cp, 'hooks', 'g.py')}"` }] }] } }));
@@ -1650,6 +1675,7 @@ if (fs.existsSync(path.join(pkg, 'katalog', 'katalog.json'))) {
   const katEnv = { ...process.env, HOME: katHome, USERPROFILE: katHome, XDG_CONFIG_HOME: path.join(katHome, '.config'), XDG_CACHE_HOME: path.join(katHome, '.cache'), LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', TMPDIR: katHome, TEMP: katHome, TMP: katHome };
   const kat = (...a) => spawnSync(process.execPath, [KT, ...a], { encoding: 'utf8', env: katEnv });
   const kp = path.join(tmp, 'kat-projekt'); fs.mkdirSync(kp, { recursive: true }); git('init -q', kp); fs.writeFileSync(path.join(kp, 'package.json'), '{"devDependencies":{"typescript":"5"}}'); fs.writeFileSync(path.join(kp, 'tsconfig.json'), '{}');
+  fs.mkdirSync(path.join(kp, 'src'), { recursive: true }); fs.writeFileSync(path.join(kp, 'src', 'app.ts'), 'export const answer: number = 42;\n');
   const d = JSON.parse(kat('doporuc', '--cil', kp, '--json', '--nezapisovat').stdout || '{}'); const ano = (d.ano || []).map(x => x.id), ne = (d.ne || []).map(x => x.id);
   T('KATALOG: doporučení podle projektu (TS → typescript-reviewer, bez Pythonu → python-reviewer ne)', `${ano.includes('typescript-reviewer')},${ne.includes('python-reviewer')},${d.holy}`, 'true,true,true');
   T('KATALOG: --nezapisovat nic nezaloží', fs.existsSync(path.join(kp, '.claude')), false);
@@ -1661,15 +1687,18 @@ if (fs.existsSync(path.join(pkg, 'katalog', 'katalog.json'))) {
   T('KATALOG hook: commit zpráva s „git reset --hard" a stash list projdou', [kh('sdileny-strom.mjs', bash(kp, 'git commit -m "docs: nepoužívat git reset --hard" -- a.md')), kh('sdileny-strom.mjs', bash(kp, 'git stash list'))].join(','), '0,0');
   fs.writeFileSync(path.join(kp, 'zly.mjs'), 'export const = ;'); fs.writeFileSync(path.join(kp, 'dobry.mjs'), 'export const a = 1;');
   T('KATALOG hook: kontrola syntaxe po zápisu (chyba → 2, OK → 0)', [kh('kontrola-skriptu.mjs', { cwd: kp, tool_name: 'Write', tool_input: { file_path: path.join(kp, 'zly.mjs') } }), kh('kontrola-skriptu.mjs', { cwd: kp, tool_name: 'Write', tool_input: { file_path: path.join(kp, 'dobry.mjs') } })].join(','), '2,0');
-  const kpa = path.join(kp, '.claude/agents/code-reviewer.md'); fs.appendFileSync(kpa, '\n<!-- úprava projektu -->\n'); kat('obnov', '--cil', kp);
-  T('KATALOG: obnov nepřepíše ručně upravený soubor', /úprava projektu/.test(fs.readFileSync(kpa, 'utf8')), true);
+  const kpEdit = path.join(tmp, 'kat-manual-edit'); fs.mkdirSync(kpEdit, { recursive: true }); fs.writeFileSync(path.join(kpEdit, 'package.json'), '{"devDependencies":{"typescript":"5"}}'); fs.writeFileSync(path.join(kpEdit, 'src.ts'), 'export const answer: number = 42;\n');
+  kat('aktivuj', 'code-reviewer', '--cil', kpEdit); const kpaEdit = path.join(kpEdit, '.claude/agents/code-reviewer.md'); fs.appendFileSync(kpaEdit, '\n<!-- úprava projektu -->\n'); kat('obnov', '--cil', kpEdit);
+  T('KATALOG: obnov nepřepíše ručně upravený soubor', /úprava projektu/.test(fs.readFileSync(kpaEdit, 'utf8')), true);
+  const kpa = path.join(kp, '.claude/agents/code-reviewer.md');
   T('KATALOG: deaktivace beze zbytků (soubory, blok v CLAUDE.md, hook v settings, prázdné složky)', (kat('deaktivuj', 'code-reviewer', 'pravidla', 'sdileny-strom', 'stav-kompakce', 'kontrola-skriptu', '--cil', kp), [fs.existsSync(kpa), /katalog:pravidla/.test(rdS(path.join(kp, 'CLAUDE.md'))), rdS(path.join(kp, '.claude/settings.json')).includes('katalog/'), fs.existsSync(path.join(kp, '.claude/agents')), fs.existsSync(path.join(kp, '.claude/hooks'))].join(',')), 'false,false,false,false,false');
   const kc = path.join(tmp, 'kat-codex'); fs.mkdirSync(path.join(kc, '.codex'), { recursive: true }); fs.writeFileSync(path.join(kc, 'app.py'), 'print(1)\n');
   kat('aktivuj', 'python-reviewer', 'uzavrena-smycka', 'pravidla', '--cil', kc); const toml = fs.existsSync(path.join(kc, '.codex/agents/python-reviewer.toml')) ? fs.readFileSync(path.join(kc, '.codex/agents/python-reviewer.toml'), 'utf8') : '';
   T('KATALOG Codex: agent jako TOML, skill v .agents/skills, pravidla v AGENTS.md', [/^name = "python-reviewer"/m.test(toml) && /developer_instructions = /.test(toml) && /sandbox_mode = "read-only"/.test(toml), fs.existsSync(path.join(kc, '.agents/skills/uzavrena-smycka/SKILL.md')), /katalog:pravidla/.test(fs.existsSync(path.join(kc, 'AGENTS.md')) ? fs.readFileSync(path.join(kc, 'AGENTS.md'), 'utf8') : '')].join(','), 'true,true,true');
   // A-021 kolo 2: test — katalog s CRLF konci (Windows autocrlf=true) — volá skutečný katalog.mjs, ne lokální kopii funkcí
   {
-    const ka_crlftest = path.join(tmp, 'ka-crlftest'); fs.mkdirSync(ka_crlftest, { recursive: true });
+    const ka_crlfPath = path.join(tmp, 'ka-crlftest'); fs.mkdirSync(ka_crlfPath, { recursive: true });
+    const ka_crlftest = fs.realpathSync(ka_crlfPath);
 
     // Rekurzivní kopírování katalog/ se CRLF konverzí .md souborů
     function cpWithCrlf(src, dest) {
@@ -1690,6 +1719,7 @@ if (fs.existsSync(path.join(pkg, 'katalog', 'katalog.json'))) {
     // Zkopíruj katalog.mjs do temp (bude hledat ../katalog → <temp>/katalog ✓)
     fs.mkdirSync(path.join(ka_crlftest, 'tools'), { recursive: true });
     fs.copyFileSync(path.join(pkg, 'tools', 'katalog.mjs'), path.join(ka_crlftest, 'tools', 'katalog.mjs'));
+    fs.copyFileSync(path.join(pkg, 'tools', 'project-profile.mjs'), path.join(ka_crlftest, 'tools', 'project-profile.mjs'));
 
     // Cílový projekt s .codex
     const ka_target = path.join(ka_crlftest, 'target');
@@ -1700,7 +1730,8 @@ if (fs.existsSync(path.join(pkg, 'katalog', 'katalog.json'))) {
     const katEnv = { ...process.env, HOME: ka_crlftest, USERPROFILE: ka_crlftest, XDG_CONFIG_HOME: path.join(ka_crlftest, '.config'), XDG_CACHE_HOME: path.join(ka_crlftest, '.cache'), LANG: 'C.UTF-8', LC_ALL: 'C.UTF-8', TMPDIR: ka_crlftest, TEMP: ka_crlftest, TMP: ka_crlftest };
     const kat_crlftest = (...args) => spawnSync(process.execPath, [path.join(ka_crlftest, 'tools', 'katalog.mjs'), ...args], { encoding: 'utf8', env: katEnv });
 
-    kat_crlftest('aktivuj', 'python-reviewer', '--cil', ka_target);
+    const activation = kat_crlftest('aktivuj', 'python-reviewer', '--cil', ka_target, '--harness', 'codex');
+    if (activation.error || activation.status !== 0) throw new Error(`KATALOG Codex CRLF aktivace selhala: ${activation.error?.message || activation.stderr || activation.stdout}`);
     const toml = fs.existsSync(path.join(ka_target, '.codex/agents/python-reviewer.toml')) ? fs.readFileSync(path.join(ka_target, '.codex/agents/python-reviewer.toml'), 'utf8') : '';
 
     T('KATALOG Codex: agent s CRLF (.md ze Windows autocrlf=true) — name není undefined', [/^name = "python-reviewer"/m.test(toml), !/name = undefined/.test(toml), /developer_instructions = /.test(toml)].join(','), 'true,true,true');
@@ -1974,5 +2005,5 @@ const slouc = results.filter(r => !r.ok && cekaNaSlouceni(r.nastroj)); const fai
 for (const r of results) console.log(`${r.ok ? 'PASS' : slouc.includes(r) ? 'SLOUČIT' : 'FAIL'}  ${r.name}${r.ok ? '' : `  (očekáváno ${r.exp}, bylo ${r.got})${slouc.includes(r) ? ` — běží tvoje upravená tools/${r.nastroj}, verze balíku čeká v tools/${r.nastroj}.new (úkol SLOUCIT v AUDIT/NOVE_CILE.md); pojistky to neovlivňuje` : ''}`}`);
 if (slouc.length) console.log(`\n${slouc.length} test(y) čeká na sloučení upraveného nástroje s verzí balíku — neblokuje start, auditor to vyřeší podle NOVE_CILE.md`);
 console.log(`\n${results.length - fails.length - slouc.length}/${results.length} PASS${slouc.length ? ` (+${slouc.length} čeká na sloučení)` : ''}${isWin ? '  (Windows)' : ''}`);
-try { git('worktree remove --force ../wt-a'); } catch { } fs.rmSync(tmp, { recursive: true, force: true });
+try { git('worktree remove --force ../wt-a'); } catch { } if (sharedRulesFixture) fs.rmSync(sharedRulesFixture, { recursive: true, force: true }); fs.rmSync(tmp, { recursive: true, force: true });
 process.exit(fails.length ? 1 : 0);

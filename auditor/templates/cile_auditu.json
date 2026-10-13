@@ -4,8 +4,8 @@
     {
       "id": "C-120-ZPRAVA",
       "od_verze": "1.2.0",
-      "cil": "Zpráva pro vlastníka v HTML s formulářem otázek",
-      "postup": "Z hotových nálezů a verdiktů sestav AUDIT/ZPRAVA.md podle templates/zprava_pro_vlastnika.md (u každého nálezu doporučení, u každé otázky doporučená odpověď) a spusť node tools/owner-report.mjs --open. Nic znovu netestuj — jen shrň, co už víš.",
+      "cil": "Vlastníkem čitelná zpráva auditu s doloženými závěry a otázkami",
+      "postup": "Auditor je autorem AUDIT/ZPRAVA.md, otázek a hotových položek kanbanu. Přečti celý vyrenderovaný report a svou sebereflexi. V příštím auditu ověř účinek konkrétních otevřených změn v jejich relevantním rozsahu; celý audit neopakuj bez konkrétního signálu nebo požadavku. HTML vytvoř pouze rendererem owner-report.mjs, který obsah zprávy neposuzuje ani nedoplňuje.",
       "hotovo_kdyz": [
         "AUDIT/ZPRAVA.html"
       ],
@@ -14,8 +14,8 @@
     {
       "id": "C-120-STATISTIKA",
       "od_verze": "1.2.0",
-      "cil": "Statistika auditu (řádky kódu, obrazovky, nálezy, čas, přesné tokeny)",
-      "postup": "node tools/audit-stats.mjs --open → AUDIT/STATISTIKA.html; odkaz do ZPRAVA.md (sekce Průběh).",
+      "cil": "Statistika spotřeby tokenů s uvedením zdroje, pokrytí a rozpisu modelů",
+      "postup": "node tools/audit-stats.mjs --open vytvoří mechanický přehled dostupných tokenových záznamů a jejich pokrytí. Chybějící telemetrie zůstává neznámá, ne nula. Počty nálezů, dokončených úkolů, čas a otázky zapisuje auditor do ZPRAVA.md podle vlastního ověření; skript je neodvozuje.",
       "hotovo_kdyz": [
         "AUDIT/STATISTIKA.html",
         "AUDIT/statistika.json"
@@ -81,6 +81,16 @@
       "hotovo_kdyz": [
         "AUDIT/.c181-hotovo"
       ]
+    },
+    {
+      "id": "C-1810-REPORT-REFLEXE",
+      "od_verze": "1.8.10",
+      "cil": "Auditor vytvoří vlastní zprávu a reflexi, z nichž vznikne konkrétní navazující ověření",
+      "postup": "Auditor sám píše otázky, závěry a hotové položky KANBAN; statistický skript pouze spotřebu tokenů. Přečti celý vyrenderovaný AUDIT/ZPRAVA.html i vlastní AUDIT/SEBEREFLEXE.md. Po tomto přečtení vytvoř ACK s jednou konkrétní otevřenou změnou nebo ověřovacím kritériem pro další audit. V dalším auditu ověř účinek této změny v relevantním rozsahu a postup rozšiř jen podle konkrétních signálů; celý audit neopakuj bez důvodu. ACK dokládá aktuální přečtení a navazující kritérium, ne dokončení budoucího auditu; renderer ani instalátor jej nesmí vytvářet.",
+      "hotovo_kdyz": [
+        "AUDIT/.c1810-report-reflexe-ACK.md"
+      ],
+      "naklady": "součást každého auditu; opakované ověření je povinné"
     }
   ]
 }

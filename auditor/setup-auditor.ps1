@@ -60,7 +60,6 @@ if (-not (Test-Path .git)) { git init -q 2>$null; git config core.autocrlf false
 node (Join-Path $ws 'tools/prisnost.mjs') --ws $ws potvrd --instalator; $global:LASTEXITCODE = 0
 if ($remote) { git remote remove origin 2>$null; git remote add origin $remote; Write-Host "Remote nastaven: $remote (první push udělej ručně: git push -u origin main)" }
 # 4) nástroje
-Push-Location tools; try { npm install --no-audit --no-fund | Out-Null } catch { Write-Host "VAROVÁNÍ: npm install selhal - spusť ručně v $ws\tools" -ForegroundColor Yellow }; try { npx playwright install chromium | Out-Null } catch { Write-Host "VAROVÁNÍ: stažení Chromia selhalo - spusť ručně: npx playwright install chromium" -ForegroundColor Yellow }; Pop-Location
 Pop-Location
 
 # 5) strana Kapitána
@@ -68,7 +67,7 @@ $k = if ($Yes) { $Kapitan } else { AskYN "Nainstalovat do repa stranu Kapitána 
 $h = 'ne'   # A-008 kolo 2: hygiena se nabízí jen uvnitř větve Kapitána níž; bez Kapitána marker musí hlásit "ne", ne zůstat prázdný
 if ($k -eq 'ano') {
   $sk = Join-Path $repo '.claude/skills/audit-rezim'; New-Item -ItemType Directory -Force -Path $sk | Out-Null
-  $body = Get-Content (Join-Path $pkg 'kapitan-side/AUDIT_REZIM.md') -Raw
+  $body = Get-Content (Join-Path $pkg 'kapitan-side/AUDIT_REZIM.md') -Raw -Encoding UTF8
   "---`nname: audit-rezim`ndescription: Závazný audit režim - stop-the-line při otevřených P0/P1 v AUDIT/02_HANDOFF.md, důkazy do AUDIT/03_dukazy, bus komunikace s auditorem, deploy jen po gate-check. Použij při startu každé dávky.`n---`n$body" | Set-Content (Join-Path $sk 'SKILL.md') -Encoding UTF8
   $hk = Join-Path $repo '.claude/hooks'; New-Item -ItemType Directory -Force -Path $hk | Out-Null
   Copy-Item (Join-Path $pkg 'kapitan-side/gate-check.mjs') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/auditor-bus.mjs') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/kapitan-audit-guard.js') $hk -Force; Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/hooks-package.json') (Join-Path $hk 'package.json') -Force
@@ -86,7 +85,7 @@ if ($k -eq 'ano') {
     node (Join-Path $ws 'tools/install-pre-commit-hook.mjs') $repo (Join-Path $pkg 'kapitan-side/hygiene/pre-commit-guard.sh') 'pre-commit'
     if ($LASTEXITCODE -ne 0) { throw "Instalace pre-commit hooku selhala (exit $LASTEXITCODE)" }
     if (-not (Test-Path (Join-Path $repo '.gitattributes'))) { Copy-Item (Join-Path $pkg 'kapitan-side/hygiene/gitattributes.template') (Join-Path $repo '.gitattributes') }
-    $gi = Join-Path $repo '.gitignore'; if (-not (Test-Path $gi) -or -not (Select-String -Path $gi -Pattern 'hygiena \(auditor\)' -Quiet)) { Get-Content (Join-Path $pkg 'kapitan-side/hygiene/gitignore.addendum') | Add-Content $gi -Encoding UTF8 }
+    $gi = Join-Path $repo '.gitignore'; if (-not (Test-Path $gi) -or -not (Select-String -Path $gi -Pattern 'hygiena \(auditor\)' -Quiet -Encoding UTF8)) { Get-Content (Join-Path $pkg 'kapitan-side/hygiene/gitignore.addendum') -Encoding UTF8 | Add-Content $gi -Encoding UTF8 }
     Write-Host "Hygiena nainstalována (pre-commit + pre-push guard běží přes Git Bash, který Git for Windows používá pro hooky)."
   }
   $c = if ($Yes) { $CI } else { AskYN "Nainstalovat GitHub Actions workflow auditor-gate (CI brána mimo agenta; vyžaduje chráněnou main + secrets)?" "ano" }
@@ -104,6 +103,7 @@ $log = Join-Path $ws 'AUDIT\instalace.log'; $notes = @()
 if (-not (Get-Command gitleaks -ErrorAction SilentlyContinue)) { $notes += "gitleaks chybí (sken tajemství se přeskočí; instalace: winget install gitleaks)" }
 if (-not (Get-Command semgrep -ErrorAction SilentlyContinue)) { $notes += "semgrep chybí (bezpečnostní vzory se přeskočí; instalace: pip install semgrep)" }
 $notes += "hook Kapitána spouští gate-check při git push do main/master/production (env PROD_BRANCHES)"
+$notes += "UI/a11y testy jsou volitelné: Playwright/axe instaluj až při jejich použití v tools (npm install); Chromium podle potřeby přes npx playwright install chromium. Setup nic nestahuje."
 Add-Content $log (("[{0}] setup {1}" -f (Get-Date -Format s), $name) + "`n" + (($notes | ForEach-Object { "  - $_" }) -join "`n")) -Encoding UTF8
 if (-not $Yes) { $notes | ForEach-Object { Write-Host "POZN.: $_" -ForegroundColor Yellow } } else { Write-Host "Poznámky pro auditora (chybějící volitelné nástroje apod.): AUDIT\instalace.log" }
 
