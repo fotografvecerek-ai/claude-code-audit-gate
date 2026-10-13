@@ -232,5 +232,3 @@ for (const reason of skipped) process.stdout.write(`SKIP ${reason}\n`);
 if (failures.length) { const evidence = path.resolve(toolsDir, '..', '..', '.tmp', 'tasks', 'K-005'); fs.mkdirSync(evidence, { recursive: true }); fs.writeFileSync(path.join(evidence, 'project-catalog-red.log'), `${failures.join('\n')}\n${passed}/${total} PASS; ${skipped.length} SKIP\n`, 'utf8'); }
 fs.rmSync(root, { recursive: true, force: true });
 if (failures.length) process.exitCode = 1;
-
-
